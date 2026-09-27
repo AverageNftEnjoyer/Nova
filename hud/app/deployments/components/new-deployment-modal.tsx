@@ -40,6 +40,8 @@ export interface NewDeploymentModalProps {
   onOpenDeployments?: () => void
   onOpenGuidedBuilder: () => void
   onViewAutomations: () => void
+  /** Extra classes on the popup root; Home passes its pixel skin (`pixel-ui`). */
+  className?: string
 }
 
 /**
@@ -55,6 +57,7 @@ export function NewDeploymentModal({
   onOpenDeployments,
   onOpenGuidedBuilder,
   onViewAutomations,
+  className,
 }: NewDeploymentModalProps) {
   const [tab, setTab] = useState<NewDeploymentTab>(initialTab)
   const [status, setStatus] = useState("")
@@ -116,7 +119,7 @@ export function NewDeploymentModal({
   const dividerClass = isLight ? "border-[#e2e8f2]" : "border-white/10"
 
   return createPortal(
-    <div style={panelStyle} className="fixed inset-0 z-[125] flex items-center justify-center p-3 sm:p-6" onKeyDown={handleKeyDown}>
+    <div style={panelStyle} className={cn("fixed inset-0 z-[125] flex items-center justify-center p-3 sm:p-6", className)} onKeyDown={handleKeyDown}>
       <button
         type="button"
         tabIndex={-1}

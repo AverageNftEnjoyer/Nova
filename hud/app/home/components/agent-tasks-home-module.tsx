@@ -6,7 +6,7 @@ import { useCallback, type CSSProperties } from "react"
 import { TaskList } from "@/components/agents/task-list"
 import type { AgentTaskUiAction } from "@/lib/agents/types"
 import { cn } from "@/lib/shared/utils"
-import { useAgentTasks } from "../hooks/use-agent-tasks"
+import type { AgentTasksState } from "../hooks/use-agent-tasks"
 
 interface AgentTasksHomeModuleProps {
   isLight: boolean
@@ -18,6 +18,8 @@ interface AgentTasksHomeModuleProps {
   onCreateDeployment: () => void
   /** Warms the New deployment popup's code on hover/focus so the click opens it instantly. */
   onPrefetchDeployment?: () => void
+  /** Owned by Home, which also feeds the task tower in the city; one subscription, one set of notifications. */
+  agentTasks: AgentTasksState
 }
 
 function formatCostToday(cost: number): string {
@@ -34,8 +36,9 @@ export function AgentTasksHomeModule({
   onOpenMissions,
   onCreateDeployment,
   onPrefetchDeployment,
+  agentTasks,
 }: AgentTasksHomeModuleProps) {
-  const { tasks, stats, loading, error, connection, runAction, raiseBudget } = useAgentTasks()
+  const { tasks, stats, loading, error, connection, runAction, raiseBudget } = agentTasks
 
   const handleAction = useCallback(
     async (taskId: string, action: AgentTaskUiAction) => {

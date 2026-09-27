@@ -53,8 +53,13 @@ export interface NotificationSettings {
   nlpEditHintsEnabled: boolean
 }
 
+/** Which pixel-city view Home shows: the rooftop harbour or the walkable isometric district. */
+export type HomeScene = "harbour" | "district"
+export const HOME_SCENES: readonly HomeScene[] = ["harbour", "district"]
+
 export interface AppSettings {
   theme: "dark" | "light" | "system"
+  homeScene: HomeScene
   accentColor: AccentColor
   orbColor: OrbColor
   spotlightColor: SpotlightColor
@@ -107,6 +112,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   },
   app: {
     theme: "dark",
+    homeScene: "district",
     accentColor: "white",
     orbColor: "white",
     spotlightColor: "white",
@@ -199,6 +205,7 @@ function normalizeAppSettings(input: AppSettings): AppSettings {
     background,
     darkModeBackground: normalizeDarkBackground(app.darkModeBackground, background),
     lightModeBackground: normalizeLightBackground(),
+    homeScene: HOME_SCENES.includes(app.homeScene) ? app.homeScene : "district",
   })
 }
 

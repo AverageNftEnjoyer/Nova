@@ -10,6 +10,13 @@
  *
  * Version History:
  *
+ * - V.80 Alpha (2026-09-26): The District, a second Home view
+ *     - Home has two pixel-city views, switched with the Harbour / District chip in the HUD bar and saved to `app.homeScene` (SQLite-mirrored user settings; default Harbour). Both share the `CitySceneRenderer` interface and the same popups (`hud/components/pixel-city/`).
+ *     - The District is a walkable 2:1 isometric Hi-Bit city on a 14x14 tile island (`district/`): glass towers with living walls and rooftop gardens, pastel shophouses, a Supertree grove in the park, an offshore elevated MRT with a running train and station, Marina-Bay-style waterfront promenade, and the NovaAIO Hub tower at the centre. Night and day palettes follow the app theme; the map, the buildings, the props and the ground are baked to sprites once and only what moves is drawn each frame (20 fps, paused while hidden).
+ *     - Every Home place is a building that opens its existing popup: Nova Hub (Agent tasks), Bus Depot (New deployment), Post Office with a working clock (Schedule), Bank with a live crypto ticker, Odds Parlour (Polymarket), Cinema (YouTube), Power Plant with a live cost meter (Analytics), Library with a notice board of notes, Signal Tower with one LED per integration, and the Park where Nova the cat sits (Chat). A Model Lab stands for the LLM providers. Places whose integration is not connected are dark with a CLOSED sign. Hotspot markers sit on the roofs and hit rects are each building's inscribed core, so a front building no longer steals clicks from the one behind it.
+ *     - Agents: each agent task is a character that leaves the Hub and pathfinds along the road grid to the workplace matching its last tool calls (Gmail/Calendar -> Post Office, Telegram/Discord/Slack -> Signal Tower, Coinbase/Phantom -> Bank, Polymarket -> Odds Parlour, Spotify/YouTube -> Cinema, web search/fetch -> Library, else Model Lab). Queued agents wait at the Hub, paused ones show "!", failed ones walk home under a red X, completed ones walk home and leave; glowing data trails run from the Hub to busy workplaces and the Hub's task floors light per task. Hover shows the task name and status; click opens Agent tasks. Townsfolk wander per active chat, each active deployment run is a bus on the loop, and nothing is shown that is not real data.
+ *     - Fits 1024x768 to 4K with an integer pixel scale, no page scrollbar, and nothing clickable under the HUD bar or the player bar. Home smoke tests scope their selectors to the popup (the city's hover tags also say "Agent tasks" / "today") and allow the dev server's lazy-chunk compile when opening New deployment.
+ *
  * - V.79 Alpha (2026-09-26): Deployment popup and Home polish
  *     - New deployment is a popup, not a page: Home's Agent Tasks "+" (and the /deployments buttons and `?mode=` / `&kind=` deep links) opens a Settings-style dialog over the current page with Describe it (Simple manager), One-off task and Automation (builder/canvas). It loads on demand, preloads on hover, reuses the page's Nova connection, and the ReactFlow canvas is its own chunk.
  *     - Fixed the light bar that flashed down the right edge when opening Deployments: /deployments was the only route whose document scrolled, so the native scrollbar appeared. The page is now a fixed full-height shell like Home, and `color-scheme` follows the theme so native scrollbars and select popups are dark in dark mode.
@@ -522,7 +529,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.79 Alpha"
+export const NOVA_VERSION = "V.80 Alpha"
 
 
 

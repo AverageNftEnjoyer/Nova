@@ -1,7 +1,7 @@
 "use client"
 
 import { cn } from "@/lib/shared/utils"
-import { useHomeAnalyticsSummary, type HomeAnalyticsSummary } from "../hooks/use-home-analytics-summary"
+import type { HomeAnalyticsSummary, HomeAnalyticsSummaryState } from "../hooks/use-home-analytics-summary"
 
 interface AnalyticsHomeModuleProps {
   isLight: boolean
@@ -12,6 +12,8 @@ interface AnalyticsHomeModuleProps {
   onOpenBudgets: () => void
   /** Opens runtime traces and diagnostics from the Analytics panel. */
   onOpenDevLogs: () => void
+  /** Owned by Home, which also shows today's spend on the city's water-tank meter. */
+  summaryState: HomeAnalyticsSummaryState
 }
 
 const PLACEHOLDER = "—"
@@ -56,8 +58,9 @@ export function AnalyticsHomeModule({
   onOpenAnalytics,
   onOpenBudgets,
   onOpenDevLogs,
+  summaryState,
 }: AnalyticsHomeModuleProps) {
-  const { summary, loading, error } = useHomeAnalyticsSummary()
+  const { summary, loading, error } = summaryState
   const pending = !summary
 
   const labelClass = cn(

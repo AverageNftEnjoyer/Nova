@@ -1,12 +1,9 @@
 "use client"
 
-import { useEffect, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import type { Conversation } from "@/lib/chat/conversations"
-import { Blocks, Settings, CloudSun, X, TrendingUp, BarChart2, History, FolderOpen, FolderArchive, Plus, ChevronDown, ChevronRight, MoreHorizontal, Pencil, Archive, Trash2 } from "lucide-react"
-import { ScheduleBriefing } from "./schedule-briefing"
-import { WindowControls } from "@/components/window/window-controls"
+import { Anchor, Building2, CloudSun, ExternalLink, Moon, Settings, Sun, SunMoon } from "lucide-react"
 import {
   BraveIcon,
   ClaudeIcon,
@@ -24,946 +21,452 @@ import {
   YouTubeIcon,
   XAIIcon,
 } from "@/components/icons"
-import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
+import { DISTRICT_PLACES, PixelCityScene, type CityHotspot, type CityHotspotId, type CityIntegration, type CityPlaceId, type CitySafeArea } from "@/components/pixel-city"
 import { SettingsModal } from "@/components/settings/settings-modal"
-import type { IntegrationSetupKey } from "@/lib/integrations/navigation"
-import { cn } from "@/lib/shared/utils"
-import { NOVA_VERSION } from "@/lib/meta/version"
-import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
-import { usePageActive } from "@/lib/hooks/use-page-active"
-import { getNovaPresence } from "@/lib/chat/nova-presence"
-import { hexToRgba } from "../helpers"
-import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
-import { SpotifyHomeModule } from "./spotify-home-module"
-import { YouTubeHomeModule } from "./youtube-home-module"
-import { PolymarketLiveLinesModule } from "./polymarket-live-lines-module"
-import { AgentTasksHomeModule } from "./agent-tasks-home-module"
-import { NotesHomeModule } from "./notes-home-module"
-import { AnalyticsHomeModule } from "./analytics-home-module"
+import { WindowControls } from "@/components/window/window-controls"
+import { isRunActive, useDeploymentsData } from "@/app/deployments/hooks/use-deployments-data"
 import { LazyNewDeploymentModal, preloadNewDeploymentModal } from "@/app/deployments/components/new-deployment-modal-lazy"
+import { useTheme } from "@/lib/context/theme-context"
+import { getNovaPresence } from "@/lib/chat/nova-presence"
+import { usePageActive } from "@/lib/hooks/use-page-active"
+import { NOVA_VERSION } from "@/lib/meta/version"
+import { loadUserSettings, updateAppSettings, USER_SETTINGS_UPDATED_EVENT, type HomeScene } from "@/lib/settings/userSettings"
+import { cn } from "@/lib/shared/utils"
+import { useAgentTasks } from "../hooks/use-agent-tasks"
+import { useCitySceneState } from "../hooks/use-city-scene-state"
+import { useHomeAnalyticsSummary } from "../hooks/use-home-analytics-summary"
+import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
+import { useHomeNotes } from "../hooks/use-home-notes"
+import { AgentTasksHomeModule } from "./agent-tasks-home-module"
+import { AnalyticsHomeModule } from "./analytics-home-module"
+import { ChatHistoryModule } from "./chat-history-module"
+import { CryptoPricesModule, formatUsdCompact } from "./crypto-prices-module"
+import { IntegrationsGridModule, type IntegrationNode } from "./integrations-grid-module"
+import { NotesHomeModule } from "./notes-home-module"
+import { PolymarketLiveLinesModule } from "./polymarket-live-lines-module"
+import { ScheduleBriefing } from "./schedule-briefing"
 import { WeatherLocationPopup } from "./weather-location-popup"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { YouTubeHomeModule } from "./youtube-home-module"
+import { PixelSpotifyBar } from "./pixel/pixel-spotify-bar"
+import { PixelWindow } from "./pixel/pixel-window"
 
-interface HistoryConversationMenuProps {
-  conversation: Conversation
-  isLight: boolean
-  onRename: (conversation: Conversation) => void
-  onArchive: (id: string, archived: boolean) => void
-  onDelete: (id: string) => void
+/** Modules inside pixel windows get these instead of Home's old glass panels. */
+const PIXEL_PANEL = "pixel-panel h-full"
+const PIXEL_SUBPANEL = "pixel-subpanel"
+const NO_PANEL_STYLE: CSSProperties | undefined = undefined
+const DRAG: CSSProperties = { WebkitAppRegion: "drag" } as CSSProperties
+const NO_DRAG: CSSProperties = { WebkitAppRegion: "no-drag" } as CSSProperties
+const FALLBACK_CITY = "Nova City"
+/** CSS pixels the HUD bar (h-16) and the player bar (h-16 + pb-3) cover; the scene keeps clickable places clear of them. */
+const SAFE_AREA: CitySafeArea = { top: 64, bottom: 76 }
+
+/** What each place is called in each view; the popup title and the hotspot label agree. */
+const PLACE_NAMES: Record<HomeScene, Record<CityHotspotId, string>> = {
+  harbour: {
+    tasks: "Nova Tower",
+    deploy: "Harbour Pier",
+    schedule: "Clock Tower",
+    crypto: "Ticker Board",
+    polymarket: "Odds Parlour",
+    youtube: "Rooftop Cinema",
+    analytics: "Meter Tank",
+    notes: "Laundry Line",
+    integrations: "Antenna Array",
+    chat: "",
+  },
+  // The District's names come from its painted buildings (components/pixel-city/district/image-plan.ts).
+  district: Object.fromEntries(
+    DISTRICT_PLACES.filter((place) => !place.id.startsWith("integration-")).map((place) => [place.id, place.name]),
+  ) as Record<CityHotspotId, string>,
 }
 
-function HistoryConversationMenu({
-  conversation,
-  isLight,
-  onRename,
-  onArchive,
-  onDelete,
-}: HistoryConversationMenuProps) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          onClick={(event) => event.stopPropagation()}
-          className={cn(
-            "h-5 w-5 shrink-0 rounded-md flex items-center justify-center transition-all duration-150 text-s-40",
-            isLight ? "hover:bg-[#eef3fb] hover:text-accent" : "hover:bg-white/8 hover:text-accent",
-          )}
-          aria-label="Conversation options"
-          title="Conversation options"
-        >
-          <MoreHorizontal className="w-3.5 h-3.5" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        sideOffset={6}
-        className={cn(
-          "rounded-xl p-1.5 min-w-[180px] backdrop-blur-xl",
-          "data-[state=open]:animate-in data-[state=closed]:animate-out",
-          "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
-          "data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
-          "data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2",
-          isLight
-            ? "!border-[#d5dce8] !bg-[#f4f7fd]/95 !shadow-[0_10px_30px_-12px_rgba(15,23,42,0.25)]"
-            : "!border-white/10 !bg-black/25 !shadow-[0_14px_34px_-14px_rgba(0,0,0,0.55)]",
-        )}
-      >
-        <DropdownMenuItem
-          onClick={(event) => {
-            event.stopPropagation()
-            onRename(conversation)
-          }}
-          className={cn(
-            "home-spotlight-card home-border-glow home-spotlight-card--hover rounded-lg px-3 py-2.5 text-sm gap-3 cursor-pointer font-medium transition-all duration-150",
-            isLight
-              ? "text-s-70 data-highlighted:bg-accent data-highlighted:!text-white"
-              : "text-s-60 data-highlighted:bg-accent/90 data-highlighted:!text-white",
-          )}
-        >
-          <Pencil className="w-4 h-4 opacity-70" />
-          Rename
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={(event) => {
-            event.stopPropagation()
-            onArchive(conversation.id, !conversation.archived)
-          }}
-          className={cn(
-            "home-spotlight-card home-border-glow home-spotlight-card--hover rounded-lg px-3 py-2.5 text-sm gap-3 cursor-pointer font-medium transition-all duration-150",
-            isLight
-              ? "text-s-70 data-highlighted:bg-accent data-highlighted:!text-white"
-              : "text-s-60 data-highlighted:bg-accent/90 data-highlighted:!text-white",
-          )}
-        >
-          <Archive className="w-4 h-4 opacity-70" />
-          {conversation.archived ? "Unarchive" : "Archive"}
-        </DropdownMenuItem>
-        <div className={cn("my-1.5 h-px", isLight ? "bg-[#e5e9f0]" : "bg-white/[0.06]")} />
-        <DropdownMenuItem
-          onClick={(event) => {
-            event.stopPropagation()
-            onDelete(conversation.id)
-          }}
-          variant="destructive"
-          className="rounded-lg px-3 py-2.5 text-sm gap-3 cursor-pointer font-medium !text-red-400 data-highlighted:bg-red-500/10 data-highlighted:!text-red-400 [&_svg]:!text-red-400 transition-all duration-150"
-        >
-          <Trash2 className="w-4 h-4" />
-          Delete
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
+function formatCost(usd: number): string {
+  if (usd <= 0) return "$0.00"
+  if (usd < 0.01) return "<$0.01"
+  return `$${usd.toFixed(2)}`
 }
-
-const FALLBACK_CRYPTO_ASSETS = [
-  { symbol: "BTC", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
-  { symbol: "ETH", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
-  { symbol: "SOL", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
-  { symbol: "SUI", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
-  { symbol: "XRP", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
-  { symbol: "DOGE", price: 0, changePct: 0, chart: [1, 1, 1, 1, 1, 1] },
-] as const
-
-// Coin identity dots on the Crypto Prices tiles. XRP's brand black is lightened so it reads on dark panels.
-const CRYPTO_BRAND_COLORS: Readonly<Record<string, string>> = {
-  BTC: "#f7931a",
-  ETH: "#627eea",
-  SOL: "#9945ff",
-  SUI: "#4da2ff",
-  XRP: "#9aa9b9",
-  DOGE: "#c2a633",
-}
-const SPARK_WIDTH = 100
-const SPARK_HEIGHT = 32
 
 export function HomeMainScreen() {
   const router = useRouter()
   const pageActive = usePageActive()
-  const {
-    isLight: rawIsLight,
-    novaState,
-    connected,
-    muteHydrated,
-    homeShellRef,
-    pipelineSectionRef,
-    scheduleSectionRef,
-    integrationsSectionRef,
-    spotifyModuleSectionRef,
-    panelStyle,
-    panelClass,
-    subPanelClass,
-    conversations,
-    cryptoAssets,
-    cryptoRange,
-    setCryptoRange,
-    handleSelectConvo,
-    handleNewChat,
-    handleDeleteConvo,
-    handleRenameConvo,
-    handleArchiveConvo,
-    openMissions,
-    openTaskDeployment,
-    newDeploymentOpen,
-    closeNewDeployment,
-    nova,
-    openCalendar,
-    openIntegrations,
-    openDevLogs,
-    openAnalytics,
-    integrationBadgeClass,
-    goToIntegrations,
-    telegramConnected,
-    discordConnected,
-    slackConnected,
-    braveConnected,
-    coinbaseConnected,
-    phantomConnected,
-    polymarketConnected,
-    openaiConnected,
-    claudeConnected,
-    grokConnected,
-    geminiConnected,
-    spotifyConnected,
-    youtubeConnected,
-    spotifyNowPlaying,
-    spotifyConnecting,
-    spotifyError,
-    spotifyBusyAction,
-    connectSpotify,
-    toggleSpotifyPlayback,
-    spotifyNextTrack,
-    spotifyPreviousTrack,
-    spotifyPlaySmart,
-    seekSpotify,
-    gmailConnected,
-    gcalendarConnected,
-    preferredWeatherCity,
-    homeWeather,
-    homeWeatherLoading,
-    homeWeatherError,
-    refreshHomeWeather,
-    orbPalette,
-  } = useHomeMainScreenState()
-  const isLight = muteHydrated && rawIsLight
+  const { themeSetting, setThemeSetting } = useTheme()
+  const home = useHomeMainScreenState()
+  const agentTasks = useAgentTasks()
+  const deployments = useDeploymentsData()
+  const notesState = useHomeNotes()
+  const summaryState = useHomeAnalyticsSummary()
 
-  const fmtUsd = (value: number) => {
-    if (!Number.isFinite(value) || value <= 0) return "-"
-    const abs = Math.abs(value)
-    // Compact notation ($86.4K) keeps crypto tiles narrow enough to never clip,
-    // even in the 5-across bottom row at the 1024px minimum window width.
-    if (abs >= 1000) {
-      return new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: "USD",
-        notation: "compact",
-        maximumFractionDigits: 1,
-      }).format(value)
-    }
-    const decimals = abs >= 1 ? 2 : 4
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      maximumFractionDigits: decimals,
-    }).format(value)
-  }
-  // Narrow crypto tiles (1024px window): whole dollars from $100, two significant digits under $1.
-  const fmtUsdShort = (value: number) => {
-    if (!Number.isFinite(value) || value <= 0) return "-"
-    const abs = Math.abs(value)
-    if (abs >= 1000) return fmtUsd(value)
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      ...(abs >= 100
-        ? { maximumFractionDigits: 0 }
-        : abs >= 1
-          ? { maximumFractionDigits: 2 }
-          : { maximumSignificantDigits: 2 }),
-    }).format(value)
-  }
-  const fmtPct = (value: number) => {
-    if (!Number.isFinite(value)) return "-"
-    const sign = value > 0 ? "+" : ""
-    return `${sign}${value.toFixed(2)}%`
-  }
-  const sparklinePoints = (values: readonly number[], width = 56, height = 12): string => {
-    const points = Array.isArray(values) ? values.filter((v) => Number.isFinite(v)) : []
-    if (points.length === 0) return `0,${height / 2} ${width},${height / 2}`
-    if (points.length === 1) return `0,${height / 2} ${width},${height / 2}`
-
-    const min = Math.min(...points)
-    const max = Math.max(...points)
-    const span = Math.max(max - min, 1e-9)
-    return points
-      .map((point, idx) => {
-        const x = (idx / (points.length - 1)) * width
-        const y = height - ((point - min) / span) * height
-        return `${x.toFixed(2)},${y.toFixed(2)}`
-      })
-      .join(" ")
-  }
-  const symbolOrder = ["BTC", "ETH", "SOL", "SUI", "XRP", "DOGE"] as const
-  const bySymbol = new Map(cryptoAssets.map((asset) => [asset.symbol.toUpperCase(), asset]))
-  const fallbackBySymbol = new Map(FALLBACK_CRYPTO_ASSETS.map((asset) => [asset.symbol, asset]))
-  const cryptoRows = symbolOrder.map((symbol) => bySymbol.get(symbol) ?? fallbackBySymbol.get(symbol)!)
-  const cryptoRangeOptions = [
-    { id: "1h", label: "1H" },
-    { id: "1d", label: "1D" },
-    { id: "7d", label: "7D" },
-  ] as const
-
-  const integrationNodes: Array<{ icon: ReactNode; connected: boolean; label: string; setup: IntegrationSetupKey }> = [
-    { icon: <TelegramIcon className="w-4 h-4" />, connected: telegramConnected, label: "Telegram", setup: "telegram" },
-    { icon: <DiscordIcon className="w-4 h-4" />, connected: discordConnected, label: "Discord", setup: "discord" },
-    { icon: <SlackIcon className="w-4 h-4" />, connected: slackConnected, label: "Slack", setup: "slack" },
-    { icon: <OpenAIIcon className="w-4.5 h-4.5" />, connected: openaiConnected, label: "OpenAI", setup: "openai" },
-    { icon: <ClaudeIcon className="w-4.5 h-4.5" />, connected: claudeConnected, label: "Claude", setup: "claude" },
-    { icon: <XAIIcon size={16} />, connected: grokConnected, label: "Grok", setup: "grok" },
-    { icon: <GeminiIcon size={16} />, connected: geminiConnected, label: "Gemini", setup: "gemini" },
-    { icon: <SpotifyIcon className="w-4.5 h-4.5" />, connected: spotifyConnected, label: "Spotify", setup: "spotify" },
-    { icon: <YouTubeIcon className="w-4 h-4" />, connected: youtubeConnected, label: "YouTube", setup: "youtube" },
-    { icon: <GmailIcon className="w-4 h-4" />, connected: gmailConnected, label: "Gmail", setup: "gmail" },
-    { icon: <GmailCalendarIcon className="w-4 h-4" />, connected: gcalendarConnected, label: "Google Calendar", setup: "gmail-calendar" },
-    { icon: <BraveIcon className="w-4.5 h-4.5" />, connected: braveConnected, label: "Brave", setup: "brave" },
-    { icon: <CoinbaseIcon className="w-4.5 h-4.5" />, connected: coinbaseConnected, label: "Coinbase", setup: "coinbase" },
-    { icon: <PhantomIcon className="w-4 h-4" />, connected: phantomConnected, label: "Phantom", setup: "phantom" },
-    { icon: <PolymarketIcon className="w-6 h-6" />, connected: polymarketConnected, label: "Polymarket", setup: "polymarket" },
-  ] as const
-
-  const activeConversations = conversations.filter((conversation) => !conversation.archived)
-  const archivedConversations = conversations.filter((conversation) => conversation.archived)
-  const presence = getNovaPresence({ agentConnected: connected, novaState })
-  const [orbHovered, setOrbHovered] = useState(false)
-  const orbHoverFilter = `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`
-  const openAnalyticsBudgets = () => router.push("/analytics#budgets")
-  // ── Panel header helper ──────────────────────────────────────────────────
-  const renderPanelHeader = ({
-    icon,
-    title,
-    action,
-  }: {
-    icon: React.ReactNode
-    title: string
-    action?: React.ReactNode
-  }) => (
-    <div className="grid shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
-      <div className="flex items-center gap-2 text-s-80">{icon}</div>
-      <h2
-        className={cn(
-          "min-w-0 truncate text-center text-[11px] @xs:text-xs @sm:text-sm uppercase tracking-[0.14em] @sm:tracking-[0.22em] font-semibold",
-          isLight ? "text-s-90" : "text-slate-200",
-        )}
-      >
-        {title}
-      </h2>
-      <div className="flex items-center justify-end gap-1.5 min-w-0">{action}</div>
-    </div>
-  )
-
-  const renderGearButton = ({
-    onClick,
-    label,
-    groupName,
-    hoverGlow = true,
-  }: {
-    onClick: () => void
-    label: string
-    groupName: string
-    hoverGlow?: boolean
-  }) => (
-    <button
-      onClick={onClick}
-      className={cn(
-        `h-7 w-7 rounded-md transition-colors home-spotlight-card home-border-glow ${hoverGlow ? "home-spotlight-card--hover" : ""} group group/${groupName}`,
-        subPanelClass,
-      )}
-      aria-label={label}
-      title={label}
-    >
-      <Settings
-        className={`w-3.5 h-3.5 mx-auto text-s-50 group-hover:text-accent group-hover:rotate-90 group-hover/${groupName}:text-accent group-hover/${groupName}:rotate-90 transition-transform duration-200`}
-      />
-    </button>
-  )
-
+  const [openPlace, setOpenPlace] = useState<CityHotspotId | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [spotifyPopupOpen, setSpotifyPopupOpen] = useState(false)
   const [weatherPopupOpen, setWeatherPopupOpen] = useState(false)
   const [profileName, setProfileName] = useState("User")
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null)
-  const [historyChatsOpen, setHistoryChatsOpen] = useState(true)
-  const [historyArchivedOpen, setHistoryArchivedOpen] = useState(false)
-  const [historyRenamingId, setHistoryRenamingId] = useState<string | null>(null)
-  const [historyRenamingTitle, setHistoryRenamingTitle] = useState("")
+  const [homeScene, setHomeScene] = useState<HomeScene>("harbour")
+  const isDistrict = homeScene === "district"
+  // The District is a night scene: Home and its popups use night colours there whatever the app theme says.
+  const isLight = !isDistrict && home.muteHydrated && home.isLight
+  const assistantName = home.assistantName
 
   useEffect(() => {
     const syncProfile = () => {
       const settings = loadUserSettings()
       setProfileName(settings.profile?.name?.trim() || "User")
       setProfileAvatar(settings.profile?.avatar || null)
+      setHomeScene(settings.app.homeScene)
     }
-
     syncProfile()
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, syncProfile as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncProfile as EventListener)
   }, [])
 
-  const beginHistoryRename = (conversation: Conversation) => {
-    setHistoryRenamingId(conversation.id)
-    setHistoryRenamingTitle(String(conversation.title || "").trim() || "New Chat")
+  const switchScene = useCallback(() => {
+    const next: HomeScene = homeScene === "harbour" ? "district" : "harbour"
+    setHomeScene(next)
+    updateAppSettings({ homeScene: next })
+  }, [homeScene])
+
+  const integrationNodes: IntegrationNode[] = [
+    { icon: <TelegramIcon className="w-4 h-4" />, connected: home.telegramConnected, label: "Telegram", setup: "telegram" },
+    { icon: <DiscordIcon className="w-4 h-4" />, connected: home.discordConnected, label: "Discord", setup: "discord" },
+    { icon: <SlackIcon className="w-4 h-4" />, connected: home.slackConnected, label: "Slack", setup: "slack" },
+    { icon: <OpenAIIcon className="w-4.5 h-4.5" />, connected: home.openaiConnected, label: "OpenAI", setup: "openai" },
+    { icon: <ClaudeIcon className="w-4.5 h-4.5" />, connected: home.claudeConnected, label: "Claude", setup: "claude" },
+    { icon: <XAIIcon size={16} />, connected: home.grokConnected, label: "Grok", setup: "grok" },
+    { icon: <GeminiIcon size={16} />, connected: home.geminiConnected, label: "Gemini", setup: "gemini" },
+    { icon: <SpotifyIcon className="w-4.5 h-4.5" />, connected: home.spotifyConnected, label: "Spotify", setup: "spotify" },
+    { icon: <YouTubeIcon className="w-4 h-4" />, connected: home.youtubeConnected, label: "YouTube", setup: "youtube" },
+    { icon: <GmailIcon className="w-4 h-4" />, connected: home.gmailConnected, label: "Gmail", setup: "gmail" },
+    { icon: <GmailCalendarIcon className="w-4 h-4" />, connected: home.gcalendarConnected, label: "Google Calendar", setup: "gmail-calendar" },
+    { icon: <BraveIcon className="w-4.5 h-4.5" />, connected: home.braveConnected, label: "Brave", setup: "brave" },
+    { icon: <CoinbaseIcon className="w-4.5 h-4.5" />, connected: home.coinbaseConnected, label: "Coinbase", setup: "coinbase" },
+    { icon: <PhantomIcon className="w-4 h-4" />, connected: home.phantomConnected, label: "Phantom", setup: "phantom" },
+    { icon: <PolymarketIcon className="w-6 h-6" />, connected: home.polymarketConnected, label: "Polymarket", setup: "polymarket" },
+  ]
+
+  const activeRuns = deployments.runs.filter(isRunActive).length
+  const summary = summaryState.summary
+  const tasks = agentTasks.tasks
+  const runningTasks = tasks.filter((task) => task.status === "running").length
+  const waitingTasks = tasks.filter((task) => task.status === "queued" || task.status === "paused").length
+  const connectedCount = integrationNodes.filter((node) => node.connected).length
+  const activeConversations = home.conversations.filter((conversation) => !conversation.archived).length
+
+  const sceneState = useCitySceneState({
+    isLight,
+    weatherCode: home.homeWeather?.weatherCode ?? null,
+    connected: home.connected,
+    novaState: home.novaState,
+    tasks,
+    activeRuns,
+    cryptoAssets: home.cryptoAssets,
+    integrations: integrationNodes.map((node) => node.connected),
+    polymarketConnected: home.polymarketConnected,
+    youtubeConnected: home.youtubeConnected,
+    workplaces: {
+      llm: home.openaiConnected || home.claudeConnected || home.grokConnected || home.geminiConnected,
+      comms: home.telegramConnected || home.discordConnected || home.slackConnected,
+      mail: home.gmailConnected || home.gcalendarConnected,
+      wallet: home.coinbaseConnected || home.phantomConnected,
+      polymarket: home.polymarketConnected,
+      media: home.youtubeConnected || home.spotifyConnected,
+    },
+    notesCount: notesState.notes.length,
+    costTodayUsd: summary ? summary.costUsd : null,
+    budgetAlert: Boolean(summary && (summary.budgetWarning > 0 || summary.budgetExhausted > 0)),
+    conversationsCount: activeConversations,
+    connectedIntegrations: integrationNodes.filter((node) => node.connected).map((node) => node.setup as CityIntegration),
+  })
+
+  const presence = getNovaPresence({ agentConnected: home.connected, novaState: home.novaState })
+  const btc = home.cryptoAssets.find((asset) => asset.symbol.toUpperCase() === "BTC")
+  const names = PLACE_NAMES[homeScene]
+  const hotspots: CityHotspot[] = [
+    { id: "tasks", label: names.tasks, detail: runningTasks || waitingTasks ? `${runningTasks} running · ${waitingTasks} waiting` : "Agent tasks · idle" },
+    { id: "deploy", label: names.deploy, detail: activeRuns ? `${activeRuns} deployment${activeRuns === 1 ? "" : "s"} ${isDistrict ? "on the road" : "sailing"}` : "New deployment" },
+    { id: "schedule", label: names.schedule, detail: "Schedule" },
+    { id: "crypto", label: names.crypto, detail: btc && btc.price > 0 ? `BTC ${formatUsdCompact(btc.price)}` : "Crypto prices" },
+    { id: "polymarket", label: names.polymarket, detail: home.polymarketConnected ? "Polymarket live lines" : "Polymarket · not connected" },
+    { id: "youtube", label: names.youtube, detail: home.youtubeConnected ? "YouTube" : "YouTube · not connected" },
+    { id: "analytics", label: names.analytics, detail: summary ? `${formatCost(summary.costUsd)} today` : "Analytics" },
+    { id: "notes", label: names.notes, detail: `${notesState.notes.length} note${notesState.notes.length === 1 ? "" : "s"}` },
+    { id: "integrations", label: names.integrations, detail: `${connectedCount}/${integrationNodes.length} connected` },
+    { id: "chat", label: isDistrict ? `${assistantName} · Park` : assistantName, detail: `${presence.label.toLowerCase()} · ${activeConversations} chat${activeConversations === 1 ? "" : "s"}` },
+  ]
+
+  // District only: every integration also has its own building. Its label says whether it is connected.
+  if (isDistrict) {
+    for (const place of DISTRICT_PLACES) {
+      if (!place.id.startsWith("integration-") || !place.integration) continue
+      const node = integrationNodes.find((candidate) => candidate.setup === place.integration)
+      if (!node) continue
+      hotspots.push({ id: place.id, label: `${place.name} · ${node.label}`, detail: node.connected ? "Connected" : "Not connected · click to set up" })
+    }
   }
 
-  const saveHistoryRename = () => {
-    if (!historyRenamingId) {
-      setHistoryRenamingTitle("")
-      return
-    }
-    const next = historyRenamingTitle.trim()
-    if (next) {
-      handleRenameConvo(historyRenamingId, next)
-    }
-    setHistoryRenamingId(null)
-    setHistoryRenamingTitle("")
-  }
+  const openHotspot = useCallback(
+    (id: CityPlaceId) => {
+      if (id === "deploy") {
+        home.openTaskDeployment()
+        return
+      }
+      if (id.startsWith("integration-")) {
+        // An integration's building opens what Home offers for it, or that integration's setup.
+        const setup = id.slice("integration-".length) as CityIntegration
+        if (setup === "gmail-calendar") setOpenPlace("schedule")
+        else if (setup === "phantom") setOpenPlace("crypto")
+        else home.goToIntegrations(setup)
+        return
+      }
+      setOpenPlace(id as CityHotspotId)
+    },
+    [home],
+  )
+  const closePlace = useCallback(() => setOpenPlace(null), [])
 
-  const renderHistoryConversationRow = (conversation: Conversation) => (
-    <div
-      key={conversation.id}
-      className={cn(
-        "group flex items-center gap-0.5 rounded-md border px-2.5 py-0.5 transition-colors home-spotlight-card home-border-glow",
-        subPanelClass,
-      )}
-    >
-      <button
-        type="button"
-        onClick={() => { void handleSelectConvo(conversation.id) }}
-        className="flex-1 min-w-0 text-left"
-      >
-        {historyRenamingId === conversation.id ? (
-          <input
-            autoFocus
-            value={historyRenamingTitle}
-            onChange={(event) => setHistoryRenamingTitle(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") saveHistoryRename()
-              if (event.key === "Escape") {
-                setHistoryRenamingId(null)
-                setHistoryRenamingTitle("")
-              }
-            }}
-            onBlur={saveHistoryRename}
-            onClick={(event) => event.stopPropagation()}
-            className={cn(
-              "w-full rounded-md border px-2 py-0.5 text-[10px] font-semibold leading-4 outline-none",
-              isLight ? "border-[#cfd9e9] bg-white text-s-90" : "border-white/10 bg-black/20 text-slate-100",
-            )}
-          />
-        ) : (
-          <p className={cn("truncate text-[10px] font-semibold leading-4", isLight ? "text-s-90" : "text-slate-100")}>
-            {String(conversation.title || "New Chat").trim() || "New Chat"}
+  const cityName = home.preferredWeatherCity?.trim() || FALLBACK_CITY
+  const cityLabel = home.homeWeather?.locationLabel || cityName
+  const cycleSkyMode = () => setThemeSetting(themeSetting === "system" ? (isLight ? "dark" : "light") : themeSetting === "light" ? "dark" : "system")
+  const skyModeLabel = themeSetting === "system" ? "Sky follows your system" : isLight ? "Daytime (click for night)" : "Night (click for auto)"
+
+  const pageAction = (label: string, onClick: () => void) => (
+    <button type="button" onClick={onClick} className="pixel-chip h-7! px-2! text-[13px]!" title={label}>
+      <ExternalLink className="h-3.5 w-3.5" />
+      <span className="hidden sm:inline">{label}</span>
+    </button>
+  )
+
+  const windowContent = useMemo(() => {
+    switch (openPlace) {
+      case "tasks":
+        return (
+          <PixelWindow place={names.tasks} role="Agent tasks" size="lg" onClose={closePlace} actions={pageAction("Deployments", home.openMissions)}>
+            <AgentTasksHomeModule
+              isLight={isLight}
+              panelClass={PIXEL_PANEL}
+              subPanelClass={PIXEL_SUBPANEL}
+              panelStyle={NO_PANEL_STYLE}
+              className="h-full"
+              agentTasks={agentTasks}
+              onOpenMissions={home.openMissions}
+              onCreateDeployment={() => {
+                setOpenPlace(null)
+                home.openTaskDeployment()
+              }}
+              onPrefetchDeployment={preloadNewDeploymentModal}
+            />
+          </PixelWindow>
+        )
+      case "schedule":
+        return (
+          <PixelWindow place={names.schedule} role="Schedule" size="md" onClose={closePlace} actions={pageAction("Calendar", home.openCalendar)}>
+            <ScheduleBriefing isLight={isLight} panelClass={PIXEL_PANEL} subPanelClass={PIXEL_SUBPANEL} panelStyle={NO_PANEL_STYLE} onOpenCalendar={home.openCalendar} />
+          </PixelWindow>
+        )
+      case "crypto":
+        return (
+          <PixelWindow place={names.crypto} role="Crypto prices" size="md" onClose={closePlace}>
+            <CryptoPricesModule isLight={isLight} subPanelClass={PIXEL_SUBPANEL} assets={home.cryptoAssets} range={home.cryptoRange} onRangeChange={home.setCryptoRange} />
+          </PixelWindow>
+        )
+      case "polymarket":
+        return (
+          <PixelWindow place={names.polymarket} role="Polymarket" size="md" onClose={closePlace} actions={pageAction("Polymarket", () => router.push("/polymarket"))}>
+            <PolymarketLiveLinesModule
+              isLight={isLight}
+              panelClass={PIXEL_PANEL}
+              subPanelClass={PIXEL_SUBPANEL}
+              panelStyle={NO_PANEL_STYLE}
+              className="h-full"
+              onOpenIntegrations={home.openIntegrations}
+              onOpenPolymarket={() => router.push("/polymarket")}
+            />
+          </PixelWindow>
+        )
+      case "youtube":
+        return (
+          <PixelWindow place={names.youtube} role="YouTube" size="lg" onClose={closePlace}>
+            <YouTubeHomeModule
+              isLight={isLight}
+              panelClass={PIXEL_PANEL}
+              subPanelClass={PIXEL_SUBPANEL}
+              panelStyle={NO_PANEL_STYLE}
+              className="h-full"
+              connected={home.youtubeConnected}
+              onOpenIntegrations={home.openIntegrations}
+            />
+          </PixelWindow>
+        )
+      case "analytics":
+        return (
+          <PixelWindow place={names.analytics} role="Analytics" size="sm" onClose={closePlace} actions={pageAction("Dashboard", home.openAnalytics)}>
+            <AnalyticsHomeModule
+              isLight={isLight}
+              subPanelClass={PIXEL_SUBPANEL}
+              summaryState={summaryState}
+              onOpenAnalytics={home.openAnalytics}
+              onOpenBudgets={() => router.push("/analytics#budgets")}
+              onOpenDevLogs={home.openDevLogs}
+            />
+          </PixelWindow>
+        )
+      case "notes":
+        return (
+          <PixelWindow place={names.notes} role="Notes" size="md" onClose={closePlace}>
+            <NotesHomeModule isLight={isLight} panelClass={PIXEL_PANEL} subPanelClass={PIXEL_SUBPANEL} panelStyle={NO_PANEL_STYLE} className="h-full" notesState={notesState} />
+          </PixelWindow>
+        )
+      case "integrations":
+        return (
+          <PixelWindow place={names.integrations} role="Integrations" size="md" onClose={closePlace} actions={pageAction("Integrations", home.openIntegrations)}>
+            <IntegrationsGridModule isLight={isLight} subPanelClass={PIXEL_SUBPANEL} nodes={integrationNodes} onOpen={home.goToIntegrations} />
+          </PixelWindow>
+        )
+      case "chat":
+        return (
+          <PixelWindow place={assistantName} role="Chats" size="sm" onClose={closePlace} actions={pageAction("Chat", home.openChat)}>
+            <ChatHistoryModule
+              isLight={isLight}
+              subPanelClass={PIXEL_SUBPANEL}
+              conversations={home.conversations}
+              onSelect={(id) => {
+                void home.handleSelectConvo(id)
+              }}
+              onNewChat={() => {
+                void home.handleNewChat()
+              }}
+              onRename={home.handleRenameConvo}
+              onArchive={home.handleArchiveConvo}
+              onDelete={home.handleDeleteConvo}
+            />
+          </PixelWindow>
+        )
+      default:
+        return null
+    }
+    // pageAction and integrationNodes are rebuilt each render from the values listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openPlace, isLight, home, agentTasks, notesState, summaryState, assistantName, names, closePlace, router])
+
+  const weather = home.homeWeather
+  return (
+    <div className={cn("relative h-dvh overflow-hidden", isDistrict && "pixel-night", isLight ? "bg-[#88c7f1]" : "bg-[#0a0c24]")}>
+      <PixelCityScene scene={homeScene} cityKey={cityName} state={sceneState} hotspots={hotspots} safeArea={SAFE_AREA} active={pageActive} onHotspot={openHotspot} />
+
+      {/* HUD: wordmark top-left, everything about the user top-right. The bar doubles as the window drag area. */}
+      <header className="absolute inset-x-0 top-0 z-10 flex h-16 items-start justify-between gap-4 px-4 pt-3" style={DRAG}>
+        <div className="min-w-0 select-none" style={NO_DRAG}>
+          <button type="button" onClick={() => router.push("/home")} className="pixel-wordmark flex items-baseline gap-2" aria-label="Home">
+            <span className="font-pixel-display text-[28px] leading-none text-(--px-text)">NovaAIO</span>
+            <span className="font-pixel text-[13px] text-(--px-accent)">{NOVA_VERSION}</span>
+          </button>
+          <p className="pixel-wordmark mt-1 flex items-center gap-2 font-pixel text-[14px] text-(--px-muted)">
+            <span className={cn("h-2 w-2 shrink-0", presence.dotClassName)} aria-hidden="true" />
+            {/* Presence colors are tuned for the night sky; by day the label uses the HUD text color. */}
+            <span className={isLight ? "text-(--px-text)" : presence.textClassName}>{presence.label}</span>
+            <span aria-hidden="true">·</span>
+            <span className="truncate">
+              {cityLabel} {isLight ? "by day" : "after dark"}
+            </span>
           </p>
-        )}
-      </button>
-      {historyRenamingId !== conversation.id ? (
-        <HistoryConversationMenu
-          conversation={conversation}
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2" style={NO_DRAG}>
+          <button
+            type="button"
+            onClick={() => setWeatherPopupOpen(true)}
+            className="pixel-chip"
+            title={home.homeWeatherError || (home.preferredWeatherCity ? weather?.conditionLabel || "Loading weather" : "Set your city")}
+            aria-label={home.preferredWeatherCity ? `Change city from ${home.preferredWeatherCity}` : "Set your city"}
+          >
+            <CloudSun className="h-4 w-4 text-(--px-accent)" />
+            <span className="tabular-nums">
+              {weather?.temperatureF !== null && weather?.temperatureF !== undefined
+                ? `${Math.round(weather.temperatureF)}°`
+                : home.homeWeatherLoading
+                  ? "—"
+                  : "Set city"}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={switchScene}
+            className="pixel-chip"
+            title={isDistrict ? "The District · click for the Harbour" : "The Harbour · click for the District"}
+            aria-label={isDistrict ? "Switch Home view to the Harbour" : "Switch Home view to the District"}
+            aria-pressed={isDistrict}
+          >
+            {isDistrict ? <Building2 className="h-4 w-4 text-(--px-accent)" /> : <Anchor className="h-4 w-4 text-(--px-accent)" />}
+            <span className="hidden md:inline">{isDistrict ? "District" : "Harbour"}</span>
+          </button>
+          <button type="button" onClick={cycleSkyMode} className="pixel-chip pixel-chip--icon" title={skyModeLabel} aria-label={skyModeLabel}>
+            {themeSetting === "system" ? <SunMoon className="h-4 w-4" /> : isLight ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </button>
+          <div className="pixel-chip pl-1.5!">
+            <span className="grid h-6 w-6 place-items-center overflow-hidden border-2 border-(--px-border) bg-(--px-bg-2) text-[12px]">
+              {profileAvatar ? (
+                <Image src={profileAvatar} alt="Profile" width={24} height={24} className="h-full w-full object-cover [image-rendering:pixelated]" unoptimized />
+              ) : (
+                profileName.charAt(0).toUpperCase()
+              )}
+            </span>
+            <span className="max-w-36 truncate">{profileName}</span>
+          </div>
+          <button type="button" onClick={() => setSettingsOpen(true)} className="pixel-chip pixel-chip--icon group" aria-label="Open settings" title="Settings">
+            <Settings className="h-4 w-4 transition-transform duration-200 group-hover:rotate-90" />
+          </button>
+          <WindowControls />
+        </div>
+      </header>
+
+      <footer className="absolute inset-x-0 bottom-0 z-10 px-4 pb-3">
+        <PixelSpotifyBar
+          connected={home.spotifyConnected}
+          connecting={home.spotifyConnecting}
+          nowPlaying={home.spotifyNowPlaying}
+          error={home.spotifyError}
+          busyAction={home.spotifyBusyAction}
+          onConnectSpotify={() => {
+            void home.connectSpotify()
+          }}
+          onOpenIntegrations={() => home.goToIntegrations("spotify")}
+          onTogglePlayPause={home.toggleSpotifyPlayback}
+          onNext={home.spotifyNextTrack}
+          onPrevious={home.spotifyPreviousTrack}
+          onPlaySmart={home.spotifyPlaySmart}
+          onSeek={home.seekSpotify}
+        />
+      </footer>
+
+      {windowContent}
+
+      {weatherPopupOpen ? (
+        <div className="pixel-ui">
+          <WeatherLocationPopup
+            isLight={isLight}
+            subPanelClass={PIXEL_SUBPANEL}
+            currentCity={home.preferredWeatherCity}
+            weatherLoading={home.homeWeatherLoading}
+            weatherError={home.homeWeatherError}
+            onRetry={home.refreshHomeWeather}
+            onClose={() => setWeatherPopupOpen(false)}
+          />
+        </div>
+      ) : null}
+      <div className="pixel-ui">
+        <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      </div>
+      {home.newDeploymentOpen ? (
+        <LazyNewDeploymentModal
+          className="pixel-ui"
           isLight={isLight}
-          onRename={beginHistoryRename}
-          onArchive={handleArchiveConvo}
-          onDelete={handleDeleteConvo}
+          nova={home.nova}
+          initialTab="describe"
+          onClose={home.closeNewDeployment}
+          onOpenDeployments={home.openMissions}
+          onOpenGuidedBuilder={() => router.push("/missions?create=builder&returnTo=/home")}
+          onViewAutomations={() => router.push("/missions?returnTo=/home")}
         />
       ) : null}
     </div>
-  )
-
-  return (
-    <div
-      className={cn(
-        "relative flex h-dvh overflow-hidden",
-        isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100",
-      )}
-    >
-      <div ref={homeShellRef} className="flex-1 relative overflow-hidden home-spotlight-shell">
-        {/* ── 3-zone flex layout ─────────────────────────────────────────── */}
-        <div className="relative z-10 h-full w-full px-4 pt-3 pb-4 flex flex-col gap-1.5">
-          <header
-            className="shrink-0 grid grid-cols-[auto_1fr_auto] items-center gap-3"
-            style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-          >
-              <div className="flex items-center gap-3 min-w-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-                <button
-                  onClick={() => router.push("/home")}
-                  onMouseEnter={() => setOrbHovered(true)}
-                  onMouseLeave={() => setOrbHovered(false)}
-                  className="group relative h-11 w-11 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110"
-                  aria-label="Go to home"
-                >
-                  <NovaOrbIndicator
-                    palette={orbPalette}
-                    size={30}
-                    animated={pageActive}
-                    className="transition-all duration-200"
-                    style={{ filter: orbHovered ? orbHoverFilter : "none" }}
-                  />
-                </button>
-                <div className="min-w-0">
-                  <div className="flex flex-col leading-tight">
-                    <div className="flex items-baseline gap-3">
-                      <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaAIO</h1>
-                      <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-3">
-                      <div className="inline-flex items-center gap-1.5">
-                        <span className={cn("h-2.5 w-2.5 rounded-full animate-pulse", presence.dotClassName)} aria-hidden="true" />
-                        <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", presence.textClassName)}>
-                          {presence.label}
-                        </span>
-                      </div>
-                      <p className={cn("text-[13px] whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>Home</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div />
-              <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-                <button
-                  type="button"
-                  onClick={() => setWeatherPopupOpen(true)}
-                  className={cn(
-                    "hidden lg:flex h-11 items-center gap-2 rounded-lg px-3 text-left transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
-                    subPanelClass,
-                  )}
-                  title={homeWeatherError || (preferredWeatherCity ? homeWeather?.conditionLabel || "Loading weather" : "Set your weather city")}
-                  aria-label={preferredWeatherCity ? `Change weather city from ${preferredWeatherCity}` : "Set weather city"}
-                >
-                  <CloudSun className="h-4 w-4 text-accent" />
-                  <div className="min-w-0">
-                    <p className={cn("truncate text-[11px] font-semibold", isLight ? "text-s-90" : "text-slate-100")}>
-                      {homeWeather?.temperatureF !== null && homeWeather?.temperatureF !== undefined
-                        ? `${Math.round(homeWeather.temperatureF)}°`
-                        : homeWeatherLoading ? "—" : "Weather"}
-                    </p>
-                    <p className={cn("max-w-24 truncate text-[9px]", isLight ? "text-s-50" : "text-slate-400")}>
-                      {homeWeather?.locationLabel || preferredWeatherCity || "Not configured"}
-                    </p>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSpotifyPopupOpen((current) => !current)}
-                  className={cn("relative h-11 w-11 rounded-lg transition-colors home-spotlight-card home-border-glow", subPanelClass)}
-                  aria-label={spotifyConnected ? "Open Spotify controls" : "Connect Spotify"}
-                  title={spotifyConnected ? "Spotify" : "Connect Spotify"}
-                >
-                  <SpotifyIcon className="mx-auto h-5 w-5" />
-                  <span
-                    className={cn(
-                      "absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full",
-                      spotifyConnected ? "bg-emerald-400" : isLight ? "bg-slate-400" : "bg-slate-600",
-                    )}
-                    aria-hidden="true"
-                  />
-                </button>
-                <div className={cn("flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg home-spotlight-card home-border-glow", subPanelClass)}>
-                  <div className={cn("w-8 h-8 rounded-lg overflow-hidden border grid place-items-center text-xs font-semibold", isLight ? "border-[#cdd9ea] bg-[#edf2fb]" : "home-subpanel-surface")}>
-                    {profileAvatar ? (
-                      <Image
-                        src={profileAvatar}
-                        alt="Profile"
-                        width={32}
-                        height={32}
-                        className="w-full h-full object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      <span>{profileName.charAt(0).toUpperCase()}</span>
-                    )}
-                  </div>
-                  <p className={cn("text-sm font-medium truncate max-w-36", isLight ? "text-s-90" : "text-slate-100")}>
-                    {profileName}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setSettingsOpen(true)}
-                  className={cn("h-11 w-11 rounded-lg transition-colors group/home-gear home-spotlight-card home-border-glow", subPanelClass)}
-                  aria-label="Open settings"
-                  title="Settings"
-                >
-                  <Settings className="w-5 h-5 mx-auto text-s-50 group-hover/home-gear:text-accent group-hover/home-gear:rotate-90 transition-transform duration-200" />
-                </button>
-                <WindowControls />
-              </div>
-          </header>
-
-          <div className="flex-1 min-h-0 flex gap-1.5">
-
-            {/* ── ZONE 1: Schedule (left column) ─────────────────────────── */}
-            <div className="w-52 xl:w-[15.5rem] shrink-0 min-h-0 grid grid-rows-[minmax(0,2fr)_minmax(0,3fr)] gap-1.5">
-              <section
-                ref={pipelineSectionRef}
-                style={panelStyle}
-                className={`${panelClass} home-spotlight-shell p-4 min-h-0 h-full flex flex-col`}
-              >
-                {renderPanelHeader({
-                  icon: <History className="w-4 h-4 text-accent" />,
-                  title: "Chat History",
-                })}
-                <button
-                  type="button"
-                  onClick={() => { void handleNewChat() }}
-                  className={cn(
-                    "mt-2 w-full rounded-md border px-2.5 py-0.5 text-left transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
-                    "inline-flex items-center justify-center gap-1 text-[10px] font-semibold leading-4",
-                    subPanelClass,
-                  )}
-                  aria-label="Start a new chat"
-                  title="Start a new chat"
-                >
-                  <Plus className="h-2.5 w-2.5" />
-                  New Chat
-                </button>
-                <div className="mt-2 min-h-0 flex-1 overflow-y-auto no-scrollbar space-y-1 pr-1">
-                  {conversations.length === 0 ? (
-                    <div
-                      className={cn(
-                        "rounded-md border p-2.5 text-[11px] leading-4 home-spotlight-card home-border-glow",
-                        subPanelClass,
-                      )}
-                    >
-                      No conversations yet. Start a new chat to open the full chat page.
-                    </div>
-                  ) : (
-                    <>
-                      <div>
-                        <button
-                          type="button"
-                          onClick={() => setHistoryChatsOpen((current) => !current)}
-                          className={cn("flex w-full items-center gap-1.5 px-1 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]", isLight ? "text-s-60" : "text-slate-300")}
-                        >
-                          {historyChatsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                          <FolderOpen className="h-3.5 w-3.5 text-accent" />
-                          Chats
-                          <span className={cn("ml-auto text-[9px]", isLight ? "text-s-50" : "text-slate-400")}>
-                            {activeConversations.length}
-                          </span>
-                        </button>
-                        {historyChatsOpen ? (
-                          <div className="mt-1 space-y-1">
-                            {activeConversations.length === 0 ? (
-                              <p className={cn("px-2 py-2 text-[11px]", isLight ? "text-s-40" : "text-slate-500")}>
-                                No active chats.
-                              </p>
-                            ) : (
-                              activeConversations.slice(0, 5).map(renderHistoryConversationRow)
-                            )}
-                          </div>
-                        ) : null}
-                      </div>
-
-                      <div>
-                        <button
-                          type="button"
-                          onClick={() => setHistoryArchivedOpen((current) => !current)}
-                          className={cn("flex w-full items-center gap-1.5 px-1 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]", isLight ? "text-s-60" : "text-slate-300")}
-                        >
-                          {historyArchivedOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                          <FolderArchive className="h-3.5 w-3.5 text-accent" />
-                          Archived
-                          <span className={cn("ml-auto text-[9px]", isLight ? "text-s-50" : "text-slate-400")}>
-                            {archivedConversations.length}
-                          </span>
-                        </button>
-                        {historyArchivedOpen ? (
-                          <div className="mt-1 space-y-1">
-                            {archivedConversations.length === 0 ? (
-                              <p className={cn("px-2 py-2 text-[11px]", isLight ? "text-s-40" : "text-slate-500")}>
-                                No archived chats.
-                              </p>
-                            ) : (
-                              archivedConversations.slice(0, 3).map(renderHistoryConversationRow)
-                            )}
-                          </div>
-                        ) : null}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </section>
-
-              <div className="min-h-0">
-                <ScheduleBriefing
-                  isLight={isLight}
-                  panelClass={`${panelClass} home-spotlight-shell`}
-                  subPanelClass={subPanelClass}
-                  panelStyle={panelStyle}
-                  sectionRef={scheduleSectionRef}
-                  onOpenCalendar={openCalendar}
-                />
-              </div>
-            </div>
-
-            {/* ── ZONE 2: Center column ──────────────────────────────────── */}
-            <div className="flex-1 flex flex-col gap-1.5 min-w-0 min-h-0">
-            <AgentTasksHomeModule
-              isLight={isLight}
-              panelClass={panelClass}
-              subPanelClass={subPanelClass}
-              panelStyle={panelStyle}
-              className="min-h-0 flex-1"
-              onOpenMissions={openMissions}
-              onCreateDeployment={openTaskDeployment}
-              onPrefetchDeployment={preloadNewDeploymentModal}
-            />
-
-            {/* ── Bottom row: markets, YouTube, and analytics ── */}
-            <div className="grid h-[clamp(11rem,25vh,16rem)] min-h-[11rem] grid-cols-4 gap-1.5 shrink-0">
-
-              {/* Crypto Prices */}
-              <section
-                style={panelStyle}
-                className={`${panelClass} home-spotlight-shell @container min-h-0 px-3 py-2.5 flex flex-col`}
-              >
-                {renderPanelHeader({
-                  icon: <TrendingUp className="w-4 h-4 text-accent shrink-0" />,
-                  title: "Crypto Prices",
-                  action: (
-                    <button
-                      onClick={() => {
-                        const order = cryptoRangeOptions.map((o) => o.id)
-                        const idx = order.indexOf(cryptoRange)
-                        setCryptoRange(order[(idx + 1) % order.length])
-                      }}
-                      className={cn(
-                        "h-5 min-w-7 px-1 text-[9px] font-semibold uppercase tracking-[0.12em] transition-colors shrink-0",
-                        isLight ? "text-accent" : "text-slate-100",
-                      )}
-                      aria-label={`Crypto range: ${cryptoRange}. Click to cycle.`}
-                    >
-                      {cryptoRangeOptions.find((o) => o.id === cryptoRange)?.label ?? "1D"}
-                    </button>
-                  ),
-                })}
-                <div className="mt-2 grid min-h-0 flex-1 grid-cols-2 grid-rows-3 gap-1.5">
-                  {cryptoRows.map((asset) => {
-                    const up = asset.changePct >= 0
-                    const trendColor = up ? "#34d399" : "#fb7185"
-                    const line = sparklinePoints(asset.chart, SPARK_WIDTH, SPARK_HEIGHT)
-                    const gradientId = `home-crypto-spark-${asset.symbol}`
-                    return (
-                    <div
-                      key={asset.symbol}
-                      className={cn(
-                        "@container/tile relative flex min-h-0 min-w-0 flex-col justify-between overflow-hidden rounded-md px-2 py-1.5 home-spotlight-card home-border-glow",
-                        subPanelClass,
-                      )}
-                    >
-                      {/* Area chart sits behind the text, bottom-anchored, like a market app tile. */}
-                      <svg
-                        viewBox={`0 0 ${SPARK_WIDTH} ${SPARK_HEIGHT}`}
-                        className="pointer-events-none absolute inset-x-0 bottom-0 h-3/5 w-full"
-                        preserveAspectRatio="none"
-                        aria-hidden="true"
-                      >
-                        <defs>
-                          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor={trendColor} stopOpacity={isLight ? 0.22 : 0.28} />
-                            <stop offset="100%" stopColor={trendColor} stopOpacity="0" />
-                          </linearGradient>
-                        </defs>
-                        <polygon points={`0,${SPARK_HEIGHT} ${line} ${SPARK_WIDTH},${SPARK_HEIGHT}`} fill={`url(#${gradientId})`} />
-                        <polyline
-                          points={line}
-                          fill="none"
-                          stroke={trendColor}
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          vectorEffect="non-scaling-stroke"
-                          opacity={0.9}
-                        />
-                      </svg>
-                      <div className="relative flex min-w-0 items-center justify-between gap-1">
-                        <span className="flex min-w-0 items-center gap-1.5">
-                          <span
-                            className="h-2 w-2 shrink-0 rounded-full"
-                            style={{ backgroundColor: CRYPTO_BRAND_COLORS[asset.symbol] ?? "var(--accent-primary)" }}
-                            aria-hidden="true"
-                          />
-                          <span className={cn("truncate text-[11px] font-semibold tracking-wide", isLight ? "text-s-70" : "text-slate-300")}>
-                            {asset.symbol}
-                          </span>
-                        </span>
-                        <span
-                          className={cn(
-                            "shrink-0 rounded px-1 py-px text-[8px] font-semibold tabular-nums leading-tight @[100px]/tile:text-[9px]",
-                            up
-                              ? isLight ? "bg-emerald-500/12 text-emerald-600" : "bg-emerald-400/12 text-emerald-300"
-                              : isLight ? "bg-rose-500/12 text-rose-600" : "bg-rose-400/12 text-rose-300",
-                          )}
-                        >
-                          {fmtPct(asset.changePct)}
-                        </span>
-                      </div>
-                      <p
-                        className={cn(
-                          "relative truncate text-[12px] font-semibold tabular-nums leading-tight @[100px]/tile:text-[14px]",
-                          isLight ? "text-s-90" : "text-slate-50",
-                        )}
-                      >
-                        <span className="hidden @[100px]/tile:inline">{fmtUsd(asset.price)}</span>
-                        <span className="@[100px]/tile:hidden">{fmtUsdShort(asset.price)}</span>
-                      </p>
-                    </div>
-                    )
-                  })}
-                </div>
-              </section>
-
-              <YouTubeHomeModule
-                isLight={isLight}
-                panelClass={panelClass}
-                subPanelClass={subPanelClass}
-                panelStyle={panelStyle}
-                className="min-h-0 h-full"
-                connected={youtubeConnected}
-                onOpenIntegrations={openIntegrations}
-              />
-
-              {/* Analytics and runtime diagnostics */}
-              <section
-                style={panelStyle}
-                className={`${panelClass} home-spotlight-shell @container min-h-0 px-3 py-2.5 flex flex-col`}
-              >
-                {renderPanelHeader({
-                  icon: <BarChart2 className="w-4 h-4 text-accent shrink-0" />,
-                  title: "Analytics",
-                  action: renderGearButton({
-                    onClick: openAnalytics,
-                    label: "Open analytics dashboard",
-                    groupName: "analytics-gear",
-                    hoverGlow: false,
-                  }),
-                })}
-                <AnalyticsHomeModule
-                  isLight={isLight}
-                  subPanelClass={subPanelClass}
-                  onOpenAnalytics={openAnalytics}
-                  onOpenBudgets={openAnalyticsBudgets}
-                  onOpenDevLogs={openDevLogs}
-                />
-              </section>
-
-              <NotesHomeModule
-                isLight={isLight}
-                panelClass={panelClass}
-                subPanelClass={subPanelClass}
-                panelStyle={panelStyle}
-                className="min-h-0 h-full"
-              />
-
-            </div>
-            </div>
-
-          {/* ── ZONE 3: Right column (Integrations / Polymarket) ── */}
-          <div className="w-56 xl:w-67 shrink-0 flex flex-col gap-1.5 min-h-0">
-
-            {/* Integrations */}
-            <section
-              ref={integrationsSectionRef}
-              style={panelStyle}
-              className={`${panelClass} home-spotlight-shell h-[clamp(15rem,30vh,18.5rem)] px-3 pb-2 pt-2.5 flex flex-col shrink-0`}
-            >
-              {renderPanelHeader({
-                icon: <Blocks className="w-4 h-4 text-accent" />,
-                title: "Integrations",
-                action: renderGearButton({ onClick: openIntegrations, label: "Open integrations", groupName: "integrations-gear" }),
-              })}
-              <div className={cn("mt-4.5 p-1.5 rounded-lg", subPanelClass)}>
-                <div className="grid grid-cols-5 gap-1" style={{ gridTemplateRows: "repeat(5, 2rem)" }}>
-                  {integrationNodes.map(({ icon, connected, label, setup }) => (
-                    <button
-                      key={label}
-                      onClick={() => goToIntegrations(setup)}
-                      className={cn(
-                        "h-8 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
-                        integrationBadgeClass(connected),
-                      )}
-                      aria-label={`${label}: ${connected ? "connected" : "not connected"}`}
-                      title={label}
-                    >
-                      {icon}
-                    </button>
-                  ))}
-                  {Array.from({ length: Math.max(0, 25 - integrationNodes.length) }).map((_, i) => (
-                    <div
-                      key={i}
-                      className={cn(
-                        "h-8 rounded-sm border home-spotlight-card home-border-glow",
-                        isLight ? "border-[#d5dce8] bg-[#eef3fb]" : "home-subpanel-surface",
-                      )}
-                    />
-                  ))}
-                </div>
-              </div>
-            </section>
-
-            <PolymarketLiveLinesModule
-              isLight={isLight}
-              panelClass={panelClass}
-              subPanelClass={subPanelClass}
-              panelStyle={panelStyle}
-              className="min-h-0 flex-1 h-full"
-              onOpenIntegrations={openIntegrations}
-              onOpenPolymarket={() => router.push("/polymarket")}
-            />
-
-          </div>
-        </div>
-      </div>
-    </div>
-    {spotifyPopupOpen ? (
-      <>
-        <button
-          type="button"
-          className="fixed inset-0 z-[120] cursor-default bg-black/25"
-          onClick={() => setSpotifyPopupOpen(false)}
-          aria-label="Close Spotify controls"
-        />
-        <div className="fixed right-4 top-16 z-[125] h-[22rem] w-[min(26rem,calc(100vw-2rem))]">
-          <button
-            type="button"
-            onClick={() => setSpotifyPopupOpen(false)}
-            className={cn("absolute right-2 top-2 z-10 h-7 w-7 rounded-md border", subPanelClass)}
-            aria-label="Close Spotify controls"
-          >
-            <X className="mx-auto h-3.5 w-3.5" />
-          </button>
-          <SpotifyHomeModule
-            isLight={isLight}
-            panelClass={panelClass}
-            subPanelClass={subPanelClass}
-            panelStyle={panelStyle}
-            sectionRef={spotifyModuleSectionRef}
-            className="h-full w-full"
-            connected={spotifyConnected}
-            connecting={spotifyConnecting}
-            nowPlaying={spotifyNowPlaying}
-            error={spotifyError}
-            busyAction={spotifyBusyAction}
-            onConnectSpotify={() => { void connectSpotify() }}
-            onOpenIntegrations={() => goToIntegrations("spotify")}
-            onTogglePlayPause={toggleSpotifyPlayback}
-            onNext={spotifyNextTrack}
-            onPrevious={spotifyPreviousTrack}
-            onPlaySmart={spotifyPlaySmart}
-            onSeek={seekSpotify}
-          />
-        </div>
-      </>
-    ) : null}
-    {weatherPopupOpen ? (
-      <WeatherLocationPopup
-        isLight={isLight}
-        subPanelClass={subPanelClass}
-        currentCity={preferredWeatherCity}
-        weatherLoading={homeWeatherLoading}
-        weatherError={homeWeatherError}
-        onRetry={refreshHomeWeather}
-        onClose={() => setWeatherPopupOpen(false)}
-      />
-    ) : null}
-    <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
-    {newDeploymentOpen ? (
-      <LazyNewDeploymentModal
-        isLight={isLight}
-        nova={nova}
-        initialTab="describe"
-        onClose={closeNewDeployment}
-        onOpenDeployments={openMissions}
-        onOpenGuidedBuilder={() => router.push("/missions?create=builder&returnTo=/home")}
-        onViewAutomations={() => router.push("/missions?returnTo=/home")}
-      />
-    ) : null}
-  </div>
   )
 }

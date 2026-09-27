@@ -90,7 +90,7 @@ function providerFromValue(value: unknown): LlmProvider {
   return value === "claude" || value === "grok" || value === "gemini" ? value : "openai"
 }
 
-// The client interpolates progress between polls (see spotify-home-module), so polls only
+// The client interpolates progress between polls (see pixel-spotify-bar), so polls only
 // need to detect track/play-state changes and correct drift.
 const SPOTIFY_POLL_INTERVAL_PLAYING_MS = 4_000
 const SPOTIFY_POLL_INTERVAL_PLAYING_NEAR_END_MS = 2_000

@@ -25,7 +25,7 @@ NovaAIO is a personal AI assistant that runs on your own machine. You talk to it
 
 I built it to answer a simple question: what does an AI assistant look like when it isn't a chat box in a browser tab, but a proper desktop application with tools, memory, a scheduler, and guardrails? Everything is stored locally. API keys are encrypted at rest, and no account or hosted backend is required.
 
-**Status:** Alpha (V.79). Actively developed and used daily by the author.
+**Status:** Alpha (V.80). Actively developed and used daily by the author.
 
 ---
 
@@ -36,7 +36,7 @@ I built it to answer a simple question: what does an AI assistant look like when
 | Home | Chat |
 | :---: | :---: |
 | <img src="docs/screenshots/home.png" alt="Home dashboard" width="440"> | <img src="docs/screenshots/chat.png" alt="Chat with tool use" width="440"> |
-| Configurable dashboard with weather, schedule, notes, agent tasks, and live modules | Streaming chat with tool calls and approvals |
+| A pixel city (Harbour or isometric District view) where each building opens a panel: weather, schedule, notes, agent tasks and live modules; agent tasks walk to the workplace of the tools they use | Streaming chat with tool calls and approvals |
 
 | Deployments | Deployment Activity |
 | :---: | :---: |
@@ -107,7 +107,7 @@ Skills are plain `SKILL.md` files the assistant discovers at startup. Included: 
 In development NovaAIO runs as two cooperating processes, started together by a single launcher (`nova.js`). In the packaged desktop app, Electron's main process hosts both halves in-process: the Next.js production server (API routes included) on a loopback port and the agent runtime (`hud/electron/production-server.js`).
 
 ```
-┌──────────────────────────┐        WebSocket         ┌──────────────────────────┐
+┌──────────────────────────â”        WebSocket         ┌──────────────────────────â”
 │  HUD  (Next.js / React)  │ ◄──────────────────────► │  Agent Runtime (Node.js) │
 │  localhost:3000          │      localhost:8765      │                          │
 │                          │                          │  chat handler + routing  │

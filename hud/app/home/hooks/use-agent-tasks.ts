@@ -93,6 +93,8 @@ async function parseResponse(res: Response): Promise<TasksApiResponse> {
   }
 }
 
+export type AgentTasksState = ReturnType<typeof useAgentTasks>
+
 export function useAgentTasks(): {
   tasks: AgentTask[]
   stats: AgentTaskStats | null

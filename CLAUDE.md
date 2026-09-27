@@ -99,7 +99,7 @@ Inside the data directory:
 - `keys/master.key.dpapi` - the DPAPI-wrapped master key (see Security)
 - `user-context/{userId}/` - markdown workspace docs (SOUL/USER/AGENTS/MEMORY.md, skills/*/SKILL.md) and per-user logs. `resolveUserContextRoot()` in `src/db/paths.js` is the only way to build this path.
 - `memory.db` - agent memory index (separate SQLite file)
-- `kv_state` namespace `ui-storage` - mirrored user settings (theme, orb color, profile, ...); browser `localStorage` is just a fast cache of this. Never secrets. Electron's own browser profile (`%APPDATA%\nova-hud`) is disposable.
+- `kv_state` namespace `ui-storage` - mirrored user settings (theme, orb color, profile, Home view `app.homeScene`, ...); browser `localStorage` is just a fast cache of this. Never secrets. Electron's own browser profile (`%APPDATA%\nova-hud`) is disposable.
 
 Fresh-data release: there is no importer for the old JSON stores and no `.nova-data/` directory; old files are ignored.
 
@@ -130,6 +130,8 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 **Styling**: Tailwind CSS 4, `cn()` for conditionals, responsive `lg:` `xl:` `2xl:`
 
 ## Key Architecture
+
+**Home (pixel city)**: `/home` is a canvas pixel city (`hud/components/pixel-city/`) with two views behind one `CitySceneRenderer` interface (`types.ts`): the Harbour (`renderer.ts`) and the District (`district/`, 2:1 isometric on a 14x14 tile island: `map.ts` lots/roads/BFS pathfinding, `palette.ts` night+day, `buildings.ts` baked building sprites with live anchors, `actors.ts` agents/townsfolk/buses/train, `renderer.ts` depth-sorted slots). The view is chosen with the HUD chip and saved to `app.homeScene` (`hud/lib/settings/userSettings`). `PixelCityScene` picks an integer pixel scale per view, runs at 20 fps only while active, and renders every place as a focusable `<button>` positioned from the renderer's hotspot rects (District: the building's inscribed core, depth-ordered so the front building wins overlaps) that opens the matching `PixelWindow` popup; the safe area (HUD bar top / player bar bottom) is passed in so nothing clickable sits under either bar. All scene state comes from real hooks via `use-city-scene-state.ts` (agents = agent tasks mapped to a workplace by `workplaceForTools`; open/CLOSED places = integration connection flags; townsfolk = active chats; buses = active deployment runs). Never invent data for the city. Verify art changes with headless Playwright screenshots at 1024x768, 1920x1080 and 3840x2160, night and day
 
 **Deployments**: `/deployments` lists deployments and runs; creation happens in the `NewDeploymentModal` popup (`hud/app/deployments/components/new-deployment-modal.tsx`, opened from Home or /deployments; `?mode=` / `&kind=` deep links open it over /deployments). Simple sends a strict planning request over Nova's WebSocket path, validates the model JSON server-side, persists a versioned Mission-backed definition, then launches a task or automation. Advanced exposes provider/model/task controls plus the Mission builder/canvas. `deployments` / `deployment_runs` are canonical UI aggregates; `job_runs` is the durable attempt spine; `deployment_events` is the replayable activity log; `deployment_effects` fences graph side effects. Existing Missions project with unchanged IDs and terminal legacy Agent Tasks project as history without moving active leases.
 
@@ -166,7 +168,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 Format: `V.XX Alpha (YYYY-MM-DD)` in `lib/meta/version/index.ts`
 
-Current: **V.79 Alpha**
+Current: **V.80 Alpha**
 
 **Every new version updates all three files together — never just one:**
 

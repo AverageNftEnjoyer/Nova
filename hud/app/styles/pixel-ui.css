@@ -1,0 +1,387 @@
+/*
+ * Pixel UI: the Home city's HUD, hotspots and popup windows.
+ * Night tokens by default, day tokens under html.light. Every frame is a notched pixel box (clip-path steps),
+ * never a rounded card, and nothing glows except the scene itself.
+ */
+
+:root {
+  --px-unit: 3px;
+  --px-bg: #120f24;
+  --px-bg-2: #1b1733;
+  --px-bg-3: #251f45;
+  --px-border: #3b3470;
+  --px-border-hi: #7a6fd0;
+  --px-text: #f1ecff;
+  --px-muted: #a9a1d6;
+  --px-accent: #ffcf6a;
+  --px-accent-2: #3ff2ff;
+  --px-pink: #ff4fa0;
+  --px-green: #58f08c;
+  --px-red: #ff5a5a;
+  --px-scrim: rgba(6, 5, 16, 0.55);
+  --px-shadow: rgba(0, 0, 0, 0.45);
+}
+
+html.light {
+  --px-bg: #fdf6e8;
+  --px-bg-2: #f2e6cd;
+  --px-bg-3: #e8d8b8;
+  --px-border: #6a584c;
+  --px-border-hi: #2f78b4;
+  --px-text: #2a2230;
+  --px-muted: #6d5f6a;
+  --px-accent: #c2362e;
+  --px-accent-2: #1f78b4;
+  --px-pink: #d2407f;
+  --px-green: #1f9a55;
+  --px-red: #d23a3a;
+  --px-scrim: rgba(40, 30, 50, 0.28);
+  --px-shadow: rgba(40, 30, 60, 0.25);
+}
+
+.font-pixel {
+  font-family: var(--font-pixel), ui-monospace, monospace;
+}
+
+.font-pixel-display {
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+}
+
+/* Notched corners: the pixel-art box. */
+.pixel-notch {
+  clip-path: polygon(
+    0 var(--px-unit), var(--px-unit) var(--px-unit), var(--px-unit) 0,
+    calc(100% - var(--px-unit)) 0, calc(100% - var(--px-unit)) var(--px-unit), 100% var(--px-unit),
+    100% calc(100% - var(--px-unit)), calc(100% - var(--px-unit)) calc(100% - var(--px-unit)),
+    calc(100% - var(--px-unit)) 100%, var(--px-unit) 100%, var(--px-unit) calc(100% - var(--px-unit)),
+    0 calc(100% - var(--px-unit))
+  );
+}
+
+.pixel-box {
+  background: var(--px-bg);
+  border: var(--px-unit) solid var(--px-border);
+  box-shadow: inset calc(var(--px-unit) * -1) calc(var(--px-unit) * -1) 0 0 var(--px-bg-2);
+  color: var(--px-text);
+}
+
+/* HUD chips (top bar, footer, popup buttons). Translucent so the city shows through. */
+.pixel-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  background: color-mix(in srgb, var(--px-bg) 82%, transparent);
+  border: 2px solid var(--px-border);
+  color: var(--px-text);
+  font-family: var(--font-pixel), ui-monospace, monospace;
+  font-size: 14px;
+  line-height: 1;
+  transition: border-color 120ms steps(2), background-color 120ms steps(2), transform 80ms steps(2);
+}
+
+.pixel-chip:hover,
+.pixel-chip:focus-visible {
+  border-color: var(--px-border-hi);
+  background: color-mix(in srgb, var(--px-bg-3) 92%, transparent);
+  outline: none;
+}
+
+.pixel-chip:active {
+  transform: translateY(2px);
+}
+
+.pixel-chip[data-active="true"] {
+  border-color: var(--px-accent);
+  color: var(--px-accent);
+}
+
+.pixel-chip--icon {
+  width: 36px;
+  padding: 0;
+  justify-content: center;
+}
+
+.pixel-label {
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ── Scene hotspots ──────────────────────────────────────────────────────── */
+
+.pixel-hotspot {
+  cursor: pointer;
+  background: transparent;
+  outline: none;
+}
+
+.pixel-hotspot::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border: 2px dashed transparent;
+  pointer-events: none;
+}
+
+.pixel-hotspot:hover::before,
+.pixel-hotspot:focus-visible::before {
+  border-color: var(--px-accent);
+  animation: pixel-march 0.8s steps(2) infinite;
+}
+
+@keyframes pixel-march {
+  50% { border-color: color-mix(in srgb, var(--px-accent) 45%, transparent); }
+}
+
+.pixel-hotspot-tag {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 10px;
+  white-space: nowrap;
+  pointer-events: none;
+  background: var(--px-bg);
+  border: 2px solid var(--px-accent);
+  color: var(--px-text);
+  z-index: 5;
+}
+
+.pixel-hotspot:hover .pixel-hotspot-tag,
+.pixel-hotspot:focus-visible .pixel-hotspot-tag {
+  display: flex;
+}
+
+.pixel-hotspot-tag-label {
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--px-accent);
+}
+
+.pixel-hotspot-tag-detail {
+  font-family: var(--font-pixel), ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--px-muted);
+}
+
+/* An agent under the pointer (District): its tag replaces any building tag, and the whole scene reads as clickable. */
+.pixel-agent-tag {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 10px;
+  white-space: nowrap;
+  pointer-events: none;
+  background: var(--px-bg);
+  border: 2px solid var(--px-accent-2);
+  color: var(--px-text);
+  z-index: 6;
+}
+
+[data-agent-hover="true"] {
+  cursor: pointer;
+}
+
+[data-agent-hover="true"] .pixel-hotspot-tag {
+  display: none !important;
+}
+
+/* ── Popup windows ───────────────────────────────────────────────────────── */
+
+.pixel-window {
+  display: flex;
+  flex-direction: column;
+  background: var(--px-bg);
+  border: var(--px-unit) solid var(--px-border);
+  box-shadow: 0 0 0 var(--px-unit) var(--px-shadow);
+  color: var(--px-text);
+  animation: pixel-pop 140ms steps(3);
+}
+
+@keyframes pixel-pop {
+  from { transform: scale(0.94); opacity: 0.4; }
+}
+
+.pixel-window-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 38px;
+  flex-shrink: 0;
+  padding: 0 6px 0 12px;
+  background: var(--px-bg-3);
+  border-bottom: var(--px-unit) solid var(--px-border);
+}
+
+/* Existing modules rendered inside a pixel window: same components and behavior, pixel skin. */
+.pixel-ui {
+  font-family: var(--font-pixel), ui-monospace, monospace;
+}
+
+.pixel-ui *,
+.pixel-ui *::before,
+.pixel-ui *::after {
+  border-radius: 0 !important;
+}
+
+.pixel-ui .pixel-panel {
+  background: transparent;
+  border: 0;
+  color: var(--px-text);
+}
+
+.pixel-ui .pixel-subpanel {
+  background: var(--px-bg-2);
+  border: 2px solid var(--px-border);
+}
+
+.pixel-ui .home-spotlight-card.home-border-glow::after,
+.pixel-ui .home-global-spotlight {
+  display: none !important;
+}
+
+.pixel-ui .home-spotlight-card--hover:hover {
+  border-color: var(--px-border-hi) !important;
+  box-shadow: none !important;
+}
+
+.pixel-ui h2 {
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  letter-spacing: 0.08em;
+}
+
+.pixel-ui input,
+.pixel-ui textarea,
+.pixel-ui select {
+  border-color: var(--px-border) !important;
+  background-color: var(--px-bg-2) !important;
+  color: var(--px-text) !important;
+}
+
+.pixel-ui input:focus,
+.pixel-ui textarea:focus,
+.pixel-ui select:focus {
+  border-color: var(--px-border-hi) !important;
+  outline: none;
+}
+
+.pixel-scrim {
+  background: var(--px-scrim);
+}
+
+/* ── Footer player bar ───────────────────────────────────────────────────── */
+
+.pixel-seek {
+  position: relative;
+  height: 10px;
+  background: var(--px-bg-2);
+  border: 2px solid var(--px-border);
+  cursor: pointer;
+}
+
+.pixel-seek-fill {
+  height: 100%;
+  background: repeating-linear-gradient(90deg, var(--px-accent) 0 4px, color-mix(in srgb, var(--px-accent) 70%, var(--px-bg)) 4px 6px);
+}
+
+.pixel-seek-thumb {
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 14px;
+  transform: translate(-50%, -50%);
+  background: var(--px-text);
+  border: 2px solid var(--px-border);
+  opacity: 0;
+}
+
+.pixel-seek:focus-visible {
+  outline: 2px solid var(--px-accent);
+  outline-offset: 2px;
+}
+
+.pixel-seek:hover .pixel-seek-thumb,
+.pixel-seek:focus-visible .pixel-seek-thumb,
+.pixel-seek[data-dragging="true"] .pixel-seek-thumb {
+  opacity: 1;
+}
+
+/* HUD text sits straight on the sky, like the reference's title: a hard 2px drop keeps it readable. */
+.pixel-wordmark {
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6);
+}
+
+html.light .pixel-wordmark {
+  text-shadow: none;
+}
+
+/* A small bobbing diamond over every place, like a game's "you can use this" marker. */
+.pixel-hotspot-marker {
+  position: absolute;
+  left: 50%;
+  top: -14px;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  background: var(--px-accent);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  opacity: 0.6;
+  animation: pixel-bob 1.2s steps(2) infinite;
+  pointer-events: none;
+}
+
+.pixel-hotspot:hover .pixel-hotspot-marker,
+.pixel-hotspot:focus-visible .pixel-hotspot-marker {
+  display: none;
+}
+
+@keyframes pixel-bob {
+  50% { transform: translateY(-3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pixel-hotspot-marker,
+  .pixel-hotspot:hover::before,
+  .pixel-window {
+    animation: none;
+  }
+}
+
+/* Home modules were sized for dense glass panels; a pixel face needs a little more room to stay legible. */
+.pixel-window-body {
+  zoom: 1.14;
+}
+
+/* Night-only scenes (the District) keep night tokens even when the app theme is light. */
+.pixel-night {
+  --px-bg: #120f24;
+  --px-bg-2: #1b1733;
+  --px-bg-3: #251f45;
+  --px-border: #3b3470;
+  --px-border-hi: #7a6fd0;
+  --px-text: #f1ecff;
+  --px-muted: #a9a1d6;
+  --px-accent: #ffcf6a;
+  --px-accent-2: #3ff2ff;
+  --px-pink: #ff4fa0;
+  --px-green: #58f08c;
+  --px-red: #ff5a5a;
+  --px-scrim: rgba(6, 5, 16, 0.55);
+  --px-shadow: rgba(0, 0, 0, 0.45);
+}
+
+html.light .pixel-night .pixel-wordmark {
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6);
+}

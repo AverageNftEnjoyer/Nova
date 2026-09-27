@@ -74,6 +74,8 @@ async function parseResponse(res: Response): Promise<NotesApiResponse> {
   }
 }
 
+export type HomeNotesState = ReturnType<typeof useHomeNotes>
+
 export function useHomeNotes() {
   const [notes, setNotes] = useState<HomeNote[]>([])
   const [loading, setLoading] = useState(true)

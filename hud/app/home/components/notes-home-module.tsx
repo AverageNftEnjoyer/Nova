@@ -7,7 +7,7 @@ import { useAccent } from "@/lib/context/accent-context"
 import { ACCENT_COLORS } from "@/lib/settings/userSettings"
 import { cn } from "@/lib/shared/utils"
 import { hexToRgba } from "../helpers"
-import { useHomeNotes } from "../hooks/use-home-notes"
+import type { HomeNotesState } from "../hooks/use-home-notes"
 
 interface NotesHomeModuleProps {
   isLight: boolean
@@ -15,6 +15,8 @@ interface NotesHomeModuleProps {
   subPanelClass: string
   panelStyle: CSSProperties | undefined
   className?: string
+  /** Owned by Home, which also pins the notes on the city's laundry line. */
+  notesState: HomeNotesState
 }
 
 function formatTimeLabel(value: string): string {
@@ -83,6 +85,7 @@ export function NotesHomeModule({
   subPanelClass,
   panelStyle,
   className,
+  notesState,
 }: NotesHomeModuleProps) {
   const { accentColor } = useAccent()
   const accent = ACCENT_COLORS[accentColor] ?? ACCENT_COLORS.violet
@@ -94,7 +97,7 @@ export function NotesHomeModule({
     createNote,
     updateNote,
     deleteNote,
-  } = useHomeNotes()
+  } = notesState
 
   const [draft, setDraft] = useState("")
   const [editingId, setEditingId] = useState("")

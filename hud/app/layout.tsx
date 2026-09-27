@@ -1,6 +1,6 @@
 import type React from "react"
 import type { Metadata, Viewport } from "next"
-import { Geist, Geist_Mono } from "next/font/google"
+import { Geist, Geist_Mono, Pixelify_Sans, Silkscreen } from "next/font/google"
 import Script from "next/script"
 import { ThemeProvider } from "@/lib/context/theme-context"
 import { AccentProvider } from "@/lib/context/accent-context"
@@ -11,6 +11,9 @@ import "./globals.css"
 
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" })
+// Pixel faces for the Home city: Pixelify Sans for readable text, Silkscreen for labels and the wordmark.
+const pixelifySans = Pixelify_Sans({ subsets: ["latin"], variable: "--font-pixel" })
+const silkscreen = Silkscreen({ subsets: ["latin"], weight: ["400", "700"], variable: "--font-pixel-display" })
 
 export const metadata: Metadata = {
   title: "Nova",
@@ -38,7 +41,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased bg-page`}>
+      <body className={`${geistSans.variable} ${geistMono.variable} ${pixelifySans.variable} ${silkscreen.variable} font-sans antialiased bg-page`}>
         <Script id="nova-theme-bootstrap" strategy="beforeInteractive">
           {`(function(){try{var uid=localStorage.getItem("nova_active_user_id")||"local-user";var raw=localStorage.getItem("nova_user_settings:"+uid);if(!raw)return;var parsed=JSON.parse(raw);var setting=parsed&&parsed.app&&parsed.app.theme?parsed.app.theme:"dark";var resolved=setting==="system"?((window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"):setting;document.documentElement.classList.remove("dark","light");document.documentElement.classList.add(resolved==="light"?"light":"dark")}catch(e){}})()`}
         </Script>
