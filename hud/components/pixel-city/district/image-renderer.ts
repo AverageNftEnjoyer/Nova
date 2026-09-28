@@ -1,6 +1,5 @@
 import { drawWeatherOverlay } from "../effects"
 import { draw5, measure5 } from "../font5x7"
-import { paletteFor } from "../palette"
 import { cellNoise } from "../random"
 import {
   EMPTY_CITY_STATE,
@@ -55,6 +54,10 @@ const PX = 2
  * south-west) by 5 columns (standing, then 4 walk frames), 48 px cells. The cat sheet has the standing column only.
  */
 const SHEET_CELL = 48
+/** Characters are drawn this much larger than their sheets, so they match the painting's doors and benches. */
+const SPRITE_SCALE = 1.4
+/** Drawn size of one sheet cell in plan pixels. */
+const SPRITE_SIZE = SHEET_CELL * SPRITE_SCALE
 const SHEET_BASE = "/pixel-city/town/characters"
 const TOWNSFOLK_SHEETS = ["folk-red", "folk-blue", "folk-office", "folk-coat"] as const
 const AGENT_SHEET = "agent"
@@ -255,7 +258,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
   }
 
   /**
-   * The scene component passes the canvas's size in device pixels (the plan's 1376x768 scaled to cover the screen),
+   * The scene component passes the canvas's size in device pixels (the plan scaled to cover the screen),
    * so the painting and every sprite are drawn at screen resolution instead of being stretched afterwards.
    */
   resize(width: number, height: number): void {
@@ -280,8 +283,8 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
   hitTest(x: number, y: number): CitySceneHit | null {
     for (const w of this.walkers) {
       if (w.kind !== "agent" || !w.agent || w.leaving) continue
-      if (Math.abs(x - w.x) <= 8 && y >= w.y - 32 && y <= w.y + 2) {
-        return { kind: "agent", id: w.agent.id, label: w.agent.name, detail: this.agentDetail(w), anchorX: w.x, anchorY: w.y - 38 }
+      if (Math.abs(x - w.x) <= 12 && y >= w.y - 46 && y <= w.y + 3) {
+        return { kind: "agent", id: w.agent.id, label: w.agent.name, detail: this.agentDetail(w), anchorX: w.x, anchorY: w.y - 54 }
       }
     }
     for (let i = DISTRICT_PLACES.length - 1; i >= 0; i--) {
@@ -335,8 +338,8 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     const data = pctx.getImageData(0, 0, DISTRICT_IMAGE_WIDTH, DISTRICT_IMAGE_HEIGHT).data
     const excluded: SignRect[] = [
       HQ_SIGN,
-      ...DISTRICT_PLACES.flatMap((p) => [...p.signs, ...(p.painted ? [p.painted.rect] : [])]),
-      { x: 1000, y: 380, w: 130, h: 100 }, // fountain glow
+      ...DISTRICT_PLACES.flatMap((p) => [...p.signs, ...(p.painted ?? []).map((sign) => sign.rect)]),
+      { x: FOUNTAIN.x - 80, y: FOUNTAIN.y - 60, w: 160, h: 120 }, // fountain glow
     ]
     const inside = (x: number, y: number) => excluded.some((r) => x >= r.x - 4 && x < r.x + r.w + 4 && y >= r.y - 4 && y < r.y + r.h + 4)
     const found: Array<{ x: number; y: number }> = []
@@ -378,7 +381,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
         cctx.putImageData(img, 0, 0)
         this.unlitSigns.set(r, c)
       }
-      if (place.painted) this.paintedColors.set(place.painted, this.sampleSign(pctx, place.painted.rect))
+      for (const sign of place.painted ?? []) this.paintedColors.set(sign, this.sampleSign(pctx, sign.rect))
     }
   }
 
@@ -497,7 +500,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     this.stepWalkers(t, dt)
     this.drawWalkers(t)
     this.drawCat(t)
-    drawWeatherOverlay(ctx, paletteFor("night"), this.state.weather, DISTRICT_IMAGE_WIDTH, DISTRICT_IMAGE_HEIGHT, t, 300)
+    drawWeatherOverlay(ctx, this.state.weather, DISTRICT_IMAGE_WIDTH, DISTRICT_IMAGE_HEIGHT, t, DISTRICT_IMAGE_HEIGHT * 0.3, 3)
   }
 
   private drawWindows(t: number): void {
@@ -528,7 +531,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
           ctx.imageSmoothingEnabled = false
         }
       }
-      if (place.painted) this.drawPainted(place.painted, lit, t)
+      for (const sign of place.painted ?? []) this.drawPainted(sign, lit, t)
     }
   }
 
@@ -826,9 +829,9 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
       const cols = Math.round(sheet.image.width / SHEET_CELL)
       const col = w.moving && cols > 1 ? 1 + (Math.floor(t * 8 + Math.abs(w.lane)) % 4) : 0
       ctx.fillStyle = "rgba(0, 0, 0, 0.3)"
-      ctx.fillRect(x - 7, y - 1, 14, 3)
-      ctx.fillRect(x - 5, y - 2, 10, 5)
-      ctx.drawImage(sheet.image, col * SHEET_CELL, w.dir * SHEET_CELL, SHEET_CELL, SHEET_CELL, x - SHEET_CELL / 2, y - sheet.footY, SHEET_CELL, SHEET_CELL)
+      ctx.fillRect(x - 10, y - 1, 20, 4)
+      ctx.fillRect(x - 7, y - 2, 14, 6)
+      ctx.drawImage(sheet.image, col * SHEET_CELL, w.dir * SHEET_CELL, SHEET_CELL, SHEET_CELL, x - SPRITE_SIZE / 2, y - sheet.footY * SPRITE_SCALE, SPRITE_SIZE, SPRITE_SIZE)
       return
     }
     const step = w.moving ? Math.floor(t * 6 + w.lane) % 2 : 0
@@ -888,7 +891,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     const ctx = this.ctx
     const a = w.agent
     if (!a) return
-    const head = y - 34
+    const head = y - 48
     const bob = Math.round(Math.sin(t * 2.4 + x) * 1.5)
     // Holographic "N" chip.
     const cx = x - 5
@@ -944,7 +947,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     if (catSheet) {
       // Nova sits on the bench looking towards the fountain; asleep (runtime down), it faces the viewer.
       const row = presence === "offline" ? 0 : 7
-      ctx.drawImage(catSheet.image, 0, row * SHEET_CELL, SHEET_CELL, SHEET_CELL, x - SHEET_CELL / 2, y - catSheet.footY, SHEET_CELL, SHEET_CELL)
+      ctx.drawImage(catSheet.image, 0, row * SHEET_CELL, SHEET_CELL, SHEET_CELL, x - SPRITE_SIZE / 2, y - catSheet.footY * SPRITE_SCALE, SPRITE_SIZE, SPRITE_SIZE)
       if (presence === "offline") {
         const z = Math.floor(t * 1.2) % 3
         for (let i = 0; i <= z; i++) draw5(ctx, "Z", x + 10 + i * 5, y - 22 - i * 7, "#e8e4f8")

@@ -25,7 +25,7 @@ NovaAIO is a personal AI assistant that runs on your own machine. You talk to it
 
 I built it to answer a simple question: what does an AI assistant look like when it isn't a chat box in a browser tab, but a proper desktop application with tools, memory, a scheduler, and guardrails? Everything is stored locally. API keys are encrypted at rest, and no account or hosted backend is required.
 
-**Status:** Alpha (V.80). Actively developed and used daily by the author.
+**Status:** Alpha (V.81). Actively developed and used daily by the author.
 
 ---
 
@@ -36,7 +36,7 @@ I built it to answer a simple question: what does an AI assistant look like when
 | Home | Chat |
 | :---: | :---: |
 | <img src="docs/screenshots/home.png" alt="Home dashboard" width="440"> | <img src="docs/screenshots/chat.png" alt="Chat with tool use" width="440"> |
-| A pixel city (Harbour or isometric District view) where each building opens a panel: weather, schedule, notes, agent tasks and live modules; agent tasks walk to the workplace of the tools they use | Streaming chat with tool calls and approvals |
+| A painted night city where each building opens a panel: weather, schedule, notes, agent tasks and live modules; agent tasks walk to the workplace of the tools they use | Streaming chat with tool calls and approvals |
 
 | Deployments | Deployment Activity |
 | :---: | :---: |

@@ -10,6 +10,12 @@
  *
  * Version History:
  *
+ * - V.81 Alpha (2026-09-27): Home is the painted Nova City
+ *     - Home is one night painting (`hud/public/pixel-city/town/background.png`, mapped in `district/image-plan.ts`). The canvas covers the screen and draws live signs, walkers, buses and weather on top. The Harbour / District chip is gone.
+ *     - Removed the code-drawn Harbour (`renderer.ts`, `layout.ts`, `palette.ts`, `sprites.ts`, `font.ts`) and the generated plates it no longer uses (`district-night.png`, `town-day-clean.png`, `town-night-clean.png`). Saved `app.homeScene` is dropped on load.
+ *     - Every place is a painted building that opens its Home module: Nova HQ (Agent tasks), Depot (New deployment), Post Office (Schedule), Bank (Crypto), Odds Parlour (Polymarket), Cinema (YouTube), Power Plant (Analytics), Noticeboard (Notes), Town Hall (Integrations), Fountain Park (Chat). Each of the 15 integrations also has its own building (Records, Arcade, Cowork, Lab, Studio, Observatory, Gemini Tower, Telegraph, Clock Tower, Library, Vault); its sign is steady when connected and flickers like a faulty neon tube when not. Misspelled painted signs are relettered in the painting's own colours.
+ *     - Live layer: PixelLab-made townsfolk walk the plaza, boardwalks, stairs and park; each agent task is a Nova agent dressed for its job (lab coat, courier, trader, media crew, researcher) with a glow ring, an "N" chip and a data trail, walking from Nova HQ to the building matching its last tools, with a work bubble. The canvas draws at screen resolution; Home is always night. Smoke tests open Agent tasks through Nova HQ and New deployment through the Depot.
+ *
  * - V.80 Alpha (2026-09-26): The District, a second Home view
  *     - Home has two pixel-city views, switched with the Harbour / District chip in the HUD bar and saved to `app.homeScene` (SQLite-mirrored user settings; default Harbour). Both share the `CitySceneRenderer` interface and the same popups (`hud/components/pixel-city/`).
  *     - The District is a walkable 2:1 isometric Hi-Bit city on a 14x14 tile island (`district/`): glass towers with living walls and rooftop gardens, pastel shophouses, a Supertree grove in the park, an offshore elevated MRT with a running train and station, Marina-Bay-style waterfront promenade, and the NovaAIO Hub tower at the centre. Night and day palettes follow the app theme; the map, the buildings, the props and the ground are baked to sprites once and only what moves is drawn each frame (20 fps, paused while hidden).
@@ -529,7 +535,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.80 Alpha"
+export const NOVA_VERSION = "V.81 Alpha"
 
 
 

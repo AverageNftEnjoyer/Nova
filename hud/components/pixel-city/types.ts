@@ -1,13 +1,11 @@
-/** Live data the pixel city draws. Everything is optional-safe: an empty state renders a calm, idle city. */
-
-export type CityTimeOfDay = "day" | "night"
+/** Live data the Nova City scene draws. An empty state renders a calm, idle city. */
 
 /** Weather overlay, derived from the Home weather snapshot's WMO code. */
 export type CityWeather = "clear" | "cloudy" | "fog" | "rain" | "storm" | "snow"
 
 export type CityPresence = "online" | "listening" | "thinking" | "speaking" | "offline"
 
-/** One lit floor of the task tower, most recent first. */
+/** One lit floor of Nova HQ's tower, most urgent task first. */
 export type CityTaskLight = "running" | "queued" | "paused" | "failed" | "completed"
 
 export interface CityTickerItem {
@@ -34,10 +32,10 @@ export type CityIntegration =
   | "phantom"
   | "polymarket"
 
-/** Buildings in the District where agents do their jobs; most stand for one or more integrations. */
+/** Buildings where agents do their jobs; most stand for one or more integrations. */
 export type CityWorkplace = "hq" | "lab" | "comms" | "post" | "bank" | "parlour" | "cinema" | "library" | "power" | "depot"
 
-/** A deployed agent (an agent task) walking the District. */
+/** A deployed agent (an agent task) walking the city. */
 export interface CityAgent {
   id: string
   name: string
@@ -47,31 +45,19 @@ export interface CityAgent {
 }
 
 export interface CitySceneState {
-  timeOfDay: CityTimeOfDay
   weather: CityWeather
   presence: CityPresence
-  /** Up to five task floors, lit from the top of the tower down. */
+  /** Up to five task floors on Nova HQ, lit from the top down. */
   taskLights: CityTaskLight[]
-  /** Active deployment runs; each one is a ferry crossing the harbour (capped by the renderer). */
+  /** Active deployment runs; each one is a bus on the roads (capped by the renderer). */
   activeRuns: number
-  /** Scrolling billboard text on the tenement. */
+  /** Crypto ticker on the bus shelter. */
   ticker: CityTickerItem[]
-  /** One flag per integration; each lights one antenna LED. */
-  integrations: boolean[]
-  polymarketConnected: boolean
-  youtubeConnected: boolean
-  /** Pinned notes on the laundry line (capped by the renderer). */
+  /** Pinned papers on the noticeboard (capped by the renderer). */
   notesCount: number
-  /** Today's model spend, shown on the water tank's LED meter. */
-  costTodayUsd: number | null
-  budgetAlert: boolean
-  /** Active conversations: letters the pigeons carry. */
-  conversationsCount: number
-  /** District only: agents on the streets (capped by the renderer). */
+  /** Agents on the streets (capped by the renderer). */
   agents: CityAgent[]
-  /** District only: workplaces whose integration is connected (the rest are dark with a CLOSED sign). */
-  openWorkplaces: CityWorkplace[]
-  /** District only: connected integrations; each one's building has its sign lit. */
+  /** Connected integrations; each one's building has its sign steadily lit. */
   connectedIntegrations: CityIntegration[]
 }
 
@@ -87,52 +73,40 @@ export type CityHotspotId =
   | "integrations"
   | "chat"
 
-/** Anything clickable in a city view: a Home place, or (District) one integration's own building. */
+/** Anything clickable in the city: a Home place, or one integration's own building. */
 export type CityPlaceId = CityHotspotId | `integration-${CityIntegration}`
 
-/** Hotspot rectangle in logical scene pixels. */
+/** Hotspot rectangle in the scene's plan pixels. */
 export interface CityRect {
   x: number
   y: number
   w: number
   h: number
-  /**
-   * Where the bobbing marker sits, in logical pixels of the scene. Isometric buildings only fill the middle of
-   * their bounding rect, so without this the marker would float in the air behind the roof. Default: rect top centre.
-   */
+  /** Where the bobbing marker sits, in plan pixels. Default: rect top centre. */
   markerX?: number
   markerY?: number
 }
 
 export const EMPTY_CITY_STATE: CitySceneState = {
-  timeOfDay: "night",
   weather: "clear",
   presence: "online",
   taskLights: [],
   activeRuns: 0,
   ticker: [],
-  integrations: [],
-  polymarketConnected: false,
-  youtubeConnected: false,
   notesCount: 0,
-  costTodayUsd: null,
-  budgetAlert: false,
-  conversationsCount: 0,
   agents: [],
-  openWorkplaces: [],
   connectedIntegrations: [],
 }
 
-/** What the pointer is over: a place (opens its popup) or an agent. Anchor is the logical point for a tag. */
+/** What the pointer is over: a place (opens its popup) or an agent. Anchor is the plan point for a tag. */
 export type CitySceneHit =
   | { kind: "hotspot"; id: CityPlaceId }
   | { kind: "agent"; id: string; label: string; detail: string; anchorX: number; anchorY: number }
 
-/** The contract every city view implements, so one scene component can host either. */
+/** What the scene component needs from the city renderer. */
 export interface CitySceneRenderer {
-  /** Logical pixels covered by the HUD bar (top) and the player bar (bottom): nothing clickable is placed there. */
-  setSafeArea?(top: number, bottom: number): void
-  resize(width: number, height: number, cityKey: string): void
+  /** Canvas size in device pixels. */
+  resize(width: number, height: number): void
   setState(state: CitySceneState): void
   render(timeSeconds: number): void
   hotspots(): Partial<Record<CityPlaceId, CityRect>>

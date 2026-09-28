@@ -1,4 +1,4 @@
-export { PixelCityScene, type CityHotspot, type CitySafeArea, type CitySceneKind } from "./pixel-city-scene"
+export { PixelCityScene, type CityHotspot } from "./pixel-city-scene"
 export { EMPTY_CITY_STATE } from "./types"
 export type { CityAgent, CityHotspotId, CityIntegration, CityPlaceId, CityPresence, CitySceneState, CityTaskLight, CityTickerItem, CityWeather, CityWorkplace } from "./types"
 export { workplaceForTools } from "./district/workplace"

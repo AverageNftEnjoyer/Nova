@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { Anchor, Building2, CloudSun, ExternalLink, Moon, Settings, Sun, SunMoon } from "lucide-react"
+import { CloudSun, ExternalLink, Settings } from "lucide-react"
 import {
   BraveIcon,
   ClaudeIcon,
@@ -21,16 +21,15 @@ import {
   YouTubeIcon,
   XAIIcon,
 } from "@/components/icons"
-import { DISTRICT_PLACES, PixelCityScene, type CityHotspot, type CityHotspotId, type CityIntegration, type CityPlaceId, type CitySafeArea } from "@/components/pixel-city"
+import { DISTRICT_PLACES, PixelCityScene, type CityHotspot, type CityHotspotId, type CityIntegration, type CityPlaceId } from "@/components/pixel-city"
 import { SettingsModal } from "@/components/settings/settings-modal"
 import { WindowControls } from "@/components/window/window-controls"
 import { isRunActive, useDeploymentsData } from "@/app/deployments/hooks/use-deployments-data"
 import { LazyNewDeploymentModal, preloadNewDeploymentModal } from "@/app/deployments/components/new-deployment-modal-lazy"
-import { useTheme } from "@/lib/context/theme-context"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { usePageActive } from "@/lib/hooks/use-page-active"
 import { NOVA_VERSION } from "@/lib/meta/version"
-import { loadUserSettings, updateAppSettings, USER_SETTINGS_UPDATED_EVENT, type HomeScene } from "@/lib/settings/userSettings"
+import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
 import { cn } from "@/lib/shared/utils"
 import { useAgentTasks } from "../hooks/use-agent-tasks"
 import { useCitySceneState } from "../hooks/use-city-scene-state"
@@ -57,28 +56,10 @@ const NO_PANEL_STYLE: CSSProperties | undefined = undefined
 const DRAG: CSSProperties = { WebkitAppRegion: "drag" } as CSSProperties
 const NO_DRAG: CSSProperties = { WebkitAppRegion: "no-drag" } as CSSProperties
 const FALLBACK_CITY = "Nova City"
-/** CSS pixels the HUD bar (h-16) and the player bar (h-16 + pb-3) cover; the scene keeps clickable places clear of them. */
-const SAFE_AREA: CitySafeArea = { top: 64, bottom: 76 }
-
-/** What each place is called in each view; the popup title and the hotspot label agree. */
-const PLACE_NAMES: Record<HomeScene, Record<CityHotspotId, string>> = {
-  harbour: {
-    tasks: "Nova Tower",
-    deploy: "Harbour Pier",
-    schedule: "Clock Tower",
-    crypto: "Ticker Board",
-    polymarket: "Odds Parlour",
-    youtube: "Rooftop Cinema",
-    analytics: "Meter Tank",
-    notes: "Laundry Line",
-    integrations: "Antenna Array",
-    chat: "",
-  },
-  // The District's names come from its painted buildings (components/pixel-city/district/image-plan.ts).
-  district: Object.fromEntries(
-    DISTRICT_PLACES.filter((place) => !place.id.startsWith("integration-")).map((place) => [place.id, place.name]),
-  ) as Record<CityHotspotId, string>,
-}
+/** What each place is called: its painted building in Nova City (components/pixel-city/district/image-plan.ts). */
+const PLACE_NAMES = Object.fromEntries(
+  DISTRICT_PLACES.filter((place) => !place.id.startsWith("integration-")).map((place) => [place.id, place.name]),
+) as Record<CityHotspotId, string>
 
 function formatCost(usd: number): string {
   if (usd <= 0) return "$0.00"
@@ -89,7 +70,6 @@ function formatCost(usd: number): string {
 export function HomeMainScreen() {
   const router = useRouter()
   const pageActive = usePageActive()
-  const { themeSetting, setThemeSetting } = useTheme()
   const home = useHomeMainScreenState()
   const agentTasks = useAgentTasks()
   const deployments = useDeploymentsData()
@@ -101,10 +81,8 @@ export function HomeMainScreen() {
   const [weatherPopupOpen, setWeatherPopupOpen] = useState(false)
   const [profileName, setProfileName] = useState("User")
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null)
-  const [homeScene, setHomeScene] = useState<HomeScene>("harbour")
-  const isDistrict = homeScene === "district"
-  // The District is a night scene: Home and its popups use night colours there whatever the app theme says.
-  const isLight = !isDistrict && home.muteHydrated && home.isLight
+  // Nova City is a night scene: Home and its popups use night colours whatever the app theme says.
+  const isLight = false
   const assistantName = home.assistantName
 
   useEffect(() => {
@@ -112,18 +90,11 @@ export function HomeMainScreen() {
       const settings = loadUserSettings()
       setProfileName(settings.profile?.name?.trim() || "User")
       setProfileAvatar(settings.profile?.avatar || null)
-      setHomeScene(settings.app.homeScene)
     }
     syncProfile()
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, syncProfile as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncProfile as EventListener)
   }, [])
-
-  const switchScene = useCallback(() => {
-    const next: HomeScene = homeScene === "harbour" ? "district" : "harbour"
-    setHomeScene(next)
-    updateAppSettings({ homeScene: next })
-  }, [homeScene])
 
   const integrationNodes: IntegrationNode[] = [
     { icon: <TelegramIcon className="w-4 h-4" />, connected: home.telegramConnected, label: "Telegram", setup: "telegram" },
@@ -152,37 +123,22 @@ export function HomeMainScreen() {
   const activeConversations = home.conversations.filter((conversation) => !conversation.archived).length
 
   const sceneState = useCitySceneState({
-    isLight,
     weatherCode: home.homeWeather?.weatherCode ?? null,
     connected: home.connected,
     novaState: home.novaState,
     tasks,
     activeRuns,
     cryptoAssets: home.cryptoAssets,
-    integrations: integrationNodes.map((node) => node.connected),
-    polymarketConnected: home.polymarketConnected,
-    youtubeConnected: home.youtubeConnected,
-    workplaces: {
-      llm: home.openaiConnected || home.claudeConnected || home.grokConnected || home.geminiConnected,
-      comms: home.telegramConnected || home.discordConnected || home.slackConnected,
-      mail: home.gmailConnected || home.gcalendarConnected,
-      wallet: home.coinbaseConnected || home.phantomConnected,
-      polymarket: home.polymarketConnected,
-      media: home.youtubeConnected || home.spotifyConnected,
-    },
     notesCount: notesState.notes.length,
-    costTodayUsd: summary ? summary.costUsd : null,
-    budgetAlert: Boolean(summary && (summary.budgetWarning > 0 || summary.budgetExhausted > 0)),
-    conversationsCount: activeConversations,
     connectedIntegrations: integrationNodes.filter((node) => node.connected).map((node) => node.setup as CityIntegration),
   })
 
   const presence = getNovaPresence({ agentConnected: home.connected, novaState: home.novaState })
   const btc = home.cryptoAssets.find((asset) => asset.symbol.toUpperCase() === "BTC")
-  const names = PLACE_NAMES[homeScene]
+  const names = PLACE_NAMES
   const hotspots: CityHotspot[] = [
     { id: "tasks", label: names.tasks, detail: runningTasks || waitingTasks ? `${runningTasks} running · ${waitingTasks} waiting` : "Agent tasks · idle" },
-    { id: "deploy", label: names.deploy, detail: activeRuns ? `${activeRuns} deployment${activeRuns === 1 ? "" : "s"} ${isDistrict ? "on the road" : "sailing"}` : "New deployment" },
+    { id: "deploy", label: names.deploy, detail: activeRuns ? `${activeRuns} deployment${activeRuns === 1 ? "" : "s"} on the road` : "New deployment" },
     { id: "schedule", label: names.schedule, detail: "Schedule" },
     { id: "crypto", label: names.crypto, detail: btc && btc.price > 0 ? `BTC ${formatUsdCompact(btc.price)}` : "Crypto prices" },
     { id: "polymarket", label: names.polymarket, detail: home.polymarketConnected ? "Polymarket live lines" : "Polymarket · not connected" },
@@ -190,17 +146,15 @@ export function HomeMainScreen() {
     { id: "analytics", label: names.analytics, detail: summary ? `${formatCost(summary.costUsd)} today` : "Analytics" },
     { id: "notes", label: names.notes, detail: `${notesState.notes.length} note${notesState.notes.length === 1 ? "" : "s"}` },
     { id: "integrations", label: names.integrations, detail: `${connectedCount}/${integrationNodes.length} connected` },
-    { id: "chat", label: isDistrict ? `${assistantName} · Park` : assistantName, detail: `${presence.label.toLowerCase()} · ${activeConversations} chat${activeConversations === 1 ? "" : "s"}` },
+    { id: "chat", label: `${assistantName} · Park`, detail: `${presence.label.toLowerCase()} · ${activeConversations} chat${activeConversations === 1 ? "" : "s"}` },
   ]
 
-  // District only: every integration also has its own building. Its label says whether it is connected.
-  if (isDistrict) {
-    for (const place of DISTRICT_PLACES) {
-      if (!place.id.startsWith("integration-") || !place.integration) continue
-      const node = integrationNodes.find((candidate) => candidate.setup === place.integration)
-      if (!node) continue
-      hotspots.push({ id: place.id, label: `${place.name} · ${node.label}`, detail: node.connected ? "Connected" : "Not connected · click to set up" })
-    }
+  // Every integration also has its own building. Its label says whether it is connected.
+  for (const place of DISTRICT_PLACES) {
+    if (!place.id.startsWith("integration-") || !place.integration) continue
+    const node = integrationNodes.find((candidate) => candidate.setup === place.integration)
+    if (!node) continue
+    hotspots.push({ id: place.id, label: `${place.name} · ${node.label}`, detail: node.connected ? "Connected" : "Not connected · click to set up" })
   }
 
   const openHotspot = useCallback(
@@ -225,8 +179,6 @@ export function HomeMainScreen() {
 
   const cityName = home.preferredWeatherCity?.trim() || FALLBACK_CITY
   const cityLabel = home.homeWeather?.locationLabel || cityName
-  const cycleSkyMode = () => setThemeSetting(themeSetting === "system" ? (isLight ? "dark" : "light") : themeSetting === "light" ? "dark" : "system")
-  const skyModeLabel = themeSetting === "system" ? "Sky follows your system" : isLight ? "Daytime (click for night)" : "Night (click for auto)"
 
   const pageAction = (label: string, onClick: () => void) => (
     <button type="button" onClick={onClick} className="pixel-chip h-7! px-2! text-[13px]!" title={label}>
@@ -349,8 +301,8 @@ export function HomeMainScreen() {
 
   const weather = home.homeWeather
   return (
-    <div className={cn("relative h-dvh overflow-hidden", isDistrict && "pixel-night", isLight ? "bg-[#88c7f1]" : "bg-[#0a0c24]")}>
-      <PixelCityScene scene={homeScene} cityKey={cityName} state={sceneState} hotspots={hotspots} safeArea={SAFE_AREA} active={pageActive} onHotspot={openHotspot} />
+    <div className="pixel-night relative h-dvh overflow-hidden bg-[#0a0c24]">
+      <PixelCityScene state={sceneState} hotspots={hotspots} active={pageActive} onHotspot={openHotspot} />
 
       {/* HUD: wordmark top-left, everything about the user top-right. The bar doubles as the window drag area. */}
       <header className="absolute inset-x-0 top-0 z-10 flex h-16 items-start justify-between gap-4 px-4 pt-3" style={DRAG}>
@@ -361,11 +313,10 @@ export function HomeMainScreen() {
           </button>
           <p className="pixel-wordmark mt-1 flex items-center gap-2 font-pixel text-[14px] text-(--px-muted)">
             <span className={cn("h-2 w-2 shrink-0", presence.dotClassName)} aria-hidden="true" />
-            {/* Presence colors are tuned for the night sky; by day the label uses the HUD text color. */}
-            <span className={isLight ? "text-(--px-text)" : presence.textClassName}>{presence.label}</span>
+            <span className={presence.textClassName}>{presence.label}</span>
             <span aria-hidden="true">·</span>
             <span className="truncate">
-              {cityLabel} {isLight ? "by day" : "after dark"}
+              {cityLabel} after dark
             </span>
           </p>
         </div>
@@ -386,20 +337,6 @@ export function HomeMainScreen() {
                   ? "—"
                   : "Set city"}
             </span>
-          </button>
-          <button
-            type="button"
-            onClick={switchScene}
-            className="pixel-chip"
-            title={isDistrict ? "The District · click for the Harbour" : "The Harbour · click for the District"}
-            aria-label={isDistrict ? "Switch Home view to the Harbour" : "Switch Home view to the District"}
-            aria-pressed={isDistrict}
-          >
-            {isDistrict ? <Building2 className="h-4 w-4 text-(--px-accent)" /> : <Anchor className="h-4 w-4 text-(--px-accent)" />}
-            <span className="hidden md:inline">{isDistrict ? "District" : "Harbour"}</span>
-          </button>
-          <button type="button" onClick={cycleSkyMode} className="pixel-chip pixel-chip--icon" title={skyModeLabel} aria-label={skyModeLabel}>
-            {themeSetting === "system" ? <SunMoon className="h-4 w-4" /> : isLight ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
           <div className="pixel-chip pl-1.5!">
             <span className="grid h-6 w-6 place-items-center overflow-hidden border-2 border-(--px-border) bg-(--px-bg-2) text-[12px]">
