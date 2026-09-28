@@ -17,17 +17,6 @@ export interface SignRect {
   h: number
 }
 
-/**
- * A sign whose lettering in the image is wrong. The renderer repaints it in the image's own style: the board and
- * letter colours are sampled from the original sign, the letters get the same neon glow.
- */
-export interface PaintedSign {
-  rect: SignRect
-  text: string
-  /** Letters stacked top to bottom (hanging banners). */
-  vertical?: boolean
-}
-
 export interface DistrictPlace {
   id: CityPlaceId
   /** What the building is called on screen and in its popup. */
@@ -37,8 +26,6 @@ export interface DistrictPlace {
   integration?: CityIntegration
   /** The image's own signs for this building; a disconnected integration's sign flickers like a faulty tube. */
   signs: SignRect[]
-  /** Signs whose lettering the renderer repaints (the painting spelled them wrong). */
-  painted?: PaintedSign[]
 }
 
 export const DISTRICT_PLACES: readonly DistrictPlace[] = [
@@ -56,16 +43,14 @@ export const DISTRICT_PLACES: readonly DistrictPlace[] = [
     name: "Odds Parlour",
     hit: { x: 1040, y: 370, w: 80, h: 190 },
     integration: "polymarket",
-    signs: [],
-    painted: [{ rect: { x: 1046, y: 382, w: 62, h: 48 }, text: "ODDS" }],
+    signs: [{ x: 1046, y: 382, w: 62, h: 48 }],
   },
   {
     id: "youtube",
     name: "Cinema",
     hit: { x: 790, y: 330, w: 150, h: 230 },
     integration: "youtube",
-    signs: [{ x: 790, y: 408, w: 104, h: 64 }],
-    painted: [{ rect: { x: 906, y: 356, w: 32, h: 136 }, text: "CINEMA", vertical: true }],
+    signs: [{ x: 790, y: 408, w: 104, h: 64 }, { x: 906, y: 356, w: 32, h: 136 }],
   },
 
   // One building per integration (the rest).
@@ -74,8 +59,7 @@ export const DISTRICT_PLACES: readonly DistrictPlace[] = [
     name: "Records",
     hit: { x: 940, y: 420, w: 100, h: 140 },
     integration: "spotify",
-    signs: [],
-    painted: [{ rect: { x: 946, y: 436, w: 96, h: 52 }, text: "RECORDS" }],
+    signs: [{ x: 946, y: 436, w: 96, h: 52 }],
   },
   { id: "integration-discord", name: "Arcade", hit: { x: 545, y: 460, w: 260, h: 240 }, integration: "discord", signs: [{ x: 668, y: 498, w: 132, h: 72 }] },
   { id: "integration-slack", name: "Cowork", hit: { x: 1630, y: 90, w: 300, h: 330 }, integration: "slack", signs: [{ x: 1745, y: 150, w: 124, h: 60 }] },
@@ -88,8 +72,7 @@ export const DISTRICT_PLACES: readonly DistrictPlace[] = [
     name: "Telegraph",
     hit: { x: 1870, y: 60, w: 210, h: 420 },
     integration: "telegram",
-    signs: [],
-    painted: [{ rect: { x: 1872, y: 330, w: 92, h: 34 }, text: "TELEGRAPH" }],
+    signs: [{ x: 1872, y: 330, w: 92, h: 34 }],
   },
   { id: "integration-gmail-calendar", name: "Clock Tower", hit: { x: 1680, y: 530, w: 130, h: 470 }, integration: "gmail-calendar", signs: [] },
   { id: "integration-brave", name: "Library", hit: { x: 2060, y: 1150, w: 180, h: 160 }, integration: "brave", signs: [{ x: 2072, y: 1162, w: 156, h: 50 }] },
@@ -102,52 +85,59 @@ export type WalkNodeId = string
 
 /** Walkable points on the plaza, cobbled streets, boardwalks, stairs, park loop and sidewalks. */
 export const WALK_NODES: Readonly<Record<WalkNodeId, readonly [number, number]>> = {
+  // Feet positions on open paving. A walker's body rises about 36 px above its node, so every node and every
+  // straight run between two nodes stays in front of (south of) the buildings it passes, never across a roof.
   g: [1300, 668], // Nova HQ's door
-  p1: [1130, 730], // plaza, under the NOVA arch
-  p2: [1480, 670], // plaza, east
-  p3: [1350, 770], // plaza, south
-  c1: [990, 640], // cobbled street
-  cin: [900, 570], // Cinema, Records and Odds doors
-  arc: [735, 700], // Arcade door
-  s1: [640, 470],
+  pw: [1230, 735], // round plaza, west
+  p2: [1480, 670], // round plaza, east
+  p3: [1350, 770], // round plaza, south
+  arch: [1090, 800], // through the NOVA arch, below its sign
+  sq: [880, 830], // lower cobbled square
+  arc: [735, 705], // Arcade door
+  n1: [845, 560], // lane between the Arcade and the Cinema
+  cin: [900, 585], // Cinema, Records and Odds doors
+  s1: [650, 445], // cobbled street, north of the Arcade
   stu: [540, 470], // Studio door
   obs: [300, 455], // Observatory steps
-  bw1: [1010, 830], // boardwalk
-  bw2: [800, 940],
-  bw3: [610, 1030], // top of the stairs
+  bw1: [990, 880], // boardwalk (the square's south edge)
+  bw2: [840, 960],
+  bw3: [650, 1060], // top of the stairs
   str1: [560, 1170], // bottom of the stairs
-  sw1: [720, 1240], // sidewalk
+  sw1: [720, 1240], // crossing
   nts: [930, 1270], // noticeboard
   th: [1190, 1250], // Town Hall steps
   gem: [1450, 1270], // Gemini Tower
-  sw0: [420, 1300], // bus stop
+  sb1: [1640, 1352], // sidewalk under the viaduct
+  sb2: [2000, 1352],
+  lib: [2150, 1300], // Library board
+  vlt: [2410, 1240], // Vault door
+  sw0: [390, 1325], // bus stop
   pst: [260, 1270], // Post Office door
-  e1: [1560, 580], // deck stairs
+  e1: [1560, 580], // stairs up to the lantern deck
   lab: [1570, 470], // Lab door
   cow: [1760, 440], // Cowork door
   deck: [1880, 470], // lantern deck
   tel: [1980, 440], // Telegraph door
-  bnk: [2170, 490], // Bank door
-  pwr: [2390, 640], // Power Plant door
-  k0: [1820, 560], // park loop
-  k1: [1790, 660],
+  bnk: [2170, 515], // Bank steps
+  pd: [2250, 585], // deck between the Bank and the Power Plant
+  pwr: [2385, 615], // Power Plant door
+  k0: [1910, 660], // dirt path just east of the clock tower
+  k1: [1880, 740],
   k2: [1950, 580],
   k3: [2040, 700],
   k4: [1880, 780],
-  fnt: [1905, 700], // by the fountain
+  fnt: [1905, 705], // by the fountain
   pk5: [1880, 880],
   dep: [1960, 1030], // Depot platform
-  g2: [2250, 1080], // under the viaduct
-  vlt: [2410, 1235], // Vault door
-  lib: [2150, 1300], // Library board
 }
 
 export const WALK_EDGES: ReadonlyArray<readonly [WalkNodeId, WalkNodeId]> = [
-  ["g", "p1"], ["g", "p2"], ["p1", "p3"], ["p2", "p3"],
-  ["p1", "c1"], ["c1", "cin"], ["cin", "s1"], ["c1", "arc"], ["s1", "stu"], ["stu", "obs"],
-  ["p1", "bw1"], ["bw1", "bw2"], ["bw2", "bw3"], ["bw3", "str1"], ["str1", "sw1"], ["sw1", "nts"], ["nts", "th"], ["th", "gem"], ["str1", "sw0"], ["sw0", "pst"],
-  ["p2", "e1"], ["e1", "lab"], ["e1", "k0"], ["lab", "cow"], ["cow", "deck"], ["deck", "tel"], ["deck", "k0"], ["tel", "bnk"], ["bnk", "pwr"],
-  ["k0", "k1"], ["k0", "k2"], ["k1", "k4"], ["k2", "k3"], ["k3", "k4"], ["k1", "fnt"], ["k4", "pk5"], ["pk5", "dep"], ["dep", "g2"], ["g2", "vlt"], ["g2", "lib"],
+  ["g", "pw"], ["g", "p2"], ["pw", "p3"], ["p2", "p3"], ["pw", "arch"], ["arch", "sq"],
+  ["sq", "arc"], ["sq", "cin"], ["cin", "n1"], ["n1", "s1"], ["s1", "stu"], ["stu", "obs"],
+  ["sq", "bw1"], ["bw1", "bw2"], ["bw2", "bw3"], ["bw3", "str1"], ["str1", "sw1"], ["sw1", "nts"], ["nts", "th"], ["th", "gem"],
+  ["gem", "sb1"], ["sb1", "sb2"], ["sb2", "lib"], ["lib", "vlt"], ["str1", "sw0"], ["sw0", "pst"],
+  ["p2", "e1"], ["e1", "lab"], ["lab", "cow"], ["cow", "deck"], ["deck", "tel"], ["deck", "k0"], ["tel", "bnk"], ["bnk", "pd"], ["pd", "pwr"],
+  ["k0", "k1"], ["k0", "k2"], ["k1", "k4"], ["k2", "k3"], ["k3", "k4"], ["k1", "fnt"], ["k4", "pk5"], ["pk5", "dep"],
 ]
 
 /** Where agents report for work at each workplace. */

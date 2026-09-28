@@ -55,7 +55,6 @@ const PIXEL_SUBPANEL = "pixel-subpanel"
 const NO_PANEL_STYLE: CSSProperties | undefined = undefined
 const DRAG: CSSProperties = { WebkitAppRegion: "drag" } as CSSProperties
 const NO_DRAG: CSSProperties = { WebkitAppRegion: "no-drag" } as CSSProperties
-const FALLBACK_CITY = "Nova City"
 /** What each place is called: its painted building in Nova City (components/pixel-city/district/image-plan.ts). */
 const PLACE_NAMES = Object.fromEntries(
   DISTRICT_PLACES.filter((place) => !place.id.startsWith("integration-")).map((place) => [place.id, place.name]),
@@ -177,8 +176,6 @@ export function HomeMainScreen() {
   )
   const closePlace = useCallback(() => setOpenPlace(null), [])
 
-  const cityName = home.preferredWeatherCity?.trim() || FALLBACK_CITY
-  const cityLabel = home.homeWeather?.locationLabel || cityName
 
   const pageAction = (label: string, onClick: () => void) => (
     <button type="button" onClick={onClick} className="pixel-chip h-7! px-2! text-[13px]!" title={label}>
@@ -314,10 +311,6 @@ export function HomeMainScreen() {
           <p className="pixel-wordmark mt-1 flex items-center gap-2 font-pixel text-[14px] text-(--px-muted)">
             <span className={cn("h-2 w-2 shrink-0", presence.dotClassName)} aria-hidden="true" />
             <span className={presence.textClassName}>{presence.label}</span>
-            <span aria-hidden="true">·</span>
-            <span className="truncate">
-              {cityLabel} after dark
-            </span>
           </p>
         </div>
 

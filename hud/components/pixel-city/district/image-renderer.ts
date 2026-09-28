@@ -10,7 +10,6 @@ import {
   type CitySceneRenderer,
   type CitySceneState,
   type CityTaskLight,
-  type CityWorkplace,
 } from "../types"
 import {
   CAT_SPOT,
@@ -30,16 +29,17 @@ import {
   WALK_NODES,
   WORKPLACE_DOOR,
   WORKPLACE_NAME,
-  type PaintedSign,
   type SignRect,
   type WalkNodeId,
 } from "./image-plan"
+import { PERSON_HEIGHT, agentLook, drawCat as paintCat, drawPerson, type PersonLook } from "./people"
 
 /**
  * The District view: the painted night city, brought to life. The image is drawn at its native size and every live
  * element is painted on top in image pixels (the scene component scales the canvas to cover the screen):
  * signs lit or dark by integration status, twinkling windows, task floors on Nova HQ, the noticeboard's notes, the
- * crypto ticker, the power meter, the fountain, cars and buses, townsfolk, and one walking character per agent task.
+ * crypto ticker, the power meter, the fountain, cars and buses, and the people from `people.ts` (townsfolk, and one
+ * figure per agent task).
  */
 
 const TOWNSFOLK = 14
@@ -47,65 +47,13 @@ const MAX_AGENTS = 12
 const MAX_BUSES = 3
 const WINDOW_CELL = 4
 const WINDOW_BUCKET_SECONDS = 4
-/** Art pixels in the painting are about 2 image pixels, so the fallback figures are drawn at 2x. */
-const PX = 2
-/**
- * PixelLab character sheets: 8 direction rows (south, south-east, east, north-east, north, north-west, west,
- * south-west) by 5 columns (standing, then 4 walk frames), 48 px cells. The cat sheet has the standing column only.
- */
-const SHEET_CELL = 48
-/** Characters are drawn this much larger than their sheets, so they match the painting's doors and benches. */
-const SPRITE_SCALE = 1.4
-/** Drawn size of one sheet cell in plan pixels. */
-const SPRITE_SIZE = SHEET_CELL * SPRITE_SCALE
-const SHEET_BASE = "/pixel-city/town/characters"
-const TOWNSFOLK_SHEETS = ["folk-red", "folk-blue", "folk-office", "folk-coat"] as const
-const AGENT_SHEET = "agent"
-const CAT_SHEET = "cat"
-/**
- * Agents dress for the job they are doing: every outfit shares the Nova look (teal accents, glowing cyan visor).
- * Workplaces without their own outfit use the base agent.
- */
-const ROLE_SHEET: Readonly<Record<CityWorkplace, string>> = {
-  hq: AGENT_SHEET,
-  lab: "agent-lab",
-  comms: "agent-courier",
-  post: "agent-courier",
-  bank: "agent-trader",
-  parlour: "agent-trader",
-  cinema: "agent-media",
-  library: "agent-research",
-  power: AGENT_SHEET,
-  depot: AGENT_SHEET,
-}
-const ROLE_SHEETS = Array.from(new Set(Object.values(ROLE_SHEET)))
-const NOVA_CYAN = "#3ff2e0"
+const NOVA_CYAN = "#7ef6ea"
 const TRAIL_LENGTH = 12
-
-/** Tiny work icons (7x7) shown in an agent's bubble while it works: what the job is, at a glance. */
-const WORK_ICON: Readonly<Record<CityWorkplace, readonly string[]>> = {
-  hq: ["1.....1", "11....1", "1.1...1", "1..1..1", "1...1.1", "1....11", "1.....1"],
-  lab: ["..111..", "...1...", "...1...", "..1.1..", ".1...1.", "1.111.1", "1111111"],
-  comms: ["1111111", "11...11", "1.1.1.1", "1..1..1", "1.....1", "1.....1", "1111111"],
-  post: ["1111111", "11...11", "1.1.1.1", "1..1..1", "1.....1", "1.....1", "1111111"],
-  bank: ["..111..", ".1.1.1.", ".1.1...", "..111..", "...1.1.", ".1.1.1.", "..111.."],
-  parlour: ["......1", ".....11", "1...1.1", "11.1..1", "1.1...1", "1.....1", "1111111"],
-  cinema: ["1......", "11.....", "111....", "1111...", "111....", "11.....", "1......"],
-  library: ["111.111", "1.1.1.1", "1.1.1.1", "1.1.1.1", "1.1.1.1", "111.111", "..111.."],
-  power: ["...11..", "..11...", ".11....", "111111.", "...11..", "..11...", ".11...."],
-  depot: [".11111.", "1.1.1.1", "1111111", "1111111", "1111111", ".1...1.", "......."],
-}
 
 /** Sheet row for a movement direction on screen (y grows downward). */
 function directionRow(dx: number, dy: number): number {
   const octant = ((Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) % 8) + 8) % 8
   return (10 - octant) % 8
-}
-
-interface CharacterSheet {
-  image: HTMLImageElement
-  /** Lowest opaque row of the standing south frame: where the feet are inside a cell. */
-  footY: number
 }
 
 type Point = { x: number; y: number }
@@ -166,8 +114,7 @@ interface Walker {
   hair: string
   skin: string
   moving: boolean
-  sheet: string
-  /** Sheet row the character faces. */
+  /** 0 south, then clockwise-ish: the isometric facing is derived from this. */
   dir: number
   // Agents only.
   agent?: CityAgent
@@ -201,12 +148,9 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
   private windows: Array<{ x: number; y: number }> = []
   /** Each image sign with its neon switched off (bright pixels dimmed), shown when a disconnected sign flickers. */
   private unlitSigns = new Map<SignRect, HTMLCanvasElement>()
-  /** Board and letter colours sampled from the image under each repainted sign. */
-  private paintedColors = new Map<PaintedSign, { board: string; letters: string }>()
   private walkers: Walker[] = []
   private lastT = 0
   private seed = 1
-  private sheets = new Map<string, CharacterSheet>()
   /** Device pixels per plan pixel: the canvas draws at screen resolution, the plan stays in image coordinates. */
   private k = 1
 
@@ -225,36 +169,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
       this.render(performance.now() / 1000)
     }
     img.src = DISTRICT_IMAGE_SRC
-    for (const name of [...TOWNSFOLK_SHEETS, ...ROLE_SHEETS, CAT_SHEET]) this.loadSheet(name)
     for (let i = 0; i < TOWNSFOLK; i++) this.walkers.push(this.spawnTownsfolk(i))
-  }
-
-  private loadSheet(name: string): void {
-    const image = new Image()
-    image.onload = () => {
-      // Find the feet: the lowest opaque row of the first cell.
-      let footY = SHEET_CELL - 4
-      const probe = document.createElement("canvas")
-      probe.width = SHEET_CELL
-      probe.height = SHEET_CELL
-      const pctx = probe.getContext("2d")
-      if (pctx) {
-        pctx.drawImage(image, 0, 0, SHEET_CELL, SHEET_CELL, 0, 0, SHEET_CELL, SHEET_CELL)
-        const data = pctx.getImageData(0, 0, SHEET_CELL, SHEET_CELL).data
-        for (let y = SHEET_CELL - 1; y >= 0; y--) {
-          let opaque = false
-          for (let x = 0; x < SHEET_CELL; x++) if (data[(y * SHEET_CELL + x) * 4 + 3] > 40) opaque = true
-          if (opaque) {
-            footY = y
-            break
-          }
-        }
-      }
-      this.sheets.set(name, { image, footY })
-    }
-    // A missing sheet just keeps the fallback figure.
-    image.onerror = () => undefined
-    image.src = `${SHEET_BASE}/${name}.png`
   }
 
   /**
@@ -283,8 +198,8 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
   hitTest(x: number, y: number): CitySceneHit | null {
     for (const w of this.walkers) {
       if (w.kind !== "agent" || !w.agent || w.leaving) continue
-      if (Math.abs(x - w.x) <= 12 && y >= w.y - 46 && y <= w.y + 3) {
-        return { kind: "agent", id: w.agent.id, label: w.agent.name, detail: this.agentDetail(w), anchorX: w.x, anchorY: w.y - 54 }
+      if (Math.abs(x - w.x) <= 12 && y >= w.y - PERSON_HEIGHT && y <= w.y + 4) {
+        return { kind: "agent", id: w.agent.id, label: w.agent.name, detail: this.agentDetail(w), anchorX: w.x, anchorY: w.y - PERSON_HEIGHT - 4 }
       }
     }
     for (let i = DISTRICT_PLACES.length - 1; i >= 0; i--) {
@@ -321,7 +236,6 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
       hair: pick(HAIR, cellNoise(i, 7, 91)),
       skin: pick(SKIN, cellNoise(i, 8, 91)),
       moving: false,
-      sheet: TOWNSFOLK_SHEETS[i % TOWNSFOLK_SHEETS.length],
       dir: 0,
     }
   }
@@ -338,7 +252,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     const data = pctx.getImageData(0, 0, DISTRICT_IMAGE_WIDTH, DISTRICT_IMAGE_HEIGHT).data
     const excluded: SignRect[] = [
       HQ_SIGN,
-      ...DISTRICT_PLACES.flatMap((p) => [...p.signs, ...(p.painted ?? []).map((sign) => sign.rect)]),
+      ...DISTRICT_PLACES.flatMap((p) => p.signs),
       { x: FOUNTAIN.x - 80, y: FOUNTAIN.y - 60, w: 160, h: 120 }, // fountain glow
     ]
     const inside = (x: number, y: number) => excluded.some((r) => x >= r.x - 4 && x < r.x + r.w + 4 && y >= r.y - 4 && y < r.y + r.h + 4)
@@ -381,25 +295,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
         cctx.putImageData(img, 0, 0)
         this.unlitSigns.set(r, c)
       }
-      for (const sign of place.painted ?? []) this.paintedColors.set(sign, this.sampleSign(pctx, sign.rect))
     }
-  }
-
-  /** The dark board and the bright lettering of the sign that was painted there, as CSS colours. */
-  private sampleSign(pctx: CanvasRenderingContext2D, rect: SignRect): { board: string; letters: string } {
-    // Only the middle of the sign: the edges of the rect catch pavement, trees and walls.
-    const ix = Math.round(rect.w * 0.2)
-    const iy = Math.round(rect.h * 0.2)
-    const px = pctx.getImageData(rect.x + ix, rect.y + iy, Math.max(1, rect.w - ix * 2), Math.max(1, rect.h - iy * 2)).data
-    const samples: Array<[number, number, number, number]> = []
-    for (let o = 0; o < px.length; o += 4) samples.push([0.3 * px[o] + 0.59 * px[o + 1] + 0.11 * px[o + 2], px[o], px[o + 1], px[o + 2]])
-    samples.sort((a, b) => a[0] - b[0])
-    const avg = (from: number, to: number) => {
-      const slice = samples.slice(Math.floor(samples.length * from), Math.max(Math.floor(samples.length * from) + 1, Math.floor(samples.length * to)))
-      const sum = slice.reduce((acc, p) => [acc[0] + p[1], acc[1] + p[2], acc[2] + p[3]], [0, 0, 0])
-      return `rgb(${Math.round(sum[0] / slice.length)}, ${Math.round(sum[1] / slice.length)}, ${Math.round(sum[2] / slice.length)})`
-    }
-    return { board: avg(0.1, 0.45), letters: avg(0.93, 1) }
   }
 
   // ── Agents ──────────────────────────────────────────────────────────────────
@@ -417,7 +313,6 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
       }
       const changed = next.status !== w.agent.status || next.workplace !== w.agent.workplace
       w.agent = next
-      w.sheet = ROLE_SHEET[next.workplace]
       if (changed) this.sendTo(w, isHome(next) ? WORKPLACE_DOOR.hq : WORKPLACE_DOOR[next.workplace])
     }
     const present = new Set(this.walkers.filter((w) => w.kind === "agent" && w.agent).map((w) => w.agent?.id))
@@ -441,7 +336,6 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
         hair: "#12302e",
         skin: pick(SKIN, cellNoise(i, 9, 17)),
         moving: false,
-        sheet: ROLE_SHEET[agent.workplace],
         dir: 0,
         trail: [],
         agent,
@@ -531,7 +425,6 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
           ctx.imageSmoothingEnabled = false
         }
       }
-      for (const sign of place.painted ?? []) this.drawPainted(sign, lit, t)
     }
   }
 
@@ -543,44 +436,6 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     if (lit) return cellNoise(Math.floor(t * 9), salt, 5) < 0.012
     const cycle = (t + cellNoise(salt, 1, 9) * 9) % 9
     return cycle < 0.5 && Math.floor(t * 12) % 3 !== 0
-  }
-
-  private drawPainted(sign: PaintedSign, lit: boolean, t: number): void {
-    const ctx = this.ctx
-    const colors = this.paintedColors.get(sign)
-    if (!colors) return
-    const { x, y, w, h } = sign.rect
-    // Cover the wrong lettering with the sign's own board colour, then letter it in the sign's own ink.
-    ctx.fillStyle = colors.board
-    ctx.fillRect(x, y, w, h)
-    const off = this.flickersOff(lit, t, x)
-    const ink = off ? colors.board : colors.letters
-    const drawText = (dx: number, dy: number, color: string) => {
-      ctx.fillStyle = color
-      if (sign.vertical) {
-        const scale = h >= sign.text.length * 16 - 2 ? 2 : 1
-        const step = 7 * scale + 2
-        const top = y + Math.floor((h - (sign.text.length * step - 2)) / 2)
-        sign.text.split("").forEach((ch, i) => draw5(ctx, ch, x + dx + Math.floor((w - 5 * scale) / 2), top + dy + i * step, color, scale))
-      } else {
-        // Condensed 2x lettering (5 px glyphs, 1 px gaps) when it fits, like the painted signs; 1x otherwise.
-        const fits2 = sign.text.length * 11 - 1 <= w - 2 && h >= 16
-        if (fits2) {
-          const total = sign.text.length * 11 - 1
-          sign.text.split("").forEach((ch, i) => draw5(ctx, ch, x + dx + Math.floor((w - total) / 2) + i * 11, y + dy + Math.floor((h - 14) / 2), color, 2))
-        } else {
-          const tw = measure5(sign.text)
-          draw5(ctx, sign.text, x + dx + Math.floor((w - tw) / 2), y + dy + Math.floor((h - 7) / 2), color)
-        }
-      }
-    }
-    if (!off) {
-      // Neon halo: the letters bleed a soft glow onto the board.
-      ctx.globalAlpha = 0.28
-      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) drawText(dx, dy, colors.letters)
-      ctx.globalAlpha = 1
-    }
-    drawText(0, 0, ink)
   }
 
   private taskColor(light: CityTaskLight, t: number, i: number): string {
@@ -641,8 +496,11 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
   private drawTicker(t: number): void {
     const ctx = this.ctx
     const b = TICKER_BOARD
-    ctx.fillStyle = "#0a0d10"
+    ctx.fillStyle = "rgba(16, 28, 40, 0.72)"
     ctx.fillRect(b.x, b.y, b.w, b.h)
+    ctx.fillStyle = "#8aa4b8"
+    ctx.fillRect(b.x, b.y, b.w, 1)
+    ctx.fillRect(b.x, b.y + b.h - 1, b.w, 1)
     const items = this.state.ticker.length > 0 ? this.state.ticker : [{ label: "NOVA", value: "MARKETS", up: true }]
     const gap = 14
     const segments = items.map((it) => ({ text: `${it.label} ${it.value}`, up: it.up }))
@@ -653,7 +511,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
       let x = b.x + 2 - offset + pass * total
       for (const s of segments) {
         if (x > clip.x1) break
-        draw5(ctx, s.text, x, b.y + 3, s.up ? "#58f08c" : "#ff5a5a", 1, clip)
+        draw5(ctx, s.text, x, b.y + 3, s.up ? "#7dffb0" : "#ff7a7a", 1, clip)
         x += measure5(s.text) + gap
       }
     }
@@ -816,179 +674,75 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
       const alpha = w.fade !== undefined ? Math.max(0, 1 - (t - w.fade) / 2) : 1
       this.ctx.globalAlpha = alpha
       if (w.kind === "agent") this.drawAgentAura(x, y, w, t)
-      this.drawPerson(x, y, w, t)
+      this.paintWalker(x, y, w, t)
       this.ctx.globalAlpha = 1
       if (w.kind === "agent" && w.agent && alpha > 0.2) this.drawAgentBadge(x, y, w, t)
     }
   }
 
-  private drawPerson(x: number, y: number, w: Walker, t: number): void {
-    const ctx = this.ctx
-    const sheet = this.sheets.get(w.sheet) ?? (w.kind === "agent" ? this.sheets.get(AGENT_SHEET) : undefined)
-    if (sheet) {
-      const cols = Math.round(sheet.image.width / SHEET_CELL)
-      const col = w.moving && cols > 1 ? 1 + (Math.floor(t * 8 + Math.abs(w.lane)) % 4) : 0
-      ctx.fillStyle = "rgba(0, 0, 0, 0.3)"
-      ctx.fillRect(x - 10, y - 1, 20, 4)
-      ctx.fillRect(x - 7, y - 2, 14, 6)
-      ctx.drawImage(sheet.image, col * SHEET_CELL, w.dir * SHEET_CELL, SHEET_CELL, SHEET_CELL, x - SPRITE_SIZE / 2, y - sheet.footY * SPRITE_SCALE, SPRITE_SIZE, SPRITE_SIZE)
-      return
-    }
-    const step = w.moving ? Math.floor(t * 6 + w.lane) % 2 : 0
-    const rows = [
-      ".hhh.",
-      "hsssh",
-      w.kind === "agent" ? ".vvv." : ".sss.",
-      "ccccc",
-      "ccccc",
-      "scccs",
-      ".ppp.",
-      step === 0 ? ".p.p." : "..pp.",
-      step === 0 ? ".p.p." : ".p..p",
-      step === 0 ? ".k.k." : ".k..k",
-    ]
-    const colors: Record<string, string> = { h: w.hair, s: w.skin, v: "#e8fffd", c: w.shirt, p: w.pants, k: "#141018" }
-    const left = x - Math.floor((5 * PX) / 2)
-    const top = y - rows.length * PX
-    ctx.fillStyle = "rgba(0,0,0,0.35)"
-    ctx.fillRect(left, y - 1, 5 * PX, 3)
-    rows.forEach((row, r) => {
-      for (let c = 0; c < 5; c++) {
-        const key = row[c]
-        if (key === ".") continue
-        ctx.fillStyle = colors[key]
-        ctx.fillRect(left + c * PX, top + r * PX, PX, PX)
-      }
-    })
-    // Shading: the right column of the shirt is a touch darker.
-    ctx.fillStyle = "rgba(0,0,0,0.22)"
-    ctx.fillRect(left + 4 * PX, top + 3 * PX, PX, 3 * PX)
+  private paintWalker(x: number, y: number, w: Walker, t: number): void {
+    const look: PersonLook =
+      w.kind === "agent" && w.agent
+        ? agentLook(w.agent.workplace)
+        : { hair: w.hair, skin: w.skin, shirt: w.shirt, pants: w.pants, agent: false }
+    drawPerson(this.ctx, x, y, w.dir, w.moving, t, look)
   }
 
   /** Under an agent: a pulsing cyan ring, and a fading data trail behind it while it walks. */
   private drawAgentAura(x: number, y: number, w: Walker, t: number): void {
     const ctx = this.ctx
+    const fade = ctx.globalAlpha
     const trail = w.moving ? (w.trail ?? []) : []
     trail.forEach((p, i) => {
-      ctx.globalAlpha = ((i + 1) / trail.length) * 0.55
-      ctx.fillStyle = i % 2 === 0 ? NOVA_CYAN : "#e8fffd"
-      ctx.fillRect(Math.round(p.x) - 1, Math.round(p.y) - 1, 2, 2)
+      ctx.globalAlpha = fade * ((i + 1) / trail.length) * 0.35
+      ctx.fillStyle = NOVA_CYAN
+      ctx.fillRect(Math.round(p.x), Math.round(p.y), 2, 2)
     })
     const pulse = (Math.sin(t * 3 + x) + 1) / 2
-    ctx.globalAlpha = 0.35 + pulse * 0.3
+    ctx.globalAlpha = fade * (0.28 + pulse * 0.2)
     ctx.fillStyle = NOVA_CYAN
-    ctx.fillRect(x - 8, y - 1, 16, 1)
-    ctx.fillRect(x - 10, y, 2, 1)
-    ctx.fillRect(x + 8, y, 2, 1)
-    ctx.fillRect(x - 8, y + 1, 16, 1)
-    ctx.globalAlpha = 0.12 + pulse * 0.1
-    ctx.fillRect(x - 9, y - 1, 18, 3)
-    ctx.globalAlpha = 1
+    ctx.fillRect(x - 6, y, 12, 2)
+    ctx.globalAlpha = fade
   }
 
-  /** Above an agent: a floating Nova chip, and while it works, a bubble with its job's icon or its status. */
+  /** A small mark above an agent that is waiting, paused, or failed. Working agents are the visor and the ground glow. */
   private drawAgentBadge(x: number, y: number, w: Walker, t: number): void {
     const ctx = this.ctx
     const a = w.agent
-    if (!a) return
-    const head = y - 48
-    const bob = Math.round(Math.sin(t * 2.4 + x) * 1.5)
-    // Holographic "N" chip.
-    const cx = x - 5
-    const cy = head - 12 + bob
-    ctx.globalAlpha = 0.85 - (Math.floor(t * 10 + x) % 17 === 0 ? 0.4 : 0)
-    ctx.fillStyle = "#06201e"
-    ctx.fillRect(cx, cy, 11, 11)
+    if (!a || w.moving || w.leaving) return
+    if (a.status !== "paused" && a.status !== "failed" && a.status !== "queued") return
+    const by = y - PERSON_HEIGHT - 8 + Math.round(Math.sin(t * 2.4 + x) * 1)
+    ctx.fillStyle = "#14101c"
+    ctx.fillRect(x - 4, by, 9, 9)
     ctx.fillStyle = NOVA_CYAN
-    ctx.fillRect(cx, cy, 11, 1)
-    ctx.fillRect(cx, cy + 10, 11, 1)
-    ctx.fillRect(cx, cy, 1, 11)
-    ctx.fillRect(cx + 10, cy, 1, 11)
-    draw5(ctx, "N", cx + 3, cy + 2, "#e8fffd")
-    ctx.globalAlpha = 0.18
-    ctx.fillStyle = NOVA_CYAN
-    ctx.fillRect(cx - 2, cy - 2, 15, 15)
-    ctx.globalAlpha = 1
-    if (w.moving || w.leaving) return
-    // Work bubble to the right of the chip.
-    const bx = x + 8
-    const by = head - 16
-    ctx.fillStyle = "#f4f1e8"
-    ctx.fillRect(bx, by, 13, 11)
-    ctx.fillRect(bx - 2, by + 8, 3, 2)
-    ctx.fillStyle = "#1a1626"
-    ctx.fillRect(bx, by + 11, 13, 1)
-    if (a.status === "paused") {
-      draw5(ctx, "!", bx + 4, by + 2, "#c88a10")
-    } else if (a.status === "failed") {
-      draw5(ctx, "X", bx + 4, by + 2, "#d23a3a")
-    } else if (a.status === "completed") {
-      ctx.fillStyle = "#1f9a55"
-      ;[[2, 5], [3, 6], [4, 7], [5, 6], [6, 5], [7, 4], [8, 3], [9, 2]].forEach(([dx, dy]) => ctx.fillRect(bx + dx, by + dy, 2, 2))
-    } else if (a.status === "queued") {
-      draw5(ctx, "...", bx - 1, by + 2, "#5a6a8a")
-    } else {
-      // Working: the job's icon, pulsing gently.
-      ctx.globalAlpha = 0.75 + 0.25 * Math.sin(t * 4)
-      const icon = WORK_ICON[a.workplace]
-      ctx.fillStyle = "#127a72"
-      icon.forEach((row, ry) => {
-        for (let rx = 0; rx < row.length; rx++) if (row[rx] === "1") ctx.fillRect(bx + 3 + rx, by + 2 + ry, 1, 1)
-      })
-      ctx.globalAlpha = 1
-    }
+    ctx.fillRect(x - 4, by, 9, 1)
+    if (a.status === "paused") draw5(ctx, "!", x - 1, by + 2, "#ffc24a")
+    else if (a.status === "failed") draw5(ctx, "X", x - 1, by + 2, "#ff6a6a")
+    else draw5(ctx, ".", x + 1, by + 2, "#8fd4ff")
   }
 
   private drawCat(t: number): void {
     const ctx = this.ctx
     const { x, y } = CAT_SPOT
     const presence = this.state.presence
-    const catSheet = this.sheets.get(CAT_SHEET)
-    if (catSheet) {
-      // Nova sits on the bench looking towards the fountain; asleep (runtime down), it faces the viewer.
-      const row = presence === "offline" ? 0 : 7
-      ctx.drawImage(catSheet.image, 0, row * SHEET_CELL, SHEET_CELL, SHEET_CELL, x - SPRITE_SIZE / 2, y - catSheet.footY * SPRITE_SCALE, SPRITE_SIZE, SPRITE_SIZE)
-      if (presence === "offline") {
-        const z = Math.floor(t * 1.2) % 3
-        for (let i = 0; i <= z; i++) draw5(ctx, "Z", x + 10 + i * 5, y - 22 - i * 7, "#e8e4f8")
-        return
-      }
-    }
-    const cat = "#0d0a12"
-    if (!catSheet && presence === "offline") {
-      ctx.fillStyle = cat
-      ctx.fillRect(x - 6, y - 4, 13, 5)
-      ctx.fillRect(x - 5, y - 6, 2, 2)
-      ctx.fillRect(x - 1, y - 6, 2, 2)
+    paintCat(ctx, x, y, presence === "offline" && Math.floor(t * 1.5) % 2 === 0)
+    if (presence === "offline") {
       const z = Math.floor(t * 1.2) % 3
-      for (let i = 0; i <= z; i++) draw5(ctx, "Z", x + 8 + i * 5, y - 12 - i * 7, "#e8e4f8")
+      for (let i = 0; i <= z; i++) draw5(ctx, "Z", x + 8 + i * 5, y - 16 - i * 6, "#e8e4f8")
       return
     }
-    if (!catSheet) {
-      ctx.fillStyle = cat
-      ctx.fillRect(x - 4, y - 10, 9, 10)
-      ctx.fillRect(x - 4, y - 13, 2, 3)
-      ctx.fillRect(x + 3, y - 13, 2, 3)
-      const sway = Math.round(Math.sin(t * (presence === "thinking" ? 4 : 1.6)) * 2)
-      ctx.fillRect(x + 5, y - 2, 3, 2)
-      ctx.fillRect(x + 7 + Math.max(0, sway), y - 5 + Math.min(0, sway), 2, 4)
-      ctx.fillStyle = "#b8ff6a"
-      ctx.fillRect(x - 2, y - 8, 1, 1)
-      ctx.fillRect(x + 2, y - 8, 1, 1)
-    }
     if (presence === "thinking" || presence === "speaking") {
-      ctx.fillStyle = "#f4f1e8"
-      ctx.fillRect(x - 2, y - 34, 17, 11)
-      ctx.fillRect(x + 2, y - 23, 3, 2)
+      ctx.fillStyle = "#14101c"
+      ctx.fillRect(x + 6, y - 22, 12, 8)
+      ctx.fillStyle = NOVA_CYAN
+      ctx.fillRect(x + 6, y - 22, 12, 1)
       if (presence === "thinking") {
         const dots = 1 + (Math.floor(t * 2.5) % 3)
-        ctx.fillStyle = "#3a3446"
-        for (let i = 0; i < dots; i++) ctx.fillRect(x + 1 + i * 4, y - 29, 2, 2)
+        ctx.fillStyle = "#e8e4f8"
+        for (let i = 0; i < dots; i++) ctx.fillRect(x + 8 + i * 3, y - 18, 2, 2)
       } else {
-        ctx.fillStyle = "#c88a10"
-        ctx.fillRect(x + 6, y - 33, 2, 7)
-        ctx.fillRect(x + 4, y - 28, 3, 2)
-        ctx.fillRect(x + 8, y - 33, 3, 1)
+        ctx.fillStyle = "#ffc24a"
+        ctx.fillRect(x + 10, y - 20, 2, 5)
       }
     }
   }

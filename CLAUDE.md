@@ -131,7 +131,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 ## Key Architecture
 
-**Home (Nova City)**: `/home` is one painted night city (`hud/public/pixel-city/town/background.png`, mapped in `hud/components/pixel-city/district/image-plan.ts`). `PixelCityScene` covers the screen with that image and runs at 20 fps only while active. Live signs, walkers, buses and weather are drawn on top in image pixels. Every place is a focusable `<button>` positioned from the renderer's hotspot rects (depth-ordered so the front building wins overlaps) that opens the matching `PixelWindow` popup. All scene state comes from real hooks via `use-city-scene-state.ts` (agents = agent tasks mapped to a workplace by `workplaceForTools`; sign light = integration connection flags; buses = active deployment runs). Never invent data for the city. Verify art changes with headless Playwright screenshots at 1024x768, 1920x1080 and 3840x2160
+**Home (Nova City)**: `/home` is one painted night city (`hud/public/pixel-city/town/background.png`, mapped in `hud/components/pixel-city/district/image-plan.ts`). `PixelCityScene` covers the screen with that image and runs at 20 fps only while active. Live signs, walkers, buses and weather are drawn on top in image pixels. Walkers and Nova the cat are drawn on that painting's 2px grid (`district/people.ts`); an agent task wears the Nova suit and a cyan visor. Every place is a focusable `<button>` positioned from the renderer's hotspot rects (depth-ordered so the front building wins overlaps) that opens the matching `PixelWindow` popup. All scene state comes from real hooks via `use-city-scene-state.ts` (agents = agent tasks mapped to a workplace by `workplaceForTools`; sign light = integration connection flags; buses = active deployment runs). Never invent data for the city. Verify art changes with headless Playwright screenshots at 1024x768, 1920x1080 and 3840x2160
 
 **Deployments**: `/deployments` lists deployments and runs; creation happens in the `NewDeploymentModal` popup (`hud/app/deployments/components/new-deployment-modal.tsx`, opened from Home or /deployments; `?mode=` / `&kind=` deep links open it over /deployments). Simple sends a strict planning request over Nova's WebSocket path, validates the model JSON server-side, persists a versioned Mission-backed definition, then launches a task or automation. Advanced exposes provider/model/task controls plus the Mission builder/canvas. `deployments` / `deployment_runs` are canonical UI aggregates; `job_runs` is the durable attempt spine; `deployment_events` is the replayable activity log; `deployment_effects` fences graph side effects. Existing Missions project with unchanged IDs and terminal legacy Agent Tasks project as history without moving active leases.
 
@@ -168,7 +168,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 Format: `V.XX Alpha (YYYY-MM-DD)` in `lib/meta/version/index.ts`
 
-Current: **V.81 Alpha**
+Current: **V.82 Alpha**
 
 **Every new version updates all three files together — never just one:**
 

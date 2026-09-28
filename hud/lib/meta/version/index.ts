@@ -10,6 +10,10 @@
  *
  * Version History:
  *
+ * - V.82 Alpha (2026-09-28): Nova City people match the painting
+ *     - Walkers are drawn on the night painting's own 2px grid (`district/people.ts`) instead of the separate character sheets. Townsfolk wear the city's coat colours. Each agent task is the same figure in a Nova suit with a cyan visor (a white coat at the Lab, a dark suit at the Bank and Odds Parlour). The floating "N" chip and white work bubble are gone; a paused, failed or queued agent keeps a small mark. Nova the cat on the park bench is drawn the same way.
+ *     - The park path no longer crosses the clock tower: it comes down off the lantern deck onto the dirt path. The bus-shelter ticker is a glass strip instead of a black plate, and the painting's own signs are left as painted.
+ *
  * - V.81 Alpha (2026-09-27): Home is the painted Nova City
  *     - Home is one night painting (`hud/public/pixel-city/town/background.png`, mapped in `district/image-plan.ts`). The canvas covers the screen and draws live signs, walkers, buses and weather on top. The Harbour / District chip is gone.
  *     - Removed the code-drawn Harbour (`renderer.ts`, `layout.ts`, `palette.ts`, `sprites.ts`, `font.ts`) and the generated plates it no longer uses (`district-night.png`, `town-day-clean.png`, `town-night-clean.png`). Saved `app.homeScene` is dropped on load.
@@ -535,7 +539,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.81 Alpha"
+export const NOVA_VERSION = "V.82 Alpha"
 
 
 
