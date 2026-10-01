@@ -22,46 +22,43 @@ import {
   DISTRICT_IMAGE_WIDTH,
   DISTRICT_OCCLUDERS,
   DISTRICT_PLACES,
+  DISTRICT_SEA_COLOR,
   FOUNTAIN,
+  HARBOUR_LANES,
   HQ_FLOORS,
-  HQ_FLOORS_RIGHT,
+  HQ_PANEL,
   HQ_SIGN,
   INTEGRATION_DOOR,
-  LAMPS,
   NOTICE_FACE,
-  ROADS,
   TICKER_BOARD,
   WALK_EDGES,
   WALK_NODES,
   WORKPLACE_DOOR,
   WORKPLACE_NAME,
   type PlanPoint,
-  type SignRect,
   type WalkNodeId,
 } from "./image-plan"
 import { CAT_HEIGHT, PERSON_HEIGHT, agentLook, drawCat as paintCat, drawPerson, loadPeopleArt, type PersonLook } from "./people"
 
 /**
- * The District view: the painted night city, brought to life. The image is drawn at its native size and every live
+ * The District view: the painted daytime city, brought to life. The image is drawn at its native size and every live
  * element is painted on top in image pixels (the scene component scales the canvas to cover the screen):
- * signs lit or dark by integration status, twinkling windows, task floors on Nova HQ, the noticeboard's notes, the
- * crypto ticker, the power meter, the fountain, cars and buses, and the people from `people.ts`: only real residents
- * (one figure per agent task, one worker per connected integration), so a city with nothing deployed or connected
- * has empty streets.
+ * status badges on the integration buildings, task floors on Nova HQ, the noticeboard's notes, the crypto ticker, the
+ * fountain's spray, boats for active deployment runs, and the people from `people.ts`: only real residents (one figure
+ * per agent task, one worker per connected integration), so a city with nothing deployed or connected has empty streets.
  */
 
 /** Fade-in of a resident who appears (a new task, a newly connected integration). */
 const APPEAR_SECONDS = 0.8
 /** Click box around a figure's feet (plan px), generous so a resident is easy to hit. */
-const AGENT_HIT_HALF_WIDTH = 16
+const AGENT_HIT_HALF_WIDTH = 9
 const MAX_AGENTS = 12
 const MAX_WORKERS = 16
-const MAX_BUSES = 3
-const WINDOW_CELL = 4
-const WINDOW_BUCKET_SECONDS = 4
-const NOVA_CYAN = "#7ef6ea"
-/** Height of the park bench's seat above CAT_SPOT (where the bench stands), in plan pixels. */
-const CAT_SEAT_LIFT = 9
+const MAX_BOATS = HARBOUR_LANES.length
+/** The Nova teal of an agent's visor, ground ring and data trail; a deep tone so it reads on the tan paving. */
+const NOVA_CYAN = "#12c9b8"
+const NOVA_CYAN_LIGHT = "#7ef6ea"
+const INK = "#1b1530"
 const TRAIL_LENGTH = 12
 
 /** Sheet row for a movement direction on screen (y grows downward). */
@@ -157,9 +154,9 @@ function baseAt(base: ReadonlyArray<PlanPoint>, x: number): number {
 }
 
 /** Box around a figure standing at (x, y), wide enough for the sprite cell, its shadow and an agent's ground ring. */
-const FIGURE_HALF_WIDTH = 30
-const FIGURE_HEADROOM = 10
-const FIGURE_FOOTROOM = 8
+const FIGURE_HALF_WIDTH = 14
+const FIGURE_HEADROOM = 5
+const FIGURE_FOOTROOM = 4
 
 // ── Walkers ───────────────────────────────────────────────────────────────────
 
@@ -209,7 +206,6 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
   private image: HTMLImageElement | null = null
   private ready = false
   private state: CitySceneState = EMPTY_CITY_STATE
-  private windows: Array<{ x: number; y: number }> = []
   private walkers: Walker[] = []
   /** Structures redrawn over walkers standing behind them (see DISTRICT_OCCLUDERS). */
   private readonly occluders: OccluderClip[] = buildOccluders()
@@ -232,7 +228,6 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     img.onload = () => {
       this.image = img
       this.ready = true
-      this.findWindows()
       this.render(performance.now() / 1000)
     }
     img.src = DISTRICT_IMAGE_SRC
@@ -278,10 +273,10 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
       .filter((w) => this.clickable(w))
       .map((w) => ({ w, at: drawnAt(w) }))
       .sort((a, b) => b.at.y - a.at.y)
-    const over = (at: Point, halfWidth: number) => Math.abs(x - at.x) <= halfWidth && y >= at.y - PERSON_HEIGHT - 6 && y <= at.y + 6
+    const over = (at: Point, halfWidth: number) => Math.abs(x - at.x) <= halfWidth && y >= at.y - PERSON_HEIGHT - 4 && y <= at.y + 4
     for (const { w, at } of people) {
       if (!over(at, AGENT_HIT_HALF_WIDTH)) continue
-      return { kind: "resident", id: w.id, label: this.nameOf(w), detail: this.detailOf(w), anchorX: at.x, anchorY: at.y - PERSON_HEIGHT - 4 }
+      return { kind: "resident", id: w.id, label: this.nameOf(w), detail: this.detailOf(w), anchorX: at.x, anchorY: at.y - PERSON_HEIGHT - 2 }
     }
     for (let i = DISTRICT_PLACES.length - 1; i >= 0; i--) {
       const r = DISTRICT_PLACES[i].hit
@@ -350,52 +345,17 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
         path: [start],
         seg: 0,
         segT: 0,
-        speed: 16 + cellNoise(i, 1, 91) * 8,
+        speed: 9 + cellNoise(i, 1, 91) * 5,
         idleUntil: 4 + cellNoise(i, 2, 91) * 12,
         x: start.x,
         y: start.y,
-        lane: ((i % 5) - 2) * 6,
+        lane: ((i % 5) - 2) * 3,
         moving: false,
         dir: 0,
         worker,
         appear: Number.NaN,
       })
     })
-  }
-
-  /** Finds lit windows (warm, bright 4x4 cells) once, so some can switch off and on over time. */
-  private findWindows(): void {
-    if (!this.image) return
-    const probe = document.createElement("canvas")
-    probe.width = DISTRICT_IMAGE_WIDTH
-    probe.height = DISTRICT_IMAGE_HEIGHT
-    const pctx = probe.getContext("2d")
-    if (!pctx) return
-    pctx.drawImage(this.image, 0, 0, DISTRICT_IMAGE_WIDTH, DISTRICT_IMAGE_HEIGHT)
-    const data = pctx.getImageData(0, 0, DISTRICT_IMAGE_WIDTH, DISTRICT_IMAGE_HEIGHT).data
-    const excluded: SignRect[] = [
-      HQ_SIGN,
-      ...DISTRICT_PLACES.flatMap((p) => p.signs),
-      { x: FOUNTAIN.x - 80, y: FOUNTAIN.y - 60, w: 160, h: 120 }, // fountain glow
-    ]
-    const inside = (x: number, y: number) => excluded.some((r) => x >= r.x - 4 && x < r.x + r.w + 4 && y >= r.y - 4 && y < r.y + r.h + 4)
-    const found: Array<{ x: number; y: number }> = []
-    for (let y = 100; y < DISTRICT_IMAGE_HEIGHT - WINDOW_CELL; y += WINDOW_CELL) {
-      for (let x = 0; x < DISTRICT_IMAGE_WIDTH - WINDOW_CELL; x += WINDOW_CELL) {
-        let warm = 0
-        for (let dy = 0; dy < WINDOW_CELL; dy++) {
-          for (let dx = 0; dx < WINDOW_CELL; dx++) {
-            const o = ((y + dy) * DISTRICT_IMAGE_WIDTH + (x + dx)) * 4
-            const r = data[o]
-            const g = data[o + 1]
-            const b = data[o + 2]
-            if (r > 200 && g > 140 && b < 150 && r - b > 90) warm++
-          }
-        }
-        if (warm >= 12 && !inside(x, y)) found.push({ x, y })
-      }
-    }
-    this.windows = found
   }
 
   // ── Agents ──────────────────────────────────────────────────────────────────
@@ -426,11 +386,11 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
         path: [start],
         seg: 0,
         segT: 0,
-        speed: 24,
+        speed: 13,
         idleUntil: 0,
         x: start.x,
         y: start.y,
-        lane: ((i % 5) - 2) * 5,
+        lane: ((i % 5) - 2) * 3,
         moving: false,
         dir: 0,
         trail: [],
@@ -481,39 +441,56 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     // covers) those pixels must not keep the previous frame.
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+    // The sea continues past the painting's edges, so zooming out or panning shows open water, never a hole.
+    ctx.fillStyle = DISTRICT_SEA_COLOR
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
     ctx.setTransform(this.k, 0, 0, this.k, -this.camX * this.k, -this.camY * this.k)
-    if (!this.ready || !this.image) {
-      ctx.fillStyle = "#120f24"
-      ctx.fillRect(0, 0, DISTRICT_IMAGE_WIDTH, DISTRICT_IMAGE_HEIGHT)
-      return
-    }
+    if (!this.ready || !this.image) return
     // The painting is scaled smoothly (from its full source resolution); sprites and signs stay pixel-sharp.
     ctx.imageSmoothingEnabled = true
     ctx.imageSmoothingQuality = "high"
     ctx.drawImage(this.image, 0, 0, DISTRICT_IMAGE_WIDTH, DISTRICT_IMAGE_HEIGHT)
     ctx.imageSmoothingEnabled = false
-    this.drawWindows(t)
+    this.drawBadges(t)
     this.drawHq(t)
     this.drawNotices()
     this.drawTicker(t)
-    this.drawLamps(t)
     this.drawFountain(t)
-    this.drawTraffic(t)
+    this.drawBoats(t)
     this.stepWalkers(t, dt)
     // People and Nova the cat, back to front; structures in front of a walker are redrawn over it.
     this.drawWalkers(t)
-    drawWeatherOverlay(ctx, this.state.weather, DISTRICT_IMAGE_WIDTH, DISTRICT_IMAGE_HEIGHT, t, DISTRICT_IMAGE_HEIGHT * 0.3, 3)
+    drawWeatherOverlay(ctx, this.state.weather, DISTRICT_IMAGE_WIDTH, DISTRICT_IMAGE_HEIGHT, t, DISTRICT_IMAGE_HEIGHT * 0.3, 1.5)
   }
 
-  private drawWindows(t: number): void {
-    const bucket = Math.floor(t / WINDOW_BUCKET_SECONDS)
+  /**
+   * A small lamp on every integration building: lit green while the integration is connected, a dark grey socket while
+   * it is not. Hard pixel border so it reads on the bright painting; the connection flag is the only data it shows.
+   */
+  private drawBadges(t: number): void {
     const ctx = this.ctx
-    ctx.fillStyle = "rgba(34, 24, 40, 0.86)"
-    this.windows.forEach((w, i) => {
-      // About one window in thirty is dark at any moment; each re-rolls every few seconds, staggered.
-      const n = cellNoise(i, bucket + (i % 7), 23)
-      if (n < 0.033) ctx.fillRect(w.x, w.y, WINDOW_CELL, WINDOW_CELL)
-    })
+    const connected = new Set(this.state.connectedIntegrations)
+    for (const place of DISTRICT_PLACES) {
+      const sign = place.signs[0]
+      if (!sign || !place.integration) continue
+      const on = connected.has(place.integration)
+      ctx.fillStyle = INK
+      ctx.fillRect(sign.x, sign.y, sign.w, sign.h)
+      ctx.fillStyle = on ? "#3fe27a" : "#6c6a7c"
+      ctx.fillRect(sign.x + 1, sign.y + 1, sign.w - 2, sign.h - 2)
+      if (on) {
+        ctx.fillStyle = "#d6ffe4"
+        ctx.fillRect(sign.x + 2, sign.y + 2, 2, 2)
+        // A connected lamp breathes: a soft halo outside the border.
+        ctx.globalAlpha = 0.12 + 0.1 * (Math.sin(t * 2 + sign.x) + 1) / 2
+        ctx.fillStyle = "#3fe27a"
+        ctx.fillRect(sign.x - 2, sign.y - 2, sign.w + 4, sign.h + 4)
+        ctx.globalAlpha = 1
+      } else {
+        ctx.fillStyle = "#3d3b4c"
+        ctx.fillRect(sign.x + 3, sign.y + 3, sign.w - 6, sign.h - 6)
+      }
+    }
   }
 
   private taskColor(light: CityTaskLight, t: number, i: number): string {
@@ -534,51 +511,68 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
   private drawHq(t: number): void {
     const ctx = this.ctx
     const lights = this.state.taskLights
-    ;[HQ_FLOORS, HQ_FLOORS_RIGHT].forEach((floors) =>
-      floors.forEach((r, i) => {
-        const light = lights[i]
-        if (!light) return
-        ctx.globalAlpha = 0.75
-        ctx.fillStyle = this.taskColor(light, t, i)
-        ctx.fillRect(r.x, r.y, r.w, r.h)
-        ctx.globalAlpha = 0.18
-        ctx.fillRect(r.x - 2, r.y - 2, r.w + 4, r.h + 4)
-        ctx.globalAlpha = 1
-      }),
-    )
-    // The NOVA sign breathes while any agent is working.
+    // The gate's round window glows while any agent is working.
     if (lights.includes("running")) {
-      ctx.globalAlpha = 0.07 + 0.06 * (Math.sin(t * 2.2) + 1) / 2
-      ctx.fillStyle = "#7fffe8"
-      ctx.fillRect(HQ_SIGN.x, HQ_SIGN.y, HQ_SIGN.w, HQ_SIGN.h)
+      ctx.globalAlpha = 0.14 + 0.12 * (Math.sin(t * 2.2) + 1) / 2
+      ctx.fillStyle = NOVA_CYAN_LIGHT
+      ctx.beginPath()
+      ctx.ellipse(HQ_SIGN.x + HQ_SIGN.w / 2, HQ_SIGN.y + HQ_SIGN.h / 2, HQ_SIGN.w / 2, HQ_SIGN.h / 2, 0, 0, Math.PI * 2)
+      ctx.fill()
       ctx.globalAlpha = 1
     }
+    if (lights.length === 0) return
+    // Task floors: a dark panel with one lamp per task, top floor first.
+    const p = HQ_PANEL
+    ctx.fillStyle = INK
+    ctx.fillRect(p.x, p.y, p.w, p.h)
+    ctx.fillStyle = "#4a4468"
+    ctx.fillRect(p.x + 1, p.y + 1, p.w - 2, 1)
+    HQ_FLOORS.forEach((r, i) => {
+      const light = lights[i]
+      ctx.fillStyle = "#2c2742"
+      ctx.fillRect(r.x, r.y, r.w, r.h)
+      if (!light) return
+      ctx.fillStyle = this.taskColor(light, t, i)
+      ctx.fillRect(r.x + 1, r.y + 1, r.w - 2, r.h - 2)
+    })
   }
 
+  /** A small cork board on two posts: one paper per note (up to six). Always drawn, empty when there are no notes. */
   private drawNotices(): void {
     const ctx = this.ctx
+    const f = NOTICE_FACE
+    ctx.fillStyle = "rgba(20, 30, 50, 0.3)"
+    ctx.fillRect(f.x + 1, f.y + f.h + 5, f.w, 2)
+    ctx.fillStyle = "#5a3a1e"
+    ctx.fillRect(f.x + 3, f.y + f.h - 1, 2, 6)
+    ctx.fillRect(f.x + f.w - 5, f.y + f.h - 1, 2, 6)
+    ctx.fillStyle = INK
+    ctx.fillRect(f.x - 1, f.y - 1, f.w + 2, f.h + 2)
+    ctx.fillStyle = "#c8985a"
+    ctx.fillRect(f.x, f.y, f.w, f.h)
+    ctx.fillStyle = "#e0b87a"
+    ctx.fillRect(f.x, f.y, f.w, 1)
     const count = Math.min(6, Math.max(0, this.state.notesCount))
     for (let i = 0; i < count; i++) {
-      const x = NOTICE_FACE.x + 3 + (i % 3) * 17
-      const y = NOTICE_FACE.y + 2 + Math.floor(i / 3) * 14
-      ctx.fillStyle = "#f4ecd0"
-      ctx.fillRect(x, y, 12, 10)
+      const x = f.x + 2 + (i % 3) * 10
+      const y = f.y + 2 + Math.floor(i / 3) * 9
+      ctx.fillStyle = "#fbf6e4"
+      ctx.fillRect(x, y, 8, 7)
       ctx.fillStyle = "#8a8070"
-      ctx.fillRect(x + 2, y + 3, 8, 1)
-      ctx.fillRect(x + 2, y + 6, 6, 1)
-      ctx.fillStyle = "#ff5a5a"
-      ctx.fillRect(x + 5, y, 2, 2)
+      ctx.fillRect(x + 1, y + 3, 6, 1)
+      ctx.fillRect(x + 1, y + 5, 4, 1)
+      ctx.fillStyle = "#e03a3a"
+      ctx.fillRect(x + 3, y, 2, 2)
     }
   }
 
   private drawTicker(t: number): void {
     const ctx = this.ctx
     const b = TICKER_BOARD
-    ctx.fillStyle = "rgba(16, 28, 40, 0.72)"
+    ctx.fillStyle = INK
+    ctx.fillRect(b.x - 1, b.y - 1, b.w + 2, b.h + 2)
+    ctx.fillStyle = "#101c28"
     ctx.fillRect(b.x, b.y, b.w, b.h)
-    ctx.fillStyle = "#8aa4b8"
-    ctx.fillRect(b.x, b.y, b.w, 1)
-    ctx.fillRect(b.x, b.y + b.h - 1, b.w, 1)
     const items = this.state.ticker.length > 0 ? this.state.ticker : [{ label: "NOVA", value: "MARKETS", up: true }]
     const gap = 14
     const segments = items.map((it) => ({ text: `${it.label} ${it.value}`, up: it.up }))
@@ -595,101 +589,58 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     }
   }
 
-  private drawLamps(t: number): void {
-    const ctx = this.ctx
-    LAMPS.forEach(([x, y], i) => {
-      ctx.globalAlpha = 0.1 + 0.05 * Math.sin(t * 1.7 + i * 2)
-      ctx.fillStyle = "#ffd88a"
-      ctx.fillRect(x - 10, y - 8, 20, 20)
-      ctx.globalAlpha = 1
-    })
-  }
-
   private drawFountain(t: number): void {
     const ctx = this.ctx
-    // Droplets rise from the spout and fall back into the basin in a loop.
-    for (let i = 0; i < 26; i++) {
+    // A light spray rises from the fountain's spout and falls back into its basin in a loop.
+    for (let i = 0; i < 14; i++) {
       const phase = (t * 0.9 + cellNoise(i, 0, 61)) % 1
       const side = cellNoise(i, 1, 61) * 2 - 1
-      const x = FOUNTAIN.x + side * 22 * phase
-      const y = FOUNTAIN.y - 26 * Math.sin(phase * Math.PI) + phase * (FOUNTAIN.basinY - FOUNTAIN.y)
-      ctx.fillStyle = i % 3 === 0 ? "#e8fffd" : "#7fdcff"
-      ctx.fillRect(Math.round(x), Math.round(y), 2, 2)
+      const x = FOUNTAIN.x + side * 9 * phase
+      const y = FOUNTAIN.y - 14 * Math.sin(phase * Math.PI) + phase * (FOUNTAIN.basinY - FOUNTAIN.y)
+      ctx.fillStyle = i % 3 === 0 ? "#ffffff" : "#bff0ff"
+      ctx.fillRect(Math.round(x), Math.round(y), 1, 1)
     }
   }
 
-  private drawTraffic(t: number): void {
-    const buses = Math.min(MAX_BUSES, Math.max(0, Math.floor(this.state.activeRuns)))
-    const vehicles: Array<{ road: number; offset: number; speed: number; dir: 1 | -1; bus: boolean; color: string }> = [
-      { road: 0, offset: 0.1, speed: 0.045, dir: 1, bus: false, color: "#c8453a" },
-      { road: 0, offset: 0.6, speed: 0.038, dir: -1, bus: false, color: "#e8e4dc" },
-      { road: 1, offset: 0.3, speed: 0.04, dir: -1, bus: false, color: "#3a6ab0" },
-      { road: 1, offset: 0.8, speed: 0.034, dir: 1, bus: false, color: "#e0b040" },
-    ]
-    for (let i = 0; i < buses; i++) vehicles.push({ road: i % 2, offset: 0.2 + i * 0.33, speed: 0.03, dir: i % 2 === 0 ? 1 : -1, bus: true, color: "#2f9a5a" })
-    for (const v of vehicles) {
-      const [[x0, y0], [x1, y1]] = ROADS[v.road] as ReadonlyArray<readonly [number, number]>
-      let p = (v.offset + t * v.speed) % 1
-      if (v.dir === -1) p = 1 - p
-      const x = x0 + (x1 - x0) * p
-      const y = y0 + (y1 - y0) * p
-      const slope = (y1 - y0) / (x1 - x0)
-      // Right-hand traffic: each direction keeps to its own side of the centre line.
-      this.drawVehicle(x, y + (v.dir === 1 ? 6 : -6), slope, v.dir === 1 ? Math.sign(x1 - x0) : -Math.sign(x1 - x0), v.bus, v.color)
+  /** One boat per active deployment run, sailing back and forth along its sea lane in the bay (capped by the lanes). */
+  private drawBoats(t: number): void {
+    const boats = Math.min(MAX_BOATS, Math.max(0, Math.floor(this.state.activeRuns)))
+    const hulls = ["#e0452e", "#2f7fe0", "#f2b21c"]
+    const sails = ["#fff4d6", "#ffd24a", "#ff7a4a"]
+    for (let i = 0; i < boats; i++) {
+      const [[x0, y0], [x1, y1]] = HARBOUR_LANES[i] as ReadonlyArray<readonly [number, number]>
+      // Triangle wave 0 -> 1 -> 0: out and back along the lane, slowly.
+      const cycle = (t * 0.012 + i * 0.37) % 1
+      const p = cycle < 0.5 ? cycle * 2 : 2 - cycle * 2
+      const east = cycle < 0.5 ? x1 >= x0 : x1 < x0
+      const x = Math.round(x0 + (x1 - x0) * p)
+      const y = Math.round(y0 + (y1 - y0) * p + Math.sin(t * 1.6 + i) * 1)
+      this.drawBoat(x, y, east ? 1 : -1, hulls[i % hulls.length], sails[i % sails.length])
     }
   }
 
-  /** A car or bus seen from the isometric camera, sheared along the road's slope. */
-  private drawVehicle(cx: number, cy: number, slope: number, facing: number, bus: boolean, color: string): void {
+  /** A little sailboat seen from the isometric camera: hull, mast, sail and a wake, on a 2 px grid, facing `dir`. */
+  private drawBoat(cx: number, cy: number, dir: 1 | -1, hull: string, sail: string): void {
     const ctx = this.ctx
-    const len = bus ? 36 : 24
-    const body = bus ? 12 : 8
-    const x0 = Math.round(cx - len / 2)
-    const dark = "rgba(0, 0, 0, 0.28)"
-    for (let i = 0; i < len; i++) {
-      const base = Math.round(cy + (i - len / 2) * slope)
-      // Shadow, wheels, body, window band, roof.
-      ctx.fillStyle = "rgba(0, 0, 0, 0.35)"
-      ctx.fillRect(x0 + i + 2, base, 1, 3)
+    const U = 2
+    const px = (dx: number, dy: number, w: number, h: number, color: string) => {
       ctx.fillStyle = color
-      ctx.fillRect(x0 + i, base - body, 1, body)
-      ctx.fillStyle = dark
-      ctx.fillRect(x0 + i, base - 3, 1, 3)
-      const nose = i < 4 || i >= len - 4
-      if (bus) {
-        ctx.fillStyle = i % 5 === 0 || nose ? color : "#bfe6ff"
-        ctx.fillRect(x0 + i, base - body + 2, 1, 4)
-        ctx.fillStyle = "rgba(255, 255, 255, 0.25)"
-        ctx.fillRect(x0 + i, base - body, 1, 1)
-      } else if (!nose) {
-        // Cabin: raised roof with dark windows.
-        ctx.fillStyle = color
-        ctx.fillRect(x0 + i, base - body - 4, 1, 4)
-        ctx.fillStyle = i === 4 || i === len - 5 || i === Math.floor(len / 2) ? color : "#1a2230"
-        ctx.fillRect(x0 + i, base - body - 3, 1, 3)
-        ctx.fillStyle = "rgba(255, 255, 255, 0.3)"
-        ctx.fillRect(x0 + i, base - body - 4, 1, 1)
-      }
-      if (i === 5 || i === len - 6) {
-        ctx.fillStyle = "#101014"
-        ctx.fillRect(x0 + i - 1, base - 2, 3, 3)
-      }
+      ctx.fillRect(cx + (dir === 1 ? dx * U : -(dx + w) * U), cy + dy * U, w * U, h * U)
     }
-    const frontI = facing > 0 ? len - 1 : 0
-    const backI = facing > 0 ? 0 : len - 1
-    const fy = Math.round(cy + (frontI - len / 2) * slope)
-    const by = Math.round(cy + (backI - len / 2) * slope)
-    ctx.fillStyle = "#fff2b0"
-    ctx.fillRect(x0 + frontI - (facing > 0 ? 1 : 0), fy - 6, 2, 2)
-    // Headlight beam on the road.
-    ctx.globalAlpha = 0.22
-    for (let k = 1; k <= 14; k++) {
-      const bx = x0 + frontI + facing * k
-      ctx.fillRect(bx, Math.round(fy + facing * k * slope) - 6 + Math.floor(k / 5), 1, 2 + Math.floor(k / 4))
-    }
+    // Wake on the water, behind the stern.
+    ctx.globalAlpha = 0.6
+    px(-16, 2, 9, 1, "#e8fbff")
+    px(-13, 3, 7, 1, "#e8fbff")
     ctx.globalAlpha = 1
-    ctx.fillStyle = "#ff4a4a"
-    ctx.fillRect(x0 + backI - (facing > 0 ? 0 : 1), by - 6, 2, 2)
+    px(-9, 0, 18, 1, INK)
+    px(-8, 1, 16, 2, hull)
+    px(-8, 1, 16, 1, "#ffffff")
+    px(-7, 3, 13, 1, INK)
+    px(7, -1, 3, 1, hull)
+    // Mast, sail and pennant.
+    px(-1, -14, 1, 14, INK)
+    for (let r = 0; r < 11; r++) px(0, -12 + r, 1 + Math.floor(r * 0.7), 1, sail)
+    px(-1, -15, 3, 1, "#e03a3a")
   }
 
   // ── People ──────────────────────────────────────────────────────────────────
@@ -722,7 +673,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
         if (b.x !== a.x || b.y !== a.y) w.dir = directionRow(b.x - a.x, b.y - a.y)
         if (w.trail) {
           const last = w.trail[w.trail.length - 1]
-          if (!last || Math.hypot(last.x - w.x, last.y - w.y) >= 4) w.trail.push({ x: w.x, y: w.y })
+          if (!last || Math.hypot(last.x - w.x, last.y - w.y) >= 2) w.trail.push({ x: w.x, y: w.y })
           if (w.trail.length > TRAIL_LENGTH) w.trail.shift()
         }
         if (w.seg >= w.path.length - 1) {
@@ -823,16 +774,16 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     const fade = ctx.globalAlpha
     const trail = w.moving ? (w.trail ?? []) : []
     trail.forEach((p, i) => {
-      ctx.globalAlpha = fade * ((i + 1) / trail.length) * 0.35
+      ctx.globalAlpha = fade * ((i + 1) / trail.length) * 0.6
       ctx.fillStyle = NOVA_CYAN
-      ctx.fillRect(Math.round(p.x), Math.round(p.y), 2, 2)
+      ctx.fillRect(Math.round(p.x), Math.round(p.y), 1, 1)
     })
     const pulse = (Math.sin(t * 3 + x) + 1) / 2
     ctx.globalAlpha = fade * (0.28 + pulse * 0.2)
     ctx.strokeStyle = NOVA_CYAN
-    ctx.lineWidth = 2
+    ctx.lineWidth = 1.2
     ctx.beginPath()
-    ctx.ellipse(x, y - 1, 13, 5, 0, 0, Math.PI * 2)
+    ctx.ellipse(x, y - 1, 7, 3, 0, 0, Math.PI * 2)
     ctx.stroke()
     ctx.globalAlpha = fade
   }
@@ -843,8 +794,10 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     const a = w.agent
     if (!a || w.moving || w.leaving) return
     if (a.status !== "paused" && a.status !== "failed" && a.status !== "queued") return
-    const by = y - PERSON_HEIGHT - 8 + Math.round(Math.sin(t * 2.4 + x) * 1)
-    ctx.fillStyle = "#14101c"
+    const by = y - PERSON_HEIGHT - 10 + Math.round(Math.sin(t * 2.4 + x) * 1)
+    ctx.fillStyle = INK
+    ctx.fillRect(x - 5, by - 1, 11, 11)
+    ctx.fillStyle = "#2b2547"
     ctx.fillRect(x - 4, by, 9, 9)
     ctx.fillStyle = NOVA_CYAN
     ctx.fillRect(x - 4, by, 9, 1)
@@ -855,30 +808,30 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
 
   private drawCat(t: number): void {
     const ctx = this.ctx
-    // Nova sits on the bench's seat, a little above the spot where the bench stands.
+    // Nova sits on the paving beside the fountain.
     const x = CAT_SPOT.x
-    const y = CAT_SPOT.y - CAT_SEAT_LIFT
+    const y = CAT_SPOT.y
     const top = y - CAT_HEIGHT
     const presence = this.state.presence
     // Asleep while Nova is offline; otherwise a short blink every few seconds.
     paintCat(ctx, x, y, presence === "offline" || t % 4.2 < 0.16)
     if (presence === "offline") {
       const z = Math.floor(t * 1.2) % 3
-      for (let i = 0; i <= z; i++) draw5(ctx, "Z", x + 8 + i * 5, top - 2 - i * 6, "#e8e4f8")
+      for (let i = 0; i <= z; i++) draw5(ctx, "Z", x + 5 + i * 5, top - 2 - i * 6, INK)
       return
     }
     if (presence === "thinking" || presence === "speaking") {
-      ctx.fillStyle = "#14101c"
-      ctx.fillRect(x + 6, top - 8, 12, 8)
-      ctx.fillStyle = NOVA_CYAN
-      ctx.fillRect(x + 6, top - 8, 12, 1)
+      ctx.fillStyle = INK
+      ctx.fillRect(x + 4, top - 9, 14, 9)
+      ctx.fillStyle = "#2b2547"
+      ctx.fillRect(x + 5, top - 8, 12, 7)
       if (presence === "thinking") {
         const dots = 1 + (Math.floor(t * 2.5) % 3)
         ctx.fillStyle = "#e8e4f8"
-        for (let i = 0; i < dots; i++) ctx.fillRect(x + 8 + i * 3, top - 4, 2, 2)
+        for (let i = 0; i < dots; i++) ctx.fillRect(x + 7 + i * 3, top - 5, 2, 2)
       } else {
         ctx.fillStyle = "#ffc24a"
-        ctx.fillRect(x + 10, top - 6, 2, 5)
+        ctx.fillRect(x + 10, top - 7, 2, 5)
       }
     }
   }

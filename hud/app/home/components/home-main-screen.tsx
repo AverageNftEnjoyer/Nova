@@ -59,11 +59,12 @@ import { PixelWindow } from "./pixel/pixel-window"
 const PIXEL_PANEL = "pixel-panel h-full"
 const PIXEL_SUBPANEL = "pixel-subpanel"
 const NO_PANEL_STYLE: CSSProperties | undefined = undefined
-/** The camera keeps this much of the screen clear below the city (no footer any more: only the zoom buttons sit there). */
-const SAFE_BOTTOM = 12
-/** Gap between the HUD's bottom edge and where the camera frames the city. */
-const HUD_GAP = 8
-const FALLBACK_HUD_HEIGHT = 72
+/**
+ * The camera's insets. The HUD is four small corner clusters (game/game-hud.tsx), not a band, so the city may run
+ * nearly edge to edge: a thin margin keeps the framed map off the top strip and the Settings / zoom row.
+ */
+const SAFE_TOP = 16
+const SAFE_BOTTOM = 16
 /** What each place is called: its painted building in Nova City (components/pixel-city/district/image-plan.ts). */
 const PLACE_NAMES = Object.fromEntries(
   DISTRICT_PLACES.filter((place) => !place.id.startsWith("integration-")).map((place) => [place.id, place.name]),
@@ -88,10 +89,9 @@ export function HomeMainScreen() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [weatherPopupOpen, setWeatherPopupOpen] = useState(false)
   const [musicOpen, setMusicOpen] = useState(false)
-  const [hudHeight, setHudHeight] = useState(FALLBACK_HUD_HEIGHT)
   const [profileName, setProfileName] = useState("User")
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null)
-  // Nova City is a night scene: Home and its popups use night colours whatever the app theme says.
+  // Nova City is one daytime pixel theme: Home and its popups never follow the app's light / dark setting.
   const isLight = false
   const assistantName = home.assistantName
 
@@ -341,8 +341,8 @@ export function HomeMainScreen() {
 
   const weather = home.homeWeather
   return (
-    <div className="pixel-night relative h-dvh overflow-hidden bg-[#0a0c24]" style={{ "--game-hud-h": `${hudHeight}px` } as CSSProperties}>
-      <PixelCityScene state={sceneState} safeTop={hudHeight + HUD_GAP} safeBottom={SAFE_BOTTOM} hotspots={hotspots} active={pageActive} onHotspot={openHotspot} onResident={setResidentCardId} />
+    <div className="game-hud-root">
+      <PixelCityScene state={sceneState} safeTop={SAFE_TOP} safeBottom={SAFE_BOTTOM} hotspots={hotspots} active={pageActive} onHotspot={openHotspot} onResident={setResidentCardId} />
 
       <GameHud
         town={town}
@@ -375,7 +375,6 @@ export function HomeMainScreen() {
           setSettingsSection("appearance")
           setSettingsOpen(true)
         }}
-        onHeight={setHudHeight}
       />
 
       {musicOpen ? (

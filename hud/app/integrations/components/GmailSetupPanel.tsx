@@ -75,7 +75,7 @@ export function GmailSetupPanel({
             onClick={onSaveGmailConfig}
             disabled={isSavingAny}
             className={cn(
-              "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center justify-center gap-1.5 text-xs font-medium whitespace-nowrap disabled:opacity-60",
+              "pixel-btn pixel-btn--gold",
             )}
           >
             <Save className="w-3.5 h-3.5" />
@@ -85,10 +85,10 @@ export function GmailSetupPanel({
             onClick={settings.gmail.connected ? () => onDisconnectGmail() : onConnectGmail}
             disabled={isSavingAny}
             className={cn(
-              "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center justify-center gap-1.5 text-xs font-medium whitespace-nowrap disabled:opacity-60",
+              "pixel-btn",
               settings.gmail.connected
-                ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
-                : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                ? "pixel-btn--red"
+                : "pixel-btn--teal",
             )}
           >
             {settings.gmail.connected ? "Disconnect All" : "Connect"}
@@ -158,7 +158,7 @@ export function GmailSetupPanel({
                   "rounded-md border px-2.5 py-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 cursor-pointer",
                   selectedGmailAccountId === account.id
                     ? (isLight ? "border-[#9fb3d8] bg-[#eaf1fc]" : "border-white/30 bg-white/10")
-                    : (isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20"),
+                    : ("ig-tile"),
                 )}
               >
                 <div className="min-w-0">
@@ -178,8 +178,8 @@ export function GmailSetupPanel({
               onClick={onConnectGmail}
               disabled={isSavingAny}
               className={cn(
-                "h-7 px-2 rounded-md border text-[10px] transition-colors disabled:opacity-50",
-                "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                "pixel-btn ig-btn-sm",
+                "pixel-btn--teal",
               )}
             >
               Link Another
@@ -188,8 +188,8 @@ export function GmailSetupPanel({
               onClick={() => selectedGmailAccountId && onSetPrimaryGmailAccount(selectedGmailAccountId)}
               disabled={isSavingAny || !selectedGmailAccountId}
               className={cn(
-                "h-7 px-2 rounded-md border text-[10px] transition-colors disabled:opacity-50",
-                isLight ? "border-[#cad5e6] text-s-70 hover:bg-[#e8eef9]" : "border-white/15 text-slate-200 hover:bg-white/10",
+                "pixel-btn ig-btn-sm",
+                "pixel-btn--ghost",
               )}
             >
               Set Primary
@@ -202,8 +202,8 @@ export function GmailSetupPanel({
               }}
               disabled={isSavingAny || !selectedGmailAccountId}
               className={cn(
-                "h-7 px-2 rounded-md border text-[10px] transition-colors disabled:opacity-50",
-                isLight ? "border-[#cad5e6] text-s-70 hover:bg-[#e8eef9]" : "border-white/15 text-slate-200 hover:bg-white/10",
+                "pixel-btn ig-btn-sm",
+                "pixel-btn--ghost",
               )}
             >
               {settings.gmail.accounts.find((item) => item.id === selectedGmailAccountId)?.enabled === false ? "Enable" : "Disable"}
@@ -212,8 +212,8 @@ export function GmailSetupPanel({
               onClick={() => selectedGmailAccountId && onUpdateGmailAccountState("delete", selectedGmailAccountId)}
               disabled={isSavingAny || !selectedGmailAccountId}
               className={cn(
-                "h-7 px-2 rounded-md border text-[10px] transition-colors disabled:opacity-50",
-                "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20",
+                "pixel-btn ig-btn-sm",
+                "pixel-btn--red",
               )}
             >
               Delete

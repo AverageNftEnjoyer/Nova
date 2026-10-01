@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, type CSSProperties } from "react"
+import { cn } from "@/lib/shared/utils"
 import type { TownAckRequest, TownEvent } from "@/lib/town/types"
 import { formatXp } from "./town-ui"
 
@@ -22,6 +23,14 @@ const MAX_SEQUENTIAL = 3
 const TOAST_MS = 4200
 const BANNER_MS = 5200
 const GAP_MS = 350
+
+/** Core label colours per kind, matching the toast's rim (see .game-toast in pixel-ui.css). */
+const TOAST_LABEL: Record<TownEvent["kind"], string> = {
+  "level-up": "pixel-label--rare",
+  "quest-complete": "pixel-label--ok",
+  "building-up": "pixel-label--common",
+  achievement: "pixel-label--rare",
+}
 
 const KIND_LABEL: Record<TownEvent["kind"], string> = {
   "level-up": "Level up",
@@ -88,11 +97,11 @@ export function TownCelebrations({ events, ack }: TownCelebrationsProps) {
               <span key={index} className="game-spark" style={{ "--i": index } as CSSProperties} />
             ))}
           </span>
-          <button type="button" onClick={dismiss} className="game-levelup pixel-notch" aria-label={`${current.title}. ${current.detail}. Dismiss`}>
-            <span className="pixel-label text-(--px-accent-2)">{KIND_LABEL[current.kind]}</span>
-            <span className="game-levelup-title font-pixel-display">{current.title}</span>
-            <span className="font-pixel text-[14px] text-(--px-muted)">{current.detail}</span>
-            {current.xp ? <span className="font-pixel text-[14px] text-(--px-accent)">+{formatXp(current.xp)} XP</span> : null}
+          <button type="button" onClick={dismiss} className="game-levelup pixel-frame" aria-label={`${current.title}. ${current.detail}. Dismiss`}>
+            <span className="pixel-label pixel-label--rare text-[14px]!">{KIND_LABEL[current.kind]}</span>
+            <span className="pixel-title game-levelup-title">{current.title}</span>
+            <span className="font-pixel text-[15px] text-(--px-text)">{current.detail}</span>
+            {current.xp ? <span className="font-pixel text-[16px] text-(--px-accent) pixel-outline-sm">+{formatXp(current.xp)} XP</span> : null}
           </button>
         </div>
       </div>
@@ -101,14 +110,14 @@ export function TownCelebrations({ events, ack }: TownCelebrationsProps) {
 
   return (
     <div className="game-toast-stage pixel-ui" role="status" aria-live="polite">
-      <button type="button" onClick={dismiss} className="game-toast pixel-notch" data-kind={current.kind} key={current.key} aria-label={`${KIND_LABEL[current.kind]}: ${current.title}. Dismiss`}>
+      <button type="button" onClick={dismiss} className="pixel-card game-toast" data-kind={current.kind} key={current.key} aria-label={`${KIND_LABEL[current.kind]}: ${current.title}. Dismiss`}>
         <span className="game-toast-icon" aria-hidden="true" />
         <span className="flex min-w-0 flex-col items-start gap-1 text-left">
-          <span className="pixel-label text-(--px-accent-2)">{KIND_LABEL[current.kind]}</span>
-          <span className="font-pixel text-[15px] leading-tight text-(--px-text)">{current.title}</span>
-          <span className="font-pixel text-[13px] leading-snug text-(--px-muted)">{current.detail}</span>
+          <span className={cn("pixel-label", TOAST_LABEL[current.kind])}>{KIND_LABEL[current.kind]}</span>
+          <span className="font-pixel text-[16px] leading-tight text-(--px-text)">{current.title}</span>
+          <span className="font-pixel text-[14px] leading-snug text-(--px-muted)">{current.detail}</span>
         </span>
-        {current.xp ? <span className="shrink-0 font-pixel text-[14px] tabular-nums text-(--px-accent)">+{formatXp(current.xp)} XP</span> : null}
+        {current.xp ? <span className="shrink-0 font-pixel text-[15px] tabular-nums text-(--px-accent)">+{formatXp(current.xp)} XP</span> : null}
       </button>
     </div>
   )

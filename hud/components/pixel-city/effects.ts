@@ -1,9 +1,9 @@
 import { cellNoise } from "./random"
 import type { CityWeather } from "./types"
 
-const RAIN = "rgba(170, 190, 255, 0.55)"
-const SNOW = "#eef2ff"
-const FOG = "rgba(120, 110, 160, 0.18)"
+const RAIN = "rgba(40, 70, 170, 0.6)"
+const SNOW = "#ffffff"
+const FOG = "rgba(235, 240, 246, 0.3)"
 
 /**
  * Rain, storm flashes, snow or fog over the whole scene. `px` is the size of one art pixel in the scene's

@@ -67,11 +67,11 @@ export function QuestLogWindow({ town, onClose, onGo, onShowTutorial, onRestartT
                   role="tab"
                   aria-selected={tab === category}
                   onClick={() => setTab(category)}
-                  className="game-tab"
+                  className="pixel-btn pixel-btn--ghost game-tab"
                   data-active={tab === category ? "true" : undefined}
                 >
                   {label}
-                  <span className="tabular-nums text-(--px-muted)" aria-label={`${completed} of ${inTab.length} done`}>
+                  <span className="tabular-nums text-(--px-muted) normal-case" aria-label={`${completed} of ${inTab.length} done`}>
                     {completed}/{inTab.length}
                   </span>
                 </button>
@@ -81,7 +81,7 @@ export function QuestLogWindow({ town, onClose, onGo, onShowTutorial, onRestartT
           {town.error ? <p className="shrink-0 font-pixel text-[12px] text-(--px-red)">Showing the last update: {town.error}</p> : null}
           <ul role="tabpanel" aria-label={QUEST_TABS.find((entry) => entry.category === tab)?.label} className="game-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
             {quests.length === 0 ? (
-              <li className="pixel-subpanel px-3 py-4 text-center font-pixel text-[13px] text-(--px-muted)">No quests here yet.</li>
+              <li className="pixel-card text-center font-pixel text-[14px] text-(--px-muted)">No quests here yet.</li>
             ) : (
               quests.map((quest) => <QuestCard key={quest.id} quest={quest} onGo={onGo} />)
             )}
@@ -97,18 +97,18 @@ function QuestCard({ quest, onGo }: { quest: TownQuest; onGo: (quest: TownQuest)
   const locked = quest.status === "locked"
   const canGo = quest.status === "active" && hasQuestTarget(quest)
   return (
-    <li className="game-quest" data-status={quest.status}>
-      <div className="flex items-start gap-2">
-        <span className="game-tag mt-0.5" data-status={quest.status}>
-          {done ? <Check className="h-3 w-3" aria-hidden="true" /> : locked ? <Lock className="h-3 w-3" aria-hidden="true" /> : null}
-          {QUEST_STATUS_LABEL[quest.status]}
-        </span>
-        <h3 className="min-w-0 flex-1 font-pixel text-[15px] leading-tight text-(--px-text)">{quest.title}</h3>
-        <span className="flex shrink-0 flex-col items-end font-pixel text-[13px] leading-tight tabular-nums">
-          <span className="text-(--px-accent)">+{formatXp(quest.xpReward)} XP</span>
-        </span>
+    <li className="pixel-card game-quest" data-status={quest.status} data-state={locked ? "locked" : quest.status === "active" ? "active" : undefined}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="font-pixel text-[16px] leading-tight text-(--px-text)">{quest.title}</h3>
+          <span className={cn("pixel-label mt-1 inline-flex items-center gap-1", done ? "pixel-label--ok" : locked ? "pixel-label--off" : "pixel-label--common")}>
+            {done ? <Check className="h-3 w-3" aria-hidden="true" /> : locked ? <Lock className="h-3 w-3" aria-hidden="true" /> : null}
+            {QUEST_STATUS_LABEL[quest.status]}
+          </span>
+        </div>
+        <span className="shrink-0 font-pixel text-[14px] leading-tight tabular-nums text-(--px-accent)">+{formatXp(quest.xpReward)} XP</span>
       </div>
-      <p className="mt-1 font-pixel text-[13px] leading-snug text-(--px-muted)">{quest.description}</p>
+      <p className="mt-1.5 font-pixel text-[14px] leading-snug text-(--px-muted)">{quest.description}</p>
       <div className="mt-2 flex items-center gap-2">
         <GameBar
           value={questRatio(quest)}
@@ -117,14 +117,14 @@ function QuestCard({ quest, onGo }: { quest: TownQuest; onGo: (quest: TownQuest)
           valueText={`${Math.min(quest.progress, quest.goal)} of ${quest.goal}`}
           className="flex-1"
         />
-        <span className="w-14 shrink-0 text-right font-pixel text-[12px] tabular-nums text-(--px-muted)">
+        <span className="w-14 shrink-0 text-right font-pixel text-[13px] tabular-nums text-(--px-text)">
           {Math.min(quest.progress, quest.goal)}/{quest.goal}
         </span>
         <button
           type="button"
           onClick={() => onGo(quest)}
           disabled={!canGo}
-          className={cn("pixel-chip h-7! px-3! text-[13px]!", !canGo && "invisible")}
+          className={cn("pixel-btn pixel-btn--teal game-sm", !canGo && "invisible")}
           aria-label={`Go: ${quest.title}`}
         >
           Go
@@ -138,12 +138,12 @@ function QuestCard({ quest, onGo }: { quest: TownQuest; onGo: (quest: TownQuest)
 export function TownUnavailable({ town }: { town: TownProgressState }) {
   return (
     <div className="flex h-full min-h-40 flex-col items-center justify-center gap-3 px-6 text-center" role="status">
-      <span className="pixel-label text-(--px-accent)">{town.loading ? "Loading progress" : "Progress unavailable"}</span>
+      <span className="pixel-label pixel-label--common">{town.loading ? "Loading progress" : "Progress unavailable"}</span>
       <p className="max-w-80 font-pixel text-[13px] leading-snug text-(--px-muted)">
         {town.loading ? "Counting up your work in Nova…" : town.error || "Nova City could not load your progress."}
       </p>
       {!town.loading ? (
-        <button type="button" onClick={town.refresh} className="pixel-chip h-8! px-3! text-[13px]!">
+        <button type="button" onClick={town.refresh} className="pixel-btn pixel-btn--teal game-sm">
           Try again
         </button>
       ) : null}

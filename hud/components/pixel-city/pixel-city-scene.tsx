@@ -25,16 +25,16 @@ const FRAME_INTERVAL_MS = 1000 / 20
 const REDUCED_MOTION_INTERVAL_MS = 1000
 /** Camera easing time constant: the camera covers ~63% of the way to its target every this many ms. */
 const EASE_TAU_MS = 90
-/** Plan-pixel box of a resident's focusable button around its feet (a figure is ~63 px tall). */
-const RESIDENT_BOX_W = 34
-const RESIDENT_BOX_H = 70
+/** Plan-pixel box of a resident's focusable button around its feet (a figure is ~27 px tall). */
+const RESIDENT_BOX_W = 20
+const RESIDENT_BOX_H = 34
 /** A press that moves further than this (CSS px) is a drag, not a click. */
 const DRAG_THRESHOLD_PX = 6
 const KEY_ZOOM_STEP = 1.25
 const KEY_PAN_FRACTION = 0.18
 /** Space the Home HUD bar and footer player cover (CSS px); the camera keeps the whole city reachable around them. */
-const DEFAULT_SAFE_TOP = 64
-const DEFAULT_SAFE_BOTTOM = 76
+const DEFAULT_SAFE_TOP = 12
+const DEFAULT_SAFE_BOTTOM = 12
 /** Per-session camera memory (a per-viewer convenience; the scene works without it). */
 const CAMERA_STORAGE_KEY = "nova.city.camera.v1"
 
@@ -99,7 +99,7 @@ function sameView(a: CameraView | null, b: CameraView): boolean {
 }
 
 /**
- * Home's Nova City: the painted night city on a canvas at screen resolution, live characters and effects on top,
+ * Home's Nova City: the painted daytime city on a canvas at screen resolution, live characters and effects on top,
  * and every place as a focusable button that opens its popup. Animates at 20 fps only while `active`.
  *
  * A game-like camera frames it: drag (mouse or touch) to pan, wheel / pinch to zoom, arrows and +/- when focused.

@@ -1,38 +1,60 @@
 "use client"
 
-import { useEffect, useRef, type CSSProperties, type ReactNode } from "react"
-import { CloudSun, Music, Settings, User } from "lucide-react"
+import Image from "next/image"
+import type { CSSProperties, ReactNode } from "react"
+import { CloudSun, Music, Settings } from "lucide-react"
 import { WindowControls } from "@/components/window/window-controls"
 import { cn } from "@/lib/shared/utils"
 import type { TownProgressState } from "../../hooks/use-town-progress"
-import { PlayerPanel, QuestsChip } from "./town-hud"
+import { PlayerPanel, QuestsOrb } from "./town-hud"
+import { formatXp } from "./town-ui"
 
 const DRAG: CSSProperties = { WebkitAppRegion: "drag" } as CSSProperties
 const NO_DRAG: CSSProperties = { WebkitAppRegion: "no-drag" } as CSSProperties
 
-interface HudButtonProps {
+/** The counter's gold coin: 8x8 art pixels (outline, highlight, gold, shade), drawn crisp at any size. */
+const COIN_ROWS = ["..oooo..", ".ohhggo.", "ohgggggo", "ohggggso", "oggggsso", "ogggssso", ".ogssso.", "..oooo.."]
+const COIN_FILL: Record<string, string> = {
+  o: "var(--px-text-line)",
+  h: "color-mix(in srgb, var(--px-accent) 40%, white)",
+  g: "var(--px-accent)",
+  s: "color-mix(in srgb, var(--px-accent) 62%, black)",
+}
+
+function CoinIcon() {
+  return (
+    <svg viewBox="0 0 8 8" shapeRendering="crispEdges" className="game-chip-icon game-chip-icon--coin" aria-hidden="true">
+      {COIN_ROWS.flatMap((row, y) =>
+        [...row].map((cell, x) => (cell === "." ? null : <rect key={`${x}-${y}`} x={x} y={y} width={1} height={1} fill={COIN_FILL[cell]} />)),
+      )}
+    </svg>
+  )
+}
+
+interface RailOrbProps {
   icon: ReactNode
+  /** Shown in the hover / focus tooltip plaque. */
   label: string
-  /** Short value under/beside the label (e.g. the temperature). */
-  value?: string
-  title?: string
-  ariaLabel?: string
+  ariaLabel: string
+  /** The side the tooltip opens on (right by default; the bottom-right orb opens it to the left). */
+  tipSide?: "right" | "left"
   active?: boolean
   onClick: () => void
   children?: ReactNode
 }
 
-/** One large labelled HUD button. The label collapses to the icon below 1280px (pixel-ui.css). */
-function HudButton({ icon, label, value, title, ariaLabel, active, onClick, children }: HudButtonProps) {
+/** One round icon button on the left rail. The label is a tooltip plaque (hover or keyboard focus), the aria-label always names it. */
+function RailOrb({ icon, label, ariaLabel, tipSide = "right", active, onClick, children }: RailOrbProps) {
   return (
-    <button type="button" onClick={onClick} className="game-hud-btn" data-active={active ? "true" : undefined} aria-label={ariaLabel ?? label} title={title ?? label}>
-      {icon}
-      <span className="game-hud-btn-label">
+    <span className="game-orb">
+      <button type="button" onClick={onClick} className="pixel-orb-btn" data-active={active ? "true" : undefined} aria-label={ariaLabel}>
+        {icon}
+        {children}
+      </button>
+      <span className="pixel-plaque pixel-plaque--frame game-tip" data-side={tipSide} aria-hidden="true">
         {label}
-        {value ? <span className="game-hud-btn-value tabular-nums">{value}</span> : null}
       </span>
-      {children}
-    </button>
+    </span>
   )
 }
 
@@ -55,67 +77,90 @@ interface GameHudProps {
   onOpenWeather: () => void
   onOpenProfile: () => void
   onOpenSettings: () => void
-  /** Reports the HUD's bottom edge in px (it changes with width and scale) so the camera can keep the city clear of it. */
-  onHeight: (px: number) => void
 }
 
 /**
- * Home's game HUD: logo and player panel on the left, large labelled buttons and the window controls on the right.
- * The bar doubles as the window drag area; every interactive part opts out of dragging.
+ * Home's game HUD, anchored to the screen's corners (docs/frontend/nova-city-day-ui.md, "Home HUD layout"):
+ * top-left the portrait (Profile), wordmark and name plaque (Town Hall) with the Quests / Music rail under it; top-right
+ * the window controls, XP counter and weather chip; bottom-right Settings (the camera's zoom buttons sit beside it).
+ * A thin strip along the top is the frameless window's drag handle; every interactive part opts out of dragging.
  */
 export function GameHud(props: GameHudProps) {
-  const { town, profileName, profileAvatar, presence, onHeight } = props
-  const ref = useRef<HTMLElement>(null)
-
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const report = () => onHeight(Math.ceil(el.getBoundingClientRect().bottom))
-    report()
-    const observer = new ResizeObserver(report)
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [onHeight])
+  const { town, profileName, profileAvatar, presence } = props
+  const xpTotal = town.progress?.level.xp
 
   return (
-    <header ref={ref} className="game-hud absolute inset-x-0 top-0 z-10" style={DRAG}>
+    <>
+      <div className="game-hud-drag" style={DRAG} aria-hidden="true" />
+
       <div className="game-hud-left" style={NO_DRAG}>
-        <div className="min-w-0 select-none">
-          <button type="button" onClick={props.onHome} className="pixel-wordmark game-hud-logo" aria-label="Home">
-            NovaAIO
-          </button>
-          <p className="pixel-wordmark game-hud-presence">
-            <span className={cn("h-2 w-2 shrink-0", presence.dotClassName)} aria-hidden="true" />
-            <span className={presence.textClassName}>{presence.label}</span>
-          </p>
+        <div className="game-hud-player">
+          <span className="game-orb">
+            <button type="button" onClick={props.onOpenProfile} className="pixel-orb-btn game-portrait" aria-label="Profile" title="Profile">
+              <span className="game-portrait-face" aria-hidden="true">
+                {profileAvatar ? (
+                  <Image src={profileAvatar} alt="" width={72} height={72} className="h-full w-full object-cover [image-rendering:pixelated]" unoptimized />
+                ) : (
+                  profileName.charAt(0).toUpperCase()
+                )}
+              </span>
+            </button>
+          </span>
+          <div className="game-hud-id">
+            <div className="game-hud-wordmark select-none">
+              <button type="button" onClick={props.onHome} className="pixel-wordmark game-hud-logo" aria-label="Home">
+                NovaAIO
+              </button>
+              <p className="game-hud-presence">
+                <span className={cn("h-2 w-2 shrink-0", presence.dotClassName)} aria-hidden="true" />
+                <span className="pixel-wordmark">
+                  <span className={presence.textClassName}>{presence.label}</span>
+                </span>
+              </p>
+            </div>
+            <PlayerPanel town={town} name={profileName} onOpen={props.onOpenTownHall} />
+          </div>
         </div>
-        <PlayerPanel town={town} name={profileName} avatar={profileAvatar} onOpen={props.onOpenTownHall} />
+
+        <div className="game-hud-rail">
+          <QuestsOrb town={town} open={props.questLogOpen} news={props.questNews} onClick={props.onOpenQuests} />
+          <RailOrb
+            icon={<Music aria-hidden="true" />}
+            label="Music"
+            ariaLabel={props.musicPlaying ? "Music: playing" : "Music"}
+            active={props.musicOpen}
+            onClick={props.onOpenMusic}
+          >
+            {props.musicPlaying ? <span className="pixel-orb-btn__dot game-orb-dot--live" aria-hidden="true" /> : null}
+          </RailOrb>
+        </div>
       </div>
 
       <div className="game-hud-right" style={NO_DRAG}>
-        <QuestsChip town={town} open={props.questLogOpen} news={props.questNews} onClick={props.onOpenQuests} />
-        <HudButton
-          icon={<Music className="game-hud-btn-icon text-(--px-accent-2)" />}
-          label="Music"
-          title={props.musicPlaying ? "Music: playing" : "Music"}
-          ariaLabel={props.musicPlaying ? "Music: playing" : "Music"}
-          active={props.musicOpen}
-          onClick={props.onOpenMusic}
-        >
-          {props.musicPlaying ? <span className="game-dot game-dot--live" aria-hidden="true" /> : null}
-        </HudButton>
-        <HudButton
-          icon={<CloudSun className="game-hud-btn-icon text-(--px-accent)" />}
-          label="Weather"
-          value={props.weatherValue}
-          title={props.weatherTitle}
-          ariaLabel={props.weatherAriaLabel}
-          onClick={props.onOpenWeather}
-        />
-        <HudButton icon={<User className="game-hud-btn-icon text-(--px-green)" />} label="Profile" title="Profile" onClick={props.onOpenProfile} />
-        <HudButton icon={<Settings className="game-hud-btn-icon" />} label="Settings" ariaLabel="Open settings" title="Settings" onClick={props.onOpenSettings} />
-        <WindowControls />
+        <div className="game-winctl">
+          <WindowControls />
+        </div>
+        <div className="game-hud-counter">
+          <div className="pixel-plaque game-chip" role="status" aria-label={xpTotal === undefined ? "XP total unavailable" : `${formatXp(xpTotal)} XP total`} title="XP total">
+            <CoinIcon />
+            <span className="tabular-nums">{xpTotal === undefined ? "—" : formatXp(xpTotal)}</span>
+          </div>
+          <button
+            type="button"
+            onClick={props.onOpenWeather}
+            className="pixel-plaque game-chip"
+            aria-label={props.weatherAriaLabel}
+            title={props.weatherTitle}
+          >
+            <CloudSun className="game-chip-icon text-(--px-accent)" aria-hidden="true" />
+            <span className="tabular-nums">{props.weatherValue}</span>
+          </button>
+        </div>
       </div>
-    </header>
+
+      <div className="game-hud-br" style={NO_DRAG}>
+        <RailOrb icon={<Settings aria-hidden="true" />} label="Settings" ariaLabel="Open settings" tipSide="left" onClick={props.onOpenSettings} />
+      </div>
+    </>
   )
 }

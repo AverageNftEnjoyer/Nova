@@ -87,7 +87,7 @@ function IntegrationWorkerCard({
       <div className="flex h-full min-h-0 flex-col gap-2">
         <div className="game-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
           <div className="flex gap-3">
-            <div className="pixel-subpanel grid shrink-0 place-items-end justify-center overflow-hidden" style={{ width: 108, height: 104 }}>
+            <div className="pixel-card grid shrink-0 place-items-end justify-center overflow-hidden p-0!" style={{ width: 108, height: 104 }}>
               <div
                 role="img"
                 aria-label={`${name}, ${label} worker`}
@@ -103,14 +103,15 @@ function IntegrationWorkerCard({
               />
             </div>
             <div className="min-w-0 flex-1">
-              <h3 className="line-clamp-2 font-pixel text-[17px] leading-tight text-(--px-text)" title={name}>
+              <h3 className="pixel-title line-clamp-2 text-left! text-[17px]! normal-case!" title={name}>
                 {name}
               </h3>
-              <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-pixel text-[13px]">
-                <span className={cn("game-tag", isConnected ? "text-(--px-green)" : "text-(--px-muted)")}>{isConnected ? "Connected" : "Not connected"}</span>
+              <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 font-pixel text-[14px]">
+                <span className={cn("pixel-label", isConnected ? "pixel-label--ok" : "pixel-label--off")}>{isConnected ? "Connected" : "Not connected"}</span>
+                {building && level > 0 ? <span className={cn("pixel-label", level >= 2 ? "pixel-label--rare" : "pixel-label--common")}>Lv {level}</span> : null}
                 <span className="truncate text-(--px-muted)">{label} worker</span>
               </p>
-              <p className="mt-1.5 font-pixel text-[13px] leading-snug text-(--px-text)">
+              <p className="mt-1.5 font-pixel text-[14px] leading-snug text-(--px-text)">
                 {isConnected
                   ? `Works near the ${buildingName ?? WORKPLACE_NAME[workplace]}, keeping ${label} running for you.`
                   : `${label} is not connected, so nobody works here yet.`}
@@ -119,26 +120,26 @@ function IntegrationWorkerCard({
           </div>
 
           <div className="grid grid-cols-3 gap-2">
-            <div className="pixel-subpanel px-2 py-1.5">
+            <div className="pixel-card">
               <p className="pixel-label text-(--px-muted)">Building</p>
               <p className="font-pixel text-[14px] leading-tight text-(--px-text)">{buildingName ?? "No building"}</p>
             </div>
-            <div className="pixel-subpanel px-2 py-1.5">
+            <div className="pixel-card">
               <p className="pixel-label text-(--px-muted)">Level</p>
               <p className="font-pixel text-[15px] tabular-nums text-(--px-text)">{building ? (level === 0 ? "Empty lot" : `Level ${level}`) : "…"}</p>
             </div>
-            <div className="pixel-subpanel px-2 py-1.5">
+            <div className="pixel-card">
               <p className="pixel-label text-(--px-muted)">Uses</p>
               <p className="font-pixel text-[15px] tabular-nums text-(--px-text)">{building ? uses.toLocaleString("en-US") : "…"}</p>
-              {building && next !== null ? <p className="font-pixel text-[11px] tabular-nums text-(--px-muted)">next level at {next.toLocaleString("en-US")}</p> : null}
+              {building && next !== null ? <p className="font-pixel text-[12px] tabular-nums text-(--px-muted)">next level at {next.toLocaleString("en-US")}</p> : null}
             </div>
           </div>
 
           <ResidentRename residentId={residentId} defaultName={defaultWorkerName(integration as CityIntegration)} residents={residents} />
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t-2 border-(--px-border) pt-2">
-          <button type="button" onClick={() => onSetup(integration)} className="pixel-chip h-8! px-3! text-[13px]!">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t-[3px] border-(--px-frame-line) pt-3">
+          <button type="button" onClick={() => onSetup(integration)} className="pixel-btn pixel-btn--teal">
             <Settings2 className="h-4 w-4" />
             {isConnected ? `${label} setup` : `Connect ${label}`}
           </button>

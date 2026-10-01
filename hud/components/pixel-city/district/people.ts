@@ -4,10 +4,9 @@ import type { CityIntegration, CityWorkplace } from "../types"
  * The people of Nova City: PixelLab character sheets drawn at the painting's own pixel density, so the
  * residents (one agent per task, one worker per connected integration) and Nova the cat look painted into the city rather than pasted on top.
  *
- * The night painting is pixel art enlarged 2.5x (a 1032x576 picture on a 2580x1440 plan), and it reaches the
- * screen smoothly scaled. The sheets are drawn the same way: each sheet pixel covers PERSON_PX plan pixels, a sheet
- * is first enlarged with hard edges (like the painting) and then smoothly scaled to the screen with it. That keeps
- * one art pixel the same size everywhere and puts the people about door height (~60 px).
+ * The daytime painting is a 1536x1024 plan on which a building stands ~80-160 px tall. A sheet pixel covers PERSON_PX
+ * plan pixels, so a figure (~28 sheet pixels) is about 27 plan pixels tall: a little under door height. A sheet is
+ * first enlarged with hard edges and then smoothly scaled to the screen, like the painting, so its pixels stay square.
  *
  * Sheet layout (`public/pixel-city/town/characters/*.png`): 8 direction rows in `directionRow` order (south,
  * south-east, east, north-east, north, north-west, west, south-west) by 7 columns (standing, then 6 walk frames),
@@ -16,8 +15,8 @@ import type { CityIntegration, CityWorkplace } from "../types"
  * Feet are the anchor: (x, y) is where the figure stands.
  */
 
-/** Plan pixels per sheet pixel. The painting's own art pixel is 2.5; people are drawn a touch finer so a door fits them. */
-export const PERSON_PX = 2.25
+/** Plan pixels per sheet pixel: a ~28 px figure stands ~27 plan pixels tall next to buildings 80-160 px tall. */
+export const PERSON_PX = 0.95
 const CELL = 32
 /** Row of the feet inside a cell (the lowest opaque row of the standing frames). */
 const FOOT_Y = 30
@@ -29,7 +28,7 @@ export const PERSON_HEIGHT = Math.round(28 * PERSON_PX)
 
 const CAT_CELL = 24
 /** Nova is drawn a little larger than life so the city's mascot reads from across the park. */
-const CAT_PX = 1.25
+const CAT_PX = 0.8
 /** Row of the cat's paws inside its cell. */
 const CAT_FOOT_Y = 21
 /** Paws to ear tips of the sitting cat, in plan pixels. */
@@ -190,7 +189,7 @@ function drawCell(ctx: CanvasRenderingContext2D, art: Art, col: number, row: num
 
 /** A soft contact shadow under the feet, so figures stand on the paving instead of floating over it. */
 function drawShadow(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number): void {
-  ctx.fillStyle = "rgba(10, 6, 18, 0.38)"
+  ctx.fillStyle = "rgba(20, 30, 50, 0.3)"
   ctx.beginPath()
   ctx.ellipse(x, y - 1, rx, rx * 0.4, 0, 0, Math.PI * 2)
   ctx.fill()
@@ -205,11 +204,11 @@ export function drawPerson(ctx: CanvasRenderingContext2D, x: number, y: number, 
   if (!art) return
   const row = ((Math.round(dir) % 8) + 8) % 8
   const col = moving ? 1 + (Math.floor(time * WALK_FPS + x * 0.37) % WALK_FRAMES) : 0
-  drawShadow(ctx, x, y, 9)
+  drawShadow(ctx, x, y, 5)
   drawCell(ctx, art, col, row, CELL, FOOT_Y, PERSON_PX, x, y)
 }
 
-/** Nova on the park bench, facing the viewer. `blink` shuts the eyes (asleep while Nova is offline). */
+/** Nova beside the fountain, facing the viewer. `blink` shuts the eyes (asleep while Nova is offline). */
 export function drawCat(ctx: CanvasRenderingContext2D, x: number, y: number, blink: boolean): void {
   const art = blink ? catAsleep : catAwake
   if (!art) return

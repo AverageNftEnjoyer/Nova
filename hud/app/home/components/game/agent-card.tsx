@@ -34,13 +34,14 @@ const STATUS_LABEL: Record<AgentTaskStatus, string> = {
   cancelled: "Cancelled",
 }
 
-const STATUS_COLOR: Record<AgentTaskStatus, string> = {
-  running: "text-(--px-accent-2)",
-  queued: "text-(--px-muted)",
-  paused: "text-(--px-accent)",
-  completed: "text-(--px-green)",
-  failed: "text-(--px-red)",
-  cancelled: "text-(--px-muted)",
+/** Status as a core label: running / done are the good colours, paused is amber, failed the error colour. */
+const STATUS_LABEL_CLASS: Record<AgentTaskStatus, string> = {
+  running: "pixel-label--ok",
+  queued: "pixel-label--off",
+  paused: "pixel-label--common",
+  completed: "pixel-label--rare",
+  failed: "game-error",
+  cancelled: "pixel-label--off",
 }
 
 const BUDGET_LABEL: Record<AgentTaskBudgetState, string> = {
@@ -107,7 +108,7 @@ function AgentPortrait({ workplace }: { workplace: CityWorkplace }) {
   const art = personSheetArt(agentLook(workplace).sheet)
   const size = art.cell * PORTRAIT_SCALE
   return (
-    <div className="pixel-subpanel grid shrink-0 place-items-end justify-center overflow-hidden" style={{ width: size + 12, height: size + 8 }}>
+    <div className="pixel-card grid shrink-0 place-items-end justify-center overflow-hidden p-0!" style={{ width: size + 12, height: size + 8 }}>
       <div
         role="img"
         aria-label={`Nova agent in its ${WORKPLACE_NAME[workplace]} outfit`}
@@ -127,8 +128,8 @@ function AgentPortrait({ workplace }: { workplace: CityWorkplace }) {
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="pixel-subpanel px-3 py-2">
-      <h3 className="pixel-label text-(--px-muted)">{title}</h3>
+    <section className="pixel-card">
+      <h3 className="pixel-label text-(--px-text)">{title}</h3>
       <div className="mt-1.5">{children}</div>
     </section>
   )
@@ -157,7 +158,7 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks,
       <PixelWindow place="Nova agent" theme="agent" role="Gone" size="sm" onClose={onClose} actions={openTasks}>
         <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center" role="status">
           <p className="font-pixel text-[14px] text-(--px-muted)">This agent&apos;s task no longer exists.</p>
-          <button type="button" onClick={onOpenTasks} className="pixel-chip h-8! px-3! text-[13px]!">
+          <button type="button" onClick={onOpenTasks} className="pixel-btn pixel-btn--teal game-sm">
             Open Agent Tasks
           </button>
         </div>
@@ -219,8 +220,10 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks,
     }
   }
 
-  const chip = "pixel-chip h-8! px-3! text-[13px]! disabled:cursor-not-allowed disabled:opacity-50"
-  const input = "h-8 w-24 border-2 border-(--px-border) bg-(--px-bg) px-2 font-pixel text-[13px] tabular-nums text-(--px-text) outline-none focus:border-(--px-accent)"
+  const btn = "pixel-btn game-sm"
+  const chip = cn(btn, "pixel-btn--ghost")
+  const primary = cn(btn, "pixel-btn--teal")
+  const input = "game-input h-9 w-24 px-2 font-pixel text-[14px] tabular-nums"
 
   return (
     <PixelWindow place="Nova agent" theme="agent" role={where.place} size="md" onClose={onClose} actions={openTasks}>
@@ -229,16 +232,16 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks,
           <div className="flex gap-3">
             <AgentPortrait workplace={workplace} />
             <div className="min-w-0 flex-1">
-              <h3 className="line-clamp-2 font-pixel text-[17px] leading-tight text-(--px-text)" title={name}>
+              <h3 className="pixel-title line-clamp-2 text-left! text-[17px]! normal-case!" title={name}>
                 {name}
               </h3>
-              <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-pixel text-[13px]">
-                <span className={cn("game-tag", STATUS_COLOR[task.status])}>{STATUS_LABEL[task.status]}</span>
+              <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 font-pixel text-[14px]">
+                <span className={cn("pixel-label", STATUS_LABEL_CLASS[task.status])}>{STATUS_LABEL[task.status]}</span>
                 <span className="truncate text-(--px-muted)">
                   {task.agent} · {task.model}
                 </span>
               </p>
-              <p className="mt-1.5 font-pixel text-[13px] leading-snug text-(--px-text)">{where.why}</p>
+              <p className="mt-1.5 font-pixel text-[14px] leading-snug text-(--px-text)">{where.why}</p>
               <div className="mt-2 flex items-center gap-2">
                 <GameBar value={task.progress / 100} tone={task.status === "completed" ? "done" : "quest"} label="Task progress" className="flex-1" />
                 <span className="w-10 shrink-0 text-right font-pixel text-[12px] tabular-nums text-(--px-muted)">{Math.round(task.progress)}%</span>
@@ -247,26 +250,26 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks,
           </div>
 
           <div className="grid grid-cols-3 gap-2">
-            <div className="pixel-subpanel px-2 py-1.5">
+            <div className="pixel-card">
               <p className="pixel-label text-(--px-muted)">Tokens</p>
               <p className="font-pixel text-[15px] tabular-nums text-(--px-text)" title={`${task.tokensIn.toLocaleString("en-US")} in · ${task.tokensOut.toLocaleString("en-US")} out`}>
                 {formatTokens(task.tokensIn + task.tokensOut)}
               </p>
             </div>
-            <div className="pixel-subpanel px-2 py-1.5">
+            <div className="pixel-card">
               <p className="pixel-label text-(--px-muted)">Cost</p>
               <p className="font-pixel text-[15px] tabular-nums text-(--px-text)">{formatCost(spend.spentUsd)}</p>
             </div>
-            <div className="pixel-subpanel px-2 py-1.5">
+            <div className="pixel-card">
               <p className="pixel-label text-(--px-muted)">Budget</p>
               <p
-                className={cn("font-pixel text-[13px] leading-tight", task.budgetState === "ok" ? "text-(--px-text)" : task.budgetState === "exhausted" ? "text-(--px-red)" : "text-(--px-accent)")}
+                className={cn("font-pixel text-[13px] leading-tight", task.budgetState === "ok" ? "text-(--px-text)" : task.budgetState === "exhausted" ? "game-error" : "text-(--px-accent)")}
                 title={budget.active ? `${Math.round(Math.min(1, share) * 100)}% used` : undefined}
               >
                 {budget.active ? BUDGET_LABEL[task.budgetState] : "No limit"}
               </p>
               {budget.active ? (
-                <p className="font-pixel text-[11px] tabular-nums text-(--px-muted)">
+                <p className="font-pixel text-[12px] tabular-nums text-(--px-muted)">
                   {budget.costUsd !== null ? `${formatCost(spend.spentUsd)} / ${formatCost(budget.costUsd)}` : null}
                   {budget.costUsd !== null && budget.tokens !== null ? " · " : null}
                   {budget.tokens !== null ? `${formatTokens(spend.spentTokens)} / ${formatTokens(budget.tokens)}` : null}
@@ -325,7 +328,7 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks,
                       tok
                     </label>
                   ) : null}
-                  <button type="submit" disabled={busy} className={chip}>
+                  <button type="submit" disabled={busy} className={primary}>
                     Raise &amp; resume
                   </button>
                   <button type="button" disabled={busy} onClick={() => setRaiseOpen(false)} className={chip}>
@@ -344,7 +347,7 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks,
                 {recentTools.map((tool, index) => (
                   <li
                     key={`${tool}-${index}`}
-                    className={cn("border-2 border-(--px-border) bg-(--px-bg) px-1.5 py-0.5 font-pixel text-[12px]", index === 0 ? "text-(--px-accent-2)" : "text-(--px-muted)")}
+                    className={cn("border-2 border-(--px-frame-line) bg-(--px-bg) px-1.5 py-0.5 font-pixel text-[13px]", index === 0 ? "text-(--px-accent-2)" : "text-(--px-muted)")}
                     title={index === 0 ? "Latest" : undefined}
                   >
                     {tool}
@@ -358,7 +361,7 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks,
 
           {task.error && !budgetPaused ? (
             <Section title="Error">
-              <p className="line-clamp-4 whitespace-pre-wrap font-pixel text-[13px] leading-snug text-(--px-red)">{task.error}</p>
+              <p className="line-clamp-4 whitespace-pre-wrap font-pixel text-[13px] leading-snug game-error">{task.error}</p>
             </Section>
           ) : null}
 
@@ -370,14 +373,14 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks,
         </div>
 
         {error ? (
-          <p className="font-pixel text-[13px] text-(--px-red)" role="alert">
+          <p className="font-pixel text-[13px] game-error" role="alert">
             {error}
           </p>
         ) : null}
 
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t-2 border-(--px-border) pt-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t-[3px] border-(--px-frame-line) pt-3">
           {approval ? (
-            <button type="button" disabled={busy} onClick={() => void act("play")} className={chip}>
+            <button type="button" disabled={busy} onClick={() => void act("play")} className={primary}>
               <ShieldCheck className="h-4 w-4" />
               Allow {approval.toolName} &amp; resume
             </button>
@@ -388,27 +391,27 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks,
                 type="button"
                 disabled={busy || !headroom}
                 onClick={() => void act("play")}
-                className={chip}
+                className={primary}
                 title={headroom ? "Resume task" : "This task already spent its budget. Raise the budget to resume."}
               >
                 <Play className="h-4 w-4" />
                 Resume
               </button>
               {!raiseOpen ? (
-                <button type="button" disabled={busy} onClick={openRaise} className={chip}>
+                <button type="button" disabled={busy} onClick={openRaise} className={cn(btn, "pixel-btn--gold")}>
                   Raise budget
                 </button>
               ) : null}
             </>
           ) : null}
           {canResume ? (
-            <button type="button" disabled={busy} onClick={() => void act("play")} className={chip}>
+            <button type="button" disabled={busy} onClick={() => void act("play")} className={primary}>
               <Play className="h-4 w-4" />
               Resume
             </button>
           ) : null}
           {canRetry ? (
-            <button type="button" disabled={busy} onClick={() => void act("play")} className={chip}>
+            <button type="button" disabled={busy} onClick={() => void act("play")} className={primary}>
               <Play className="h-4 w-4" />
               Retry
             </button>
@@ -420,7 +423,7 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks,
             </button>
           ) : null}
           {canStop ? (
-            <button type="button" disabled={busy} onClick={() => void act("stop")} className={chip}>
+            <button type="button" disabled={busy} onClick={() => void act("stop")} className={cn(btn, "pixel-btn--red")}>
               <Square className="h-4 w-4" />
               {budgetPaused ? "Abort" : "Stop"}
             </button>

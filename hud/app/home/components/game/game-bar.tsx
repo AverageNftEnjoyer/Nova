@@ -2,6 +2,13 @@ import { cn } from "@/lib/shared/utils"
 
 export type GameBarTone = "xp" | "quest" | "done"
 
+/** Core bar colours: XP is gold (the default fill), a quest in progress teal, a finished one green. */
+const TONE_CLASS: Record<GameBarTone, string> = {
+  xp: "",
+  quest: "pixel-bar--teal",
+  done: "pixel-bar--green",
+}
+
 interface GameBarProps {
   /** 0..1 */
   value: number
@@ -13,7 +20,7 @@ interface GameBarProps {
   className?: string
 }
 
-/** A segmented pixel progress bar (XP, quest progress, building uses). */
+/** A segmented pixel progress bar (XP, quest progress, building uses): the core `.pixel-bar`. */
 export function GameBar({ value, tone = "quest", label, valueText, className }: GameBarProps) {
   const pct = Math.round(Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0)) * 100)
   return (
@@ -24,9 +31,9 @@ export function GameBar({ value, tone = "quest", label, valueText, className }: 
       aria-valuemax={100}
       aria-valuenow={pct}
       aria-valuetext={valueText}
-      className={cn("game-bar", `game-bar--${tone}`, className)}
+      className={cn("pixel-bar", TONE_CLASS[tone], className)}
     >
-      <div className="game-bar-fill" style={{ width: `${pct}%` }} />
+      <span className="pixel-bar-fill" style={{ width: `${pct}%` }} />
     </div>
   )
 }

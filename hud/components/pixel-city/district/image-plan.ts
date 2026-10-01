@@ -1,14 +1,17 @@
 import type { CityIntegration, CityPlaceId, CityRect, CityWorkplace } from "../types"
 
 /**
- * The District is one painted night image of Nova City (`/pixel-city/town/background.png`, 2580x1440). This file
- * maps it: which building is which Nova place or integration, where the signs are, and where people walk and cars
- * drive. Coordinates are image pixels ("plan pixels"); the renderer draws the image and everything live on top.
+ * The District is one painted daytime image of Nova City (`/pixel-city/town/background.webp`, 1536x1024): a bright
+ * isometric island with tan paved streets, canals, a harbour and colourful domed buildings. This file maps it: which
+ * building is which Nova place or integration, where the status badges sit, and where people walk. Coordinates are
+ * image pixels ("plan pixels"); the renderer draws the image and everything live on top.
  */
 
-export const DISTRICT_IMAGE_SRC = "/pixel-city/town/background.png"
-export const DISTRICT_IMAGE_WIDTH = 2580
-export const DISTRICT_IMAGE_HEIGHT = 1440
+export const DISTRICT_IMAGE_SRC = "/pixel-city/town/background.webp"
+export const DISTRICT_IMAGE_WIDTH = 1536
+export const DISTRICT_IMAGE_HEIGHT = 1024
+/** The sea beyond the painting's edges (sampled from its open water): the camera may show past the image when zoomed out. */
+export const DISTRICT_SEA_COLOR = "#01a8d9"
 
 export interface SignRect {
   x: number
@@ -22,61 +25,46 @@ export interface DistrictPlace {
   /** What the building is called on screen and in its popup. */
   name: string
   hit: CityRect
-  /** The integration that lights this building's sign; civic places are always lit. */
+  /** The integration whose connection this building shows; civic places are always open. */
   integration?: CityIntegration
-  /** The image's own signs for this building; a disconnected integration's sign flickers like a faulty tube. */
+  /**
+   * Where the building's status badge sits (an integration building only): a small lamp that is lit while the
+   * integration is connected and dark while it is not. Also the point the Integrations page crops around.
+   */
   signs: SignRect[]
 }
 
+/** The badge's size in plan pixels. */
+const BADGE = 9
+
+/** A status badge centred on (cx, cy). */
+const badge = (cx: number, cy: number): SignRect => ({ x: Math.round(cx - BADGE / 2), y: Math.round(cy - BADGE / 2), w: BADGE, h: BADGE })
+
 export const DISTRICT_PLACES: readonly DistrictPlace[] = [
   // Civic places (always open).
-  { id: "tasks", name: "Nova HQ", hit: { x: 1150, y: 40, w: 272, h: 632 }, signs: [] },
-  { id: "deploy", name: "Depot", hit: { x: 1834, y: 872, w: 246, h: 212 }, signs: [] },
-  { id: "analytics", name: "Power Plant", hit: { x: 2300, y: 120, w: 280, h: 560 }, signs: [] },
-  { id: "notes", name: "Noticeboard", hit: { x: 880, y: 1135, w: 108, h: 158 }, signs: [] },
-  { id: "integrations", name: "Town Hall", hit: { x: 1140, y: 965, w: 360, h: 353 }, signs: [] },
-  { id: "chat", name: "Fountain Park", hit: { x: 1780, y: 560, w: 260, h: 200 }, signs: [] },
-  { id: "schedule", name: "Post Office", hit: { x: 80, y: 860, w: 420, h: 412 }, integration: "gmail", signs: [{ x: 160, y: 1015, w: 100, h: 75 }] },
-  { id: "crypto", name: "Bank", hit: { x: 2080, y: 200, w: 220, h: 330 }, integration: "coinbase", signs: [{ x: 2126, y: 388, w: 54, h: 52 }] },
-  {
-    id: "polymarket",
-    name: "Odds Parlour",
-    hit: { x: 1040, y: 370, w: 80, h: 190 },
-    integration: "polymarket",
-    signs: [{ x: 1046, y: 382, w: 62, h: 48 }],
-  },
-  {
-    id: "youtube",
-    name: "Cinema",
-    hit: { x: 785, y: 240, w: 157, h: 335 },
-    integration: "youtube",
-    signs: [{ x: 790, y: 408, w: 104, h: 64 }, { x: 906, y: 346, w: 34, h: 124 }],
-  },
+  { id: "tasks", name: "Nova HQ", hit: { x: 82, y: 0, w: 150, h: 250 }, signs: [] }, // the great arched gate
+  { id: "deploy", name: "Depot", hit: { x: 12, y: 640, w: 135, h: 130 }, signs: [] }, // the harbour office on the pier
+  { id: "analytics", name: "Power Plant", hit: { x: 1218, y: 422, w: 112, h: 140 }, signs: [] }, // the rocket tower
+  { id: "notes", name: "Noticeboard", hit: { x: 255, y: 548, w: 110, h: 102 }, signs: [] }, // the glasshouse
+  { id: "integrations", name: "Town Hall", hit: { x: 781, y: 575, w: 150, h: 134 }, signs: [] }, // the silver hall
+  { id: "chat", name: "Fountain Park", hit: { x: 610, y: 376, w: 68, h: 76 }, signs: [] }, // the round fountain
+  { id: "schedule", name: "Post Office", hit: { x: 328, y: 378, w: 120, h: 104 }, integration: "gmail", signs: [badge(388, 386)] },
+  { id: "crypto", name: "Bank", hit: { x: 943, y: 405, w: 272, h: 112 }, integration: "coinbase", signs: [badge(1070, 410)] },
+  { id: "polymarket", name: "Odds Parlour", hit: { x: 893, y: 305, w: 373, h: 110 }, integration: "polymarket", signs: [badge(1062, 300)] },
+  { id: "youtube", name: "Cinema", hit: { x: 894, y: 458, w: 88, h: 90 }, integration: "youtube", signs: [badge(938, 466)] },
 
   // One building per integration (the rest).
-  {
-    id: "integration-spotify",
-    name: "Records",
-    hit: { x: 940, y: 420, w: 100, h: 140 },
-    integration: "spotify",
-    signs: [{ x: 946, y: 436, w: 96, h: 52 }],
-  },
-  { id: "integration-discord", name: "Arcade", hit: { x: 544, y: 452, w: 270, h: 260 }, integration: "discord", signs: [{ x: 668, y: 498, w: 132, h: 72 }] },
-  { id: "integration-slack", name: "Cowork", hit: { x: 1630, y: 70, w: 240, h: 360 }, integration: "slack", signs: [{ x: 1745, y: 150, w: 124, h: 60 }] },
-  { id: "integration-openai", name: "Lab", hit: { x: 1420, y: 140, w: 240, h: 372 }, integration: "openai", signs: [{ x: 1560, y: 252, w: 72, h: 58 }] },
-  { id: "integration-claude", name: "Studio", hit: { x: 350, y: 90, w: 300, h: 400 }, integration: "claude", signs: [{ x: 515, y: 312, w: 108, h: 64 }] },
-  { id: "integration-grok", name: "Observatory", hit: { x: 0, y: 150, w: 330, h: 320 }, integration: "grok", signs: [{ x: 128, y: 262, w: 180, h: 118 }] },
-  { id: "integration-gemini", name: "Gemini Tower", hit: { x: 1452, y: 740, w: 250, h: 516 }, integration: "gemini", signs: [] },
-  {
-    id: "integration-telegram",
-    name: "Telegraph",
-    hit: { x: 1870, y: 60, w: 210, h: 420 },
-    integration: "telegram",
-    signs: [{ x: 1874, y: 310, w: 88, h: 58 }],
-  },
-  { id: "integration-gmail-calendar", name: "Clock Tower", hit: { x: 1680, y: 486, w: 140, h: 512 }, integration: "gmail-calendar", signs: [] },
-  { id: "integration-brave", name: "Library", hit: { x: 2060, y: 1150, w: 180, h: 160 }, integration: "brave", signs: [{ x: 2072, y: 1162, w: 156, h: 50 }] },
-  { id: "integration-phantom", name: "Vault", hit: { x: 2310, y: 990, w: 270, h: 320 }, integration: "phantom", signs: [{ x: 2358, y: 1112, w: 114, h: 74 }] },
+  { id: "integration-spotify", name: "Records", hit: { x: 607, y: 800, w: 105, h: 72 }, integration: "spotify", signs: [badge(660, 806)] },
+  { id: "integration-discord", name: "Arcade", hit: { x: 415, y: 183, w: 130, h: 92 }, integration: "discord", signs: [badge(480, 186)] },
+  { id: "integration-slack", name: "Cowork", hit: { x: 741, y: 697, w: 255, h: 112 }, integration: "slack", signs: [badge(868, 704)] },
+  { id: "integration-openai", name: "Lab", hit: { x: 976, y: 645, w: 94, h: 105 }, integration: "openai", signs: [badge(1022, 650)] },
+  { id: "integration-claude", name: "Studio", hit: { x: 1166, y: 628, w: 160, h: 78 }, integration: "claude", signs: [badge(1246, 632)] },
+  { id: "integration-grok", name: "Observatory", hit: { x: 535, y: 38, w: 48, h: 78 }, integration: "grok", signs: [badge(559, 44)] },
+  { id: "integration-gemini", name: "Gemini Tower", hit: { x: 694, y: 487, w: 112, h: 124 }, integration: "gemini", signs: [badge(750, 494)] },
+  { id: "integration-telegram", name: "Telegraph", hit: { x: 515, y: 495, w: 185, h: 112 }, integration: "telegram", signs: [badge(660, 500)] },
+  { id: "integration-gmail-calendar", name: "Clock Tower", hit: { x: 322, y: 778, w: 54, h: 86 }, integration: "gmail-calendar", signs: [badge(360, 784)] },
+  { id: "integration-brave", name: "Library", hit: { x: 745, y: 150, w: 106, h: 128 }, integration: "brave", signs: [badge(798, 156)] },
+  { id: "integration-phantom", name: "Vault", hit: { x: 786, y: 908, w: 64, h: 40 }, integration: "phantom", signs: [badge(818, 912)] },
 ]
 
 // ── Walkways ────────────────────────────────────────────────────────────────
@@ -84,132 +72,354 @@ export const DISTRICT_PLACES: readonly DistrictPlace[] = [
 export type WalkNodeId = string
 
 /**
- * Walkable points (feet positions) on open paving: the cobbled streets, the round plaza, boardwalks, stairs, the park
- * loop and the sidewalks. A walker's body rises about 63 px above its feet, so every node and every straight run
- * between two nodes keeps the feet on paving that is visible in the painting, in front of the building being passed
- * (never on a roof, never inside a footprint). Where a run passes behind something (the NOVA arch, the clock tower,
- * a tree, the viaduct), an entry in DISTRICT_OCCLUDERS redraws that structure over the walker.
+ * Walkable points (feet positions) on the painted tan paving and the harbour boardwalk. A walker's body rises about
+ * PERSON_HEIGHT px above its feet. The doors are the points in front of each building; the rest are waypoints that keep
+ * every run between two nodes on visible paving (each street was traced from the painting's paving and checked
+ * against it). Where a run passes behind something tall, an entry in DISTRICT_OCCLUDERS redraws it over the walker.
  */
 export const WALK_NODES: Readonly<Record<WalkNodeId, readonly [number, number]>> = {
-  // North-west: the Observatory and Studio street, then the stairs down beside the Arcade.
-  obs: [282, 500], // foot of the Observatory steps
-  nw1: [410, 515], // cobbled street
-  stu: [548, 480], // Studio door
-  stT: [515, 578], // top of the stairs beside the Arcade
-  stM: [575, 646], // halfway down (the terrace joins here)
-  stB: [628, 706], // foot of the stairs, at the Arcade's corner
-  wUp: [440, 702], // terrace walk in front of the corner shop
-  shop: [272, 802], // corner shop (awning and vending machine)
-  wW1: [350, 925], // west boardwalk, behind the Post Office
-  wW2: [480, 1000],
-  // The Arcade square, the Cinema block and the NOVA arch.
-  arc: [748, 702], // Arcade door
-  m1: [848, 700], // lane between the Arcade and the Cinema
-  cin: [922, 592], // Cinema door (Records next to it)
-  odd: [1075, 532], // Odds Parlour door
-  pw0: [1150, 610], // west of Nova HQ, above the arch sign
-  sq: [885, 845], // lower cobbled square
-  as: [1050, 865], // under the NOVA arch, square side
-  an: [1120, 790], // under the NOVA arch, on the plaza stairs
-  // The round plaza and Nova HQ.
-  g: [1228, 682], // Nova HQ's door
-  pw: [1225, 745], // round plaza, west
-  p3: [1390, 800], // round plaza, south
-  p2: [1462, 690], // round plaza, east
-  // The lantern deck (Lab, Cowork, Telegraph) and the Bank / Power Plant sidewalk.
-  e1: [1500, 612], // foot of the deck stairs
-  e2: [1560, 555], // top of the deck stairs
-  lab: [1592, 524], // Lab door
-  dk1: [1712, 470], // lantern deck
-  cow: [1790, 440], // Cowork door
-  tel: [1992, 458], // Telegraph door
-  dkS: [2062, 515], // deck corner above the park stairs
-  bnk: [2158, 532], // Bank steps
-  pd: [2262, 578], // sidewalk between the Bank and the Power Plant
-  pwr: [2365, 630], // Power Plant door
-  // The park: stairs down from the deck, the dirt ring round the fountain, the path south to the Depot.
-  pkB: [2028, 600], // foot of the park stairs
-  kN: [1925, 598], // ring, north (by Nova's bench)
-  kE: [1995, 665], // ring, east
-  kS: [1905, 786], // ring, south
-  kNW: [1830, 618], // ring, north-west (under the clock tower's eaves)
-  kW: [1836, 700], // ring, west (beside the clock tower)
-  kSW: [1842, 775], // ring, south-west
-  kD1: [1845, 830], // path south
-  kD2: [1860, 905],
-  kD3: [1822, 1010], // between the clock tower and the Depot
-  pl1: [1852, 1110], // platform, west end
-  dep: [1985, 1052], // Depot platform
-  // South of the plaza: the deck and stairs down behind the Town Hall, then the square's stairs to the street.
-  pS1: [1400, 845], // deck below the plaza
-  pS2: [1295, 952], // foot of the deck stairs
-  th1: [1200, 995], // boardwalk behind the Town Hall
-  tB: [1112, 1040], // top of the square's stairs
-  bB: [1030, 1185], // foot of the square's stairs
-  // The elevated walkway to the west and the street below it.
-  wk1: [815, 930], // walkway, square end
-  wk2: [700, 985],
-  wk3: [585, 1052], // walkway, top of the street stairs
-  fA: [635, 1212], // foot of the street stairs
-  sw0: [455, 1305], // bus stop
-  pst: [222, 1246], // Post Office door
-  xw: [668, 1300], // crossing to the noticeboard corner
-  nts: [948, 1298], // in front of the noticeboard
-  // The south sidewalk: Town Hall, Gemini Tower, under the viaduct to the Library and the Vault.
-  th: [1165, 1302], // foot of the Town Hall steps
-  s1: [1420, 1334],
-  gem: [1630, 1278], // Gemini Tower door
-  v2: [1840, 1338], // sidewalk past the viaduct
-  lib: [2150, 1318], // Library board
-  vlt: [2398, 1295], // Vault door
+  // Doors: the paving in front of each building.
+  hq: [200, 258], // Nova HQ's gate stairs
+  obs: [556, 115], // Observatory (red orb tower)
+  lib: [800, 290], // Library (statue plaza)
+  dis: [470, 282], // Arcade (blue spiked hall)
+  post: [385, 492], // Post Office (red hall)
+  chat: [645, 458], // Fountain Park's basin
+  note: [310, 682], // Noticeboard (greenhouse lawn)
+  tel: [640, 590], // Telegraph (pipe and train)
+  gem: [750, 618], // Gemini Tower
+  town: [850, 718], // Town Hall (silver dome hall)
+  slack: [870, 812], // Cowork (orange arches)
+  lab: [1020, 758], // Lab (garden lab with the tank)
+  cin: [940, 552], // Cinema (purple dome)
+  mkt: [1000, 430], // Odds Parlour (the dome market)
+  bank: [1090, 525], // Bank (red bridge hall)
+  pow: [1275, 568], // Power Plant (rocket tower)
+  claude: [1230, 712], // Studio (terracotta domes)
+  spot: [660, 879], // Records (red spotted dome)
+  clock: [392, 815], // Clock Tower (spire)
+  vault: [815, 950], // Vault (cave on the south jetty)
+  dep: [89, 730], // Depot (harbour office on the pier)
+  j1: [335, 269], // junction below the Studio-side lawns
+  // Street waypoints between the doors (traced along the paving of the painting).
+  "hq_j11": [257, 274],
+  "hq_j12": [310, 239],
+  "hq_j13": [336, 256],
+  "j1_dis1": [337, 258],
+  "j1_dis2": [267, 205],
+  "j1_dis3": [262, 193],
+  "j1_dis4": [282, 174],
+  "j1_dis5": [324, 156],
+  "j1_dis6": [355, 157],
+  "j1_dis7": [431, 194],
+  "j1_dis8": [403, 231],
+  "j1_dis9": [403, 246],
+  "j1_dis10": [436, 274],
+  "dis_obs1": [501, 284],
+  "dis_obs2": [547, 260],
+  "dis_obs3": [564, 260],
+  "dis_obs4": [593, 275],
+  "dis_obs5": [636, 275],
+  "dis_obs6": [679, 253],
+  "dis_obs7": [684, 216],
+  "dis_obs8": [713, 192],
+  "dis_obs9": [712, 181],
+  "dis_obs10": [683, 155],
+  "dis_obs11": [682, 134],
+  "dis_obs12": [656, 105],
+  "dis_obs13": [629, 111],
+  "dis_obs14": [583, 107],
+  "dis_lib1": [501, 284],
+  "dis_lib2": [547, 260],
+  "dis_lib3": [618, 276],
+  "dis_lib4": [673, 261],
+  "dis_lib5": [711, 296],
+  "dis_lib6": [725, 296],
+  "dis_lib7": [742, 281],
+  "j1_post1": [337, 258],
+  "j1_post2": [323, 244],
+  "j1_post3": [301, 239],
+  "j1_post4": [251, 281],
+  "j1_post5": [236, 312],
+  "j1_post6": [185, 347],
+  "j1_post7": [184, 371],
+  "j1_post8": [239, 415],
+  "j1_post9": [239, 432],
+  "j1_post10": [251, 444],
+  "j1_post11": [304, 444],
+  "j1_post12": [337, 474],
+  "post_chat1": [416, 497],
+  "post_chat2": [431, 490],
+  "post_chat3": [474, 466],
+  "post_chat4": [533, 414],
+  "post_chat5": [573, 390],
+  "post_chat6": [586, 390],
+  "post_chat7": [607, 409],
+  "post_chat8": [602, 441],
+  "post_chat9": [612, 451],
+  "post_note1": [342, 478],
+  "post_note2": [334, 496],
+  "post_note3": [379, 521],
+  "post_note4": [408, 527],
+  "post_note5": [427, 545],
+  "post_note6": [460, 579],
+  "post_note7": [453, 616],
+  "post_note8": [402, 658],
+  "post_note9": [367, 661],
+  "post_note10": [342, 676],
+  "note_tel1": [342, 676],
+  "note_tel2": [367, 661],
+  "note_tel3": [404, 658],
+  "note_tel4": [465, 708],
+  "note_tel5": [488, 706],
+  "note_tel6": [539, 690],
+  "note_tel7": [545, 665],
+  "note_tel8": [565, 645],
+  "note_tel9": [618, 599],
+  "tel_chat1": [681, 574],
+  "tel_chat2": [716, 539],
+  "tel_chat3": [714, 495],
+  "tel_chat4": [728, 481],
+  "tel_chat5": [728, 466],
+  "tel_chat6": [698, 443],
+  "tel_gem1": [642, 649],
+  "tel_gem2": [652, 659],
+  "tel_gem3": [747, 676],
+  "tel_gem4": [762, 661],
+  "tel_gem5": [762, 642],
+  "gem_town1": [766, 648],
+  "gem_town2": [766, 673],
+  "gem_town3": [797, 714],
+  "gem_town4": [807, 724],
+  "town_slack1": [807, 724],
+  "town_slack2": [788, 702],
+  "town_slack3": [757, 701],
+  "town_slack4": [741, 719],
+  "town_slack5": [731, 788],
+  "town_slack6": [764, 818],
+  "town_slack7": [848, 806],
+  "slack_spot1": [848, 806],
+  "slack_spot2": [760, 818],
+  "slack_spot3": [718, 870],
+  "slack_spot4": [681, 886],
+  "slack_spot5": [665, 886],
+  "spot_clock1": [642, 887],
+  "spot_clock2": [589, 862],
+  "spot_clock3": [548, 862],
+  "spot_clock4": [513, 880],
+  "spot_clock5": [483, 881],
+  "spot_clock6": [455, 866],
+  "spot_clock7": [411, 817],
+  "clock_dep1": [395, 790],
+  "clock_dep2": [385, 758],
+  "clock_dep3": [350, 748],
+  "clock_dep4": [318, 752],
+  "clock_dep5": [298, 790],
+  "clock_dep6": [292, 810],
+  "clock_dep7": [268, 812],
+  "clock_dep8": [240, 782],
+  "clock_dep9": [212, 758],
+  "clock_dep10": [175, 742],
+  "clock_dep11": [130, 735],
+  "slack_vault1": [887, 813],
+  "slack_vault2": [920, 846],
+  "slack_vault3": [919, 884],
+  "slack_vault4": [878, 909],
+  "slack_vault5": [853, 946],
+  "slack_lab1": [884, 811],
+  "slack_lab2": [897, 822],
+  "slack_lab3": [946, 812],
+  "lab_claude1": [1066, 753],
+  "lab_claude2": [1077, 742],
+  "lab_claude3": [1081, 725],
+  "lab_claude4": [1072, 660],
+  "lab_claude5": [1082, 641],
+  "lab_claude6": [1127, 641],
+  "lab_claude7": [1146, 671],
+  "lab_claude8": [1146, 687],
+  "lab_claude9": [1181, 718],
+  "lab_claude10": [1196, 718],
+  "lab_claude11": [1212, 707],
+  "lab_cin1": [1066, 753],
+  "lab_cin2": [1077, 742],
+  "lab_cin3": [1081, 725],
+  "lab_cin4": [1069, 662],
+  "lab_cin5": [1051, 637],
+  "lab_cin6": [1007, 644],
+  "lab_cin7": [960, 635],
+  "lab_cin8": [928, 599],
+  "lab_cin9": [927, 572],
+  "cin_mkt1": [929, 563],
+  "cin_mkt2": [910, 563],
+  "cin_mkt3": [886, 542],
+  "cin_mkt4": [885, 503],
+  "cin_mkt5": [902, 483],
+  "cin_mkt6": [902, 460],
+  "cin_mkt7": [968, 410],
+  "cin_mkt8": [983, 409],
+  "mkt_bank1": [983, 409],
+  "mkt_bank2": [965, 411],
+  "mkt_bank3": [934, 440],
+  "mkt_bank4": [936, 454],
+  "mkt_bank5": [991, 506],
+  "mkt_bank6": [1015, 507],
+  "mkt_bank7": [1039, 531],
+  "bank_pow1": [1103, 526],
+  "bank_pow2": [1110, 544],
+  "bank_pow3": [1097, 564],
+  "bank_pow4": [1072, 579],
+  "bank_pow5": [1075, 623],
+  "bank_pow6": [1085, 641],
+  "bank_pow7": [1124, 641],
+  "bank_pow8": [1136, 625],
+  "bank_pow9": [1175, 634],
+  "bank_pow10": [1252, 587],
+  "bank_pow11": [1260, 570],
+  "claude_pow1": [1212, 707],
+  "claude_pow2": [1196, 718],
+  "claude_pow3": [1181, 718],
+  "claude_pow4": [1151, 691],
+  "claude_pow5": [1151, 667],
+  "claude_pow6": [1184, 627],
+  "claude_pow7": [1252, 587],
+  "claude_pow8": [1260, 570],
+  "lib_mkt1": [825, 324],
+  "lib_mkt2": [852, 333],
+  "lib_mkt3": [886, 362],
+  "lib_mkt4": [886, 372],
+  "lib_mkt5": [851, 403],
+  "lib_mkt6": [851, 421],
+  "lib_mkt7": [873, 440],
+  "lib_mkt8": [927, 445],
+  "lib_mkt9": [974, 409],
+  "lib_mkt10": [983, 409],
+  "cin_gem1": [929, 563],
+  "cin_gem2": [833, 571],
+  "cin_gem3": [790, 618],
+  "gem_chat1": [790, 618],
+  "gem_chat2": [821, 587],
+  "gem_chat3": [826, 565],
+  "gem_chat4": [811, 539],
+  "gem_chat5": [757, 493],
+  "gem_chat6": [749, 471],
+  "gem_chat7": [734, 471],
+  "gem_chat8": [698, 443],
+  "town_lab1": [853, 727],
+  "town_lab2": [880, 726],
+  "town_lab3": [912, 694],
+  "town_lab4": [940, 688],
+  "town_lab5": [975, 637],
+  "town_lab6": [1008, 644],
+  "town_lab7": [1051, 637],
+  "town_lab8": [1069, 663],
+  "town_lab9": [1081, 735],
+  "town_lab10": [1066, 753],
+  "note_clock1": [388, 658],
+  "note_clock2": [404, 658],
+  "note_clock3": [433, 680],
+  "note_clock4": [433, 689],
+  "note_clock5": [400, 723],
+  "note_clock6": [380, 726],
+  "note_clock7": [361, 745],
+  "note_clock8": [361, 763],
 }
 
 export const WALK_EDGES: ReadonlyArray<readonly [WalkNodeId, WalkNodeId]> = [
-  ["obs", "nw1"], ["nw1", "stu"], ["nw1", "stT"], ["stu", "stT"], ["stT", "stM"], ["stM", "stB"], ["stM", "wUp"],
-  ["wUp", "shop"], ["shop", "wW1"], ["wW1", "wW2"], ["wW2", "wk3"],
-  ["stB", "arc"], ["arc", "m1"], ["arc", "sq"], ["m1", "sq"], ["m1", "cin"], ["cin", "odd"], ["odd", "pw0"], ["pw0", "g"],
-  ["sq", "as"], ["as", "an"], ["an", "pw"], ["pw", "g"], ["pw", "p3"], ["p3", "p2"],
-  ["p2", "e1"], ["e1", "e2"], ["e2", "lab"], ["lab", "dk1"], ["dk1", "cow"], ["cow", "tel"], ["tel", "dkS"], ["dkS", "bnk"],
-  ["bnk", "pd"], ["pd", "pwr"],
-  ["dkS", "pkB"], ["pkB", "kN"], ["pkB", "kE"], ["kN", "kNW"], ["kNW", "kW"], ["kW", "kSW"], ["kSW", "kS"], ["kS", "kE"],
-  ["kSW", "kD1"], ["kD1", "kD2"],
-  ["kD2", "kD3"], ["kD3", "pl1"], ["pl1", "dep"],
-  ["p3", "pS1"], ["pS1", "pS2"], ["pS2", "th1"], ["th1", "tB"], ["tB", "as"], ["tB", "bB"], ["bB", "nts"],
-  ["sq", "wk1"], ["wk1", "wk2"], ["wk2", "wk3"], ["wk3", "fA"], ["fA", "sw0"], ["sw0", "pst"], ["fA", "xw"], ["xw", "nts"],
-  ["nts", "th"], ["th", "s1"], ["s1", "gem"], ["s1", "v2"], ["gem", "v2"], ["v2", "lib"], ["lib", "vlt"],
+  ["hq", "hq_j11"], ["hq_j11", "hq_j12"], ["hq_j12", "hq_j13"], ["hq_j13", "j1"],
+  ["j1", "j1_dis1"], ["j1_dis1", "j1_dis2"], ["j1_dis2", "j1_dis3"], ["j1_dis3", "j1_dis4"],
+  ["j1_dis4", "j1_dis5"], ["j1_dis5", "j1_dis6"], ["j1_dis6", "j1_dis7"], ["j1_dis7", "j1_dis8"],
+  ["j1_dis8", "j1_dis9"], ["j1_dis9", "j1_dis10"], ["j1_dis10", "dis"], ["dis", "dis_obs1"],
+  ["dis_obs1", "dis_obs2"], ["dis_obs2", "dis_obs3"], ["dis_obs3", "dis_obs4"], ["dis_obs4", "dis_obs5"],
+  ["dis_obs5", "dis_obs6"], ["dis_obs6", "dis_obs7"], ["dis_obs7", "dis_obs8"], ["dis_obs8", "dis_obs9"],
+  ["dis_obs9", "dis_obs10"], ["dis_obs10", "dis_obs11"], ["dis_obs11", "dis_obs12"], ["dis_obs12", "dis_obs13"],
+  ["dis_obs13", "dis_obs14"], ["dis_obs14", "obs"], ["dis", "dis_lib1"], ["dis_lib1", "dis_lib2"],
+  ["dis_lib2", "dis_lib3"], ["dis_lib3", "dis_lib4"], ["dis_lib4", "dis_lib5"], ["dis_lib5", "dis_lib6"],
+  ["dis_lib6", "dis_lib7"], ["dis_lib7", "lib"], ["j1", "j1_post1"], ["j1_post1", "j1_post2"],
+  ["j1_post2", "j1_post3"], ["j1_post3", "j1_post4"], ["j1_post4", "j1_post5"], ["j1_post5", "j1_post6"],
+  ["j1_post6", "j1_post7"], ["j1_post7", "j1_post8"], ["j1_post8", "j1_post9"], ["j1_post9", "j1_post10"],
+  ["j1_post10", "j1_post11"], ["j1_post11", "j1_post12"], ["j1_post12", "post"], ["post", "post_chat1"],
+  ["post_chat1", "post_chat2"], ["post_chat2", "post_chat3"], ["post_chat3", "post_chat4"], ["post_chat4", "post_chat5"],
+  ["post_chat5", "post_chat6"], ["post_chat6", "post_chat7"], ["post_chat7", "post_chat8"], ["post_chat8", "post_chat9"],
+  ["post_chat9", "chat"], ["post", "post_note1"], ["post_note1", "post_note2"], ["post_note2", "post_note3"],
+  ["post_note3", "post_note4"], ["post_note4", "post_note5"], ["post_note5", "post_note6"], ["post_note6", "post_note7"],
+  ["post_note7", "post_note8"], ["post_note8", "post_note9"], ["post_note9", "post_note10"], ["post_note10", "note"],
+  ["note", "note_tel1"], ["note_tel1", "note_tel2"], ["note_tel2", "note_tel3"], ["note_tel3", "note_tel4"],
+  ["note_tel4", "note_tel5"], ["note_tel5", "note_tel6"], ["note_tel6", "note_tel7"], ["note_tel7", "note_tel8"],
+  ["note_tel8", "note_tel9"], ["note_tel9", "tel"], ["tel", "tel_chat1"], ["tel_chat1", "tel_chat2"],
+  ["tel_chat2", "tel_chat3"], ["tel_chat3", "tel_chat4"], ["tel_chat4", "tel_chat5"], ["tel_chat5", "tel_chat6"],
+  ["tel_chat6", "chat"], ["tel", "tel_gem1"], ["tel_gem1", "tel_gem2"], ["tel_gem2", "tel_gem3"],
+  ["tel_gem3", "tel_gem4"], ["tel_gem4", "tel_gem5"], ["tel_gem5", "gem"], ["gem", "gem_town1"],
+  ["gem_town1", "gem_town2"], ["gem_town2", "gem_town3"], ["gem_town3", "gem_town4"], ["gem_town4", "town"],
+  ["town", "town_slack1"], ["town_slack1", "town_slack2"], ["town_slack2", "town_slack3"], ["town_slack3", "town_slack4"],
+  ["town_slack4", "town_slack5"], ["town_slack5", "town_slack6"], ["town_slack6", "town_slack7"], ["town_slack7", "slack"],
+  ["slack", "slack_spot1"], ["slack_spot1", "slack_spot2"], ["slack_spot2", "slack_spot3"], ["slack_spot3", "slack_spot4"],
+  ["slack_spot4", "slack_spot5"], ["slack_spot5", "spot"], ["spot", "spot_clock1"], ["spot_clock1", "spot_clock2"],
+  ["spot_clock2", "spot_clock3"], ["spot_clock3", "spot_clock4"], ["spot_clock4", "spot_clock5"], ["spot_clock5", "spot_clock6"],
+  ["spot_clock6", "spot_clock7"], ["spot_clock7", "clock"], ["clock", "clock_dep1"], ["clock_dep1", "clock_dep2"],
+  ["clock_dep2", "clock_dep3"], ["clock_dep3", "clock_dep4"], ["clock_dep4", "clock_dep5"], ["clock_dep5", "clock_dep6"],
+  ["clock_dep6", "clock_dep7"], ["clock_dep7", "clock_dep8"], ["clock_dep8", "clock_dep9"], ["clock_dep9", "clock_dep10"],
+  ["clock_dep10", "clock_dep11"], ["clock_dep11", "dep"], ["slack", "slack_vault1"], ["slack_vault1", "slack_vault2"],
+  ["slack_vault2", "slack_vault3"], ["slack_vault3", "slack_vault4"], ["slack_vault4", "slack_vault5"], ["slack_vault5", "vault"],
+  ["slack", "slack_lab1"], ["slack_lab1", "slack_lab2"], ["slack_lab2", "slack_lab3"], ["slack_lab3", "lab"],
+  ["lab", "lab_claude1"], ["lab_claude1", "lab_claude2"], ["lab_claude2", "lab_claude3"], ["lab_claude3", "lab_claude4"],
+  ["lab_claude4", "lab_claude5"], ["lab_claude5", "lab_claude6"], ["lab_claude6", "lab_claude7"], ["lab_claude7", "lab_claude8"],
+  ["lab_claude8", "lab_claude9"], ["lab_claude9", "lab_claude10"], ["lab_claude10", "lab_claude11"], ["lab_claude11", "claude"],
+  ["lab", "lab_cin1"], ["lab_cin1", "lab_cin2"], ["lab_cin2", "lab_cin3"], ["lab_cin3", "lab_cin4"],
+  ["lab_cin4", "lab_cin5"], ["lab_cin5", "lab_cin6"], ["lab_cin6", "lab_cin7"], ["lab_cin7", "lab_cin8"],
+  ["lab_cin8", "lab_cin9"], ["lab_cin9", "cin"], ["cin", "cin_mkt1"], ["cin_mkt1", "cin_mkt2"],
+  ["cin_mkt2", "cin_mkt3"], ["cin_mkt3", "cin_mkt4"], ["cin_mkt4", "cin_mkt5"], ["cin_mkt5", "cin_mkt6"],
+  ["cin_mkt6", "cin_mkt7"], ["cin_mkt7", "cin_mkt8"], ["cin_mkt8", "mkt"], ["mkt", "mkt_bank1"],
+  ["mkt_bank1", "mkt_bank2"], ["mkt_bank2", "mkt_bank3"], ["mkt_bank3", "mkt_bank4"], ["mkt_bank4", "mkt_bank5"],
+  ["mkt_bank5", "mkt_bank6"], ["mkt_bank6", "mkt_bank7"], ["mkt_bank7", "bank"], ["bank", "bank_pow1"],
+  ["bank_pow1", "bank_pow2"], ["bank_pow2", "bank_pow3"], ["bank_pow3", "bank_pow4"], ["bank_pow4", "bank_pow5"],
+  ["bank_pow5", "bank_pow6"], ["bank_pow6", "bank_pow7"], ["bank_pow7", "bank_pow8"], ["bank_pow8", "bank_pow9"],
+  ["bank_pow9", "bank_pow10"], ["bank_pow10", "bank_pow11"], ["bank_pow11", "pow"], ["claude", "claude_pow1"],
+  ["claude_pow1", "claude_pow2"], ["claude_pow2", "claude_pow3"], ["claude_pow3", "claude_pow4"], ["claude_pow4", "claude_pow5"],
+  ["claude_pow5", "claude_pow6"], ["claude_pow6", "claude_pow7"], ["claude_pow7", "claude_pow8"], ["claude_pow8", "pow"],
+  ["lib", "lib_mkt1"], ["lib_mkt1", "lib_mkt2"], ["lib_mkt2", "lib_mkt3"], ["lib_mkt3", "lib_mkt4"],
+  ["lib_mkt4", "lib_mkt5"], ["lib_mkt5", "lib_mkt6"], ["lib_mkt6", "lib_mkt7"], ["lib_mkt7", "lib_mkt8"],
+  ["lib_mkt8", "lib_mkt9"], ["lib_mkt9", "lib_mkt10"], ["lib_mkt10", "mkt"], ["cin", "cin_gem1"],
+  ["cin_gem1", "cin_gem2"], ["cin_gem2", "cin_gem3"], ["cin_gem3", "gem"], ["gem", "gem_chat1"],
+  ["gem_chat1", "gem_chat2"], ["gem_chat2", "gem_chat3"], ["gem_chat3", "gem_chat4"], ["gem_chat4", "gem_chat5"],
+  ["gem_chat5", "gem_chat6"], ["gem_chat6", "gem_chat7"], ["gem_chat7", "gem_chat8"], ["gem_chat8", "chat"],
+  ["town", "town_lab1"], ["town_lab1", "town_lab2"], ["town_lab2", "town_lab3"], ["town_lab3", "town_lab4"],
+  ["town_lab4", "town_lab5"], ["town_lab5", "town_lab6"], ["town_lab6", "town_lab7"], ["town_lab7", "town_lab8"],
+  ["town_lab8", "town_lab9"], ["town_lab9", "town_lab10"], ["town_lab10", "lab"], ["note", "note_clock1"],
+  ["note_clock1", "note_clock2"], ["note_clock2", "note_clock3"], ["note_clock3", "note_clock4"], ["note_clock4", "note_clock5"],
+  ["note_clock5", "note_clock6"], ["note_clock6", "note_clock7"], ["note_clock7", "note_clock8"], ["note_clock8", "clock"],
 ]
 
 /** Where agents report for work at each workplace: the node in front of that building's door. */
 export const WORKPLACE_DOOR: Readonly<Record<CityWorkplace, WalkNodeId>> = {
-  hq: "g",
+  hq: "hq",
   lab: "lab",
   comms: "tel",
-  post: "pst",
-  bank: "bnk",
-  parlour: "odd",
+  post: "post",
+  bank: "bank",
+  parlour: "mkt",
   cinema: "cin",
   library: "lib",
-  power: "pwr",
+  power: "pow",
   depot: "dep",
 }
 
 /** Where an integration's worker stands: the walk node in front of that integration's own building. */
 export const INTEGRATION_DOOR: Readonly<Record<CityIntegration, WalkNodeId>> = {
   telegram: "tel",
-  discord: "arc",
-  slack: "cow",
+  discord: "dis",
+  slack: "slack",
   openai: "lab",
-  claude: "stu",
+  claude: "claude",
   grok: "obs",
   gemini: "gem",
-  spotify: "cin", // Records stands next to the Cinema's door
+  spotify: "spot",
   youtube: "cin",
-  gmail: "pst",
-  "gmail-calendar": "kW", // beside the clock tower
+  gmail: "post",
+  "gmail-calendar": "clock",
   brave: "lib",
-  coinbase: "bnk",
-  phantom: "vlt",
-  polymarket: "odd",
+  coinbase: "bank",
+  phantom: "vault",
+  polymarket: "mkt",
 }
 
 export const WORKPLACE_NAME: Readonly<Record<CityWorkplace, string>> = {
@@ -232,8 +442,7 @@ export type PlanPoint = readonly [number, number]
 /**
  * A structure that stands in front of some walkable paving. Walkers are drawn over the painting, so a walker whose
  * feet are behind the structure (above its `base` line on screen) gets the structure redrawn from the painting over
- * it, clipped to `shapes`: people pass behind the arch legs, the clock tower, trees and the viaduct instead of
- * walking across them.
+ * it, clipped to `shapes`.
  */
 export interface DistrictOccluder {
   id: string
@@ -248,145 +457,35 @@ export interface DistrictOccluder {
 
 export const DISTRICT_OCCLUDERS: readonly DistrictOccluder[] = [
   {
-    id: "arcade",
-    shapes: [[[544, 522], [678, 454], [765, 500], [808, 496], [812, 545], [812, 668], [770, 672], [684, 710], [548, 590]]],
-    base: [[548, 590], [684, 710], [812, 669]],
-  },
-  {
-    id: "nova-arch",
-    shapes: [
-      [
-        [964, 600], [1060, 603], [1115, 616], [1165, 643], [1205, 678], [1220, 712], [1220, 895], [1175, 895], [1176, 775],
-        [1152, 734], [1100, 698], [1040, 670], [1014, 667], [1014, 792], [964, 792],
-      ],
-    ],
-    base: [[990, 790], [1197, 893]],
-  },
-  {
     id: "clock-tower",
-    shapes: [
-      [
-        [1747, 488], [1810, 612], [1805, 640], [1818, 678], [1818, 720], [1808, 745], [1818, 800], [1808, 815], [1805, 977],
-        [1747, 998], [1700, 977], [1698, 815], [1683, 800], [1685, 745], [1683, 680], [1697, 640], [1690, 612],
-      ],
-    ],
-    base: [[1700, 977], [1747, 998], [1805, 977]],
+    shapes: [[[358, 776], [364, 776], [372, 800], [378, 830], [386, 864], [330, 864], [342, 830], [350, 800]]],
+    base: [[330, 864], [386, 864]],
   },
-  {
-    id: "viaduct",
-    shapes: [
-      [
-        [1319, 1440], [1500, 1364], [1712, 1275], [1716, 1205], [1920, 1090], [2160, 975], [2336, 892], [2580, 770], [2580, 844],
-        [2184, 1062], [1978, 1172], [1772, 1288], [1500, 1438], [1497, 1440],
-      ],
-      [[1756, 1286], [1788, 1286], [1788, 1354], [1756, 1354]],
-      [[1960, 1170], [1996, 1170], [1996, 1270], [1960, 1270]],
-      [[2168, 1058], [2200, 1058], [2200, 1158], [2168, 1158]],
-      [[1540, 1400], [1580, 1400], [1580, 1440], [1540, 1440]],
-    ],
-    base: [[1300, 1545], [1560, 1440], [1772, 1352], [1978, 1268], [2184, 1156], [2580, 942]],
-  },
-  {
-    id: "bus-shelter",
-    shapes: [[[398, 1238], [484, 1200], [502, 1208], [502, 1283], [428, 1313], [416, 1313], [397, 1300]]],
-    base: [[397, 1305], [420, 1313], [500, 1283]],
-  },
-  {
-    id: "crane",
-    shapes: [
-      [[550, 662], [725, 735], [727, 778], [694, 778], [548, 690]],
-      [[650, 722], [682, 722], [684, 892], [648, 892]],
-    ],
-    base: [[600, 892], [700, 892]],
-  },
-  {
-    id: "depot",
-    shapes: [[[1834, 972], [2040, 874], [2078, 912], [2066, 925], [2064, 1000], [1904, 1084], [1842, 1052], [1840, 985]]],
-    base: [[1842, 1050], [1903, 1083], [2064, 998]],
-  },
-  {
-    id: "noticeboard",
-    shapes: [[[884, 1195], [886, 1180], [906, 1168], [968, 1137], [984, 1137], [984, 1250], [966, 1252], [906, 1262], [906, 1290], [884, 1290]]],
-    base: [[884, 1288], [984, 1248]],
-  },
-  {
-    id: "deck-tree",
-    shapes: [
-      [
-        [1868, 378], [1898, 378], [1904, 402], [1920, 420], [1928, 450], [1925, 480], [1910, 494], [1895, 496], [1895, 530],
-        [1878, 530], [1878, 496], [1860, 490], [1852, 470], [1854, 430], [1864, 405],
-      ],
-    ],
-    base: [[1850, 530], [1930, 530]],
-  },
-  // Street furniture that stands beside a path: lamp posts, the lantern-string posts, the traffic sign.
-  lamp("lamp-odds", [1090, 497, 1108, 528], [1095, 1107], 606),
-  lamp("lamp-lab", [1569, 526, 1593, 551], [1576, 1586], 641),
-  lamp("lamp-plaza-east", [1479, 628, 1521, 671], [1496, 1507], 743),
-  lamp("lamp-plaza-south", [1311, 695, 1357, 741], [1328, 1343], 811),
-  lamp("lamp-post-office", [316, 1244, 338, 1262], [320, 332], 1350),
-  lamp("post-deck-west", [1681, 458, 1692, 470], [1682, 1691], 521),
-  lamp("post-deck-mid", [1842, 400, 1854, 412], [1843, 1853], 536),
-  lamp("post-deck-east", [1923, 450, 1935, 462], [1924, 1934], 577),
-  {
-    id: "post-office-boards",
-    shapes: [
-      [[299, 1262], [322, 1262], [322, 1308], [299, 1308]],
-      [[331, 1258], [361, 1258], [361, 1290], [331, 1290]],
-    ],
-    base: [[299, 1308], [361, 1292]],
-  },
-  lamp("traffic-sign", [684, 1221, 711, 1255], [692, 703], 1325),
-  lamp("parking-meter", [736, 1260, 756, 1300], [739, 754], 1358),
-]
-
-/**
- * A post with a head: `head` is the lamp's box [x0, y0, x1, y1], `pole` its pole's [x0, x1] down to `foot` (the ground
- * line). The pole is widened a pixel at the foot for the base plate.
- */
-function lamp(id: string, head: readonly [number, number, number, number], pole: readonly [number, number], foot: number): DistrictOccluder {
-  const [x0, y0, x1, y1] = head
-  const [p0, p1] = pole
-  return {
-    id,
-    shapes: [
-      [[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
-      [[p0, y1], [p1, y1], [p1 + 2, foot], [p0 - 2, foot]],
-    ],
-    base: [[p0 - 2, foot], [p1 + 2, foot]],
-  }
-}
-
-/** Car lanes (polylines, drawn as moving cars in both directions). */
-export const ROADS: ReadonlyArray<ReadonlyArray<readonly [number, number]>> = [
-  // The street along the Post Office's front: its centre, below the curb, out past the bottom edge.
-  [[0, 1318], [560, 1440]],
-  // The diagonal street under the walkway, from the bus-stop corner up to where it passes under the square's stairs.
-  [[300, 1426], [990, 1102]],
 ]
 
 // ── Live details ─────────────────────────────────────────────────────────────
 
-/** Five task floors: glass bands on Nova HQ's two faces, below the N emblem, top floor first. */
-export const HQ_FLOORS: readonly SignRect[] = [0, 1, 2, 3, 4].map((i) => ({ x: 1180, y: 340 + i * 30, w: 90, h: 7 }))
-export const HQ_FLOORS_RIGHT: readonly SignRect[] = [0, 1, 2, 3, 4].map((i) => ({ x: 1312, y: 340 + i * 30, w: 84, h: 7 }))
-/** The NOVA arch sign: it breathes while an agent is working. */
-export const HQ_SIGN: SignRect = { x: 955, y: 590, w: 215, h: 110 }
+/** Five task floors: a column of lamps on the gate's right flank, top floor first. */
+export const HQ_FLOORS: readonly SignRect[] = [0, 1, 2, 3, 4].map((i) => ({ x: 205, y: 98 + i * 11, w: 12, h: 7 }))
+/** The dark panel behind the floor lamps. */
+export const HQ_PANEL: SignRect = { x: 202, y: 94, w: 18, h: 60 }
+/** The gate's round window: it glows while an agent is working. */
+export const HQ_SIGN: SignRect = { x: 137, y: 123, w: 60, h: 107 }
+
+/** Live crypto ticker: a strip on the paving above the Bank's bridge hall. */
+export const TICKER_BOARD: SignRect = { x: 1088, y: 410, w: 84, h: 12 }
+/** The noticeboard's face on the glasshouse lawn: one paper per note. */
+export const NOTICE_FACE: SignRect = { x: 276, y: 628, w: 32, h: 20 }
+export const FOUNTAIN = { x: 644, y: 395, basinY: 432 }
+/** Nova the cat's seat beside the fountain. */
+export const CAT_SPOT = { x: 668, y: 450 }
 
 /**
- * Live crypto ticker: a strip lying on the bus shelter's roof. The roof slopes, so the strip's left end rests on the
- * roof's back edge and the rest lies across the roof.
+ * Sea lanes the boats of active deployment runs sail along (one lane per boat, back and forth), in the open water of
+ * the bay clear of the painted moorings.
  */
-export const TICKER_BOARD: SignRect = { x: 424, y: 1214, w: 64, h: 12 }
-/** Noticeboard face, below its NOTES header and between its posts: one paper per note. */
-export const NOTICE_FACE: SignRect = { x: 910, y: 1190, w: 58, h: 40 }
-export const FOUNTAIN = { x: 1902, y: 628, basinY: 668 }
-/** Nova the cat's bench in the park. */
-export const CAT_SPOT = { x: 1885, y: 574 }
-/** Lantern centres of the plaza and deck lamps; their glow breathes. */
-export const LAMPS: ReadonlyArray<readonly [number, number]> = [
-  [1099, 510],
-  [1577, 537],
-  [1496, 650],
-  [1334, 712],
+export const HARBOUR_LANES: ReadonlyArray<ReadonlyArray<readonly [number, number]>> = [
+  [[40, 905], [380, 1008]],
+  [[480, 988], [1000, 1014]],
+  [[1150, 1014], [1500, 962]],
 ]

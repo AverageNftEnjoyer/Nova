@@ -209,8 +209,8 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
               ))}
             </div>
           )}
-          <div className="pc-composer" style={composerStyle} data-disabled={disabled ? "true" : undefined}>
-            <button onClick={handleAttachClick} className="pc-btn pc-composer-attach" aria-label="Attach files">
+          <div className="pixel-frame pc-composer" style={composerStyle} data-disabled={disabled ? "true" : undefined}>
+            <button onClick={handleAttachClick} className="pixel-btn pixel-btn--icon pc-btn pc-composer-attach" aria-label="Attach files">
               +
             </button>
             <input
@@ -249,7 +249,7 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
               <button
                 onClick={() => { void handleSend() }}
                 disabled={(!value.trim() && attachedFiles.length === 0) || disabled || isStreaming}
-                className="pc-btn pc-btn--send"
+                className="pixel-btn pixel-btn--teal pixel-btn--icon pc-btn pc-btn--send"
                 aria-label="Send message"
               >
                 <ArrowRight className="w-5 h-5" />
@@ -257,7 +257,7 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
               <button
                 onClick={onToggleMute}
                 disabled={!muteHydrated}
-                className={cn("pc-btn", isMuted && "pc-btn--muted", !muteHydrated && "pc-btn--hidden")}
+                className={cn("pixel-btn pixel-btn--icon pc-btn", isMuted && "pc-btn--muted", !muteHydrated && "pc-btn--hidden")}
                 data-muted={isMuted ? "true" : "false"}
                 aria-label={!muteHydrated ? "Syncing mute state" : isMuted ? "Unmute Nova" : "Mute Nova"}
               >

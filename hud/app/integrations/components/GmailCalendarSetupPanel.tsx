@@ -71,8 +71,8 @@ export function GmailCalendarSetupPanel({
                 onClick={() => onDisconnect(selectedAccountId || undefined)}
                 disabled={isSavingAny}
                 className={cn(
-                  "h-8 px-3 rounded-lg border text-xs font-medium transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
-                  "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20",
+                  "pixel-btn",
+                  "pixel-btn--red",
                 )}
               >
                 Disconnect
@@ -83,8 +83,8 @@ export function GmailCalendarSetupPanel({
               onClick={onConnect}
               disabled={isSavingAny}
               className={cn(
-                "h-8 px-3 rounded-lg border text-xs font-medium transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
-                "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                "pixel-btn",
+                "pixel-btn--teal",
               )}
             >
               Connect
@@ -97,14 +97,14 @@ export function GmailCalendarSetupPanel({
       {!gmailHasCredentials && (
         <div className={cn(
           "mt-4 rounded-lg border p-3 text-xs",
-          isLight ? "border-amber-200 bg-amber-50 text-amber-800" : "border-amber-500/30 bg-amber-500/10 text-amber-200",
+          "ig-note ig-note--warn",
         )}>
           Google Calendar uses your Gmail OAuth app credentials. Configure the Gmail OAuth Client ID and Secret in the Gmail Setup panel first.
         </div>
       )}
 
       {/* Connection status */}
-      <div className={cn("mt-4 rounded-lg border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
+      <div className={cn("mt-4 rounded-lg border p-3 home-spotlight-card home-border-glow", "ig-tile")}>
         <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>
           Connection
         </p>
@@ -181,12 +181,12 @@ export function GmailCalendarSetupPanel({
       )}
 
       {gcal.connected && (
-        <div className={cn("mt-3 rounded-lg border p-3", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
+        <div className={cn("mt-3 rounded-lg border p-3", "ig-tile")}>
           <p className={cn("text-[11px] mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>
             Calendar Permissions
           </p>
           <div className="space-y-2">
-            <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", isLight ? "border-[#d5dce8] bg-white/70" : "border-white/10 bg-black/20")}>
+            <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
               <div>
                 <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Add Events</p>
                 <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to create new calendar events.</p>
@@ -198,7 +198,7 @@ export function GmailCalendarSetupPanel({
                 onChange={(checked) => onUpdatePermissions({ allowCreate: checked })}
               />
             </div>
-            <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", isLight ? "border-[#d5dce8] bg-white/70" : "border-white/10 bg-black/20")}>
+            <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
               <div>
                 <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Edit Events</p>
                 <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to update time, title, or details.</p>
@@ -210,7 +210,7 @@ export function GmailCalendarSetupPanel({
                 onChange={(checked) => onUpdatePermissions({ allowEdit: checked })}
               />
             </div>
-            <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", isLight ? "border-[#d5dce8] bg-white/70" : "border-white/10 bg-black/20")}>
+            <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
               <div>
                 <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Delete Events</p>
                 <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to remove calendar events.</p>

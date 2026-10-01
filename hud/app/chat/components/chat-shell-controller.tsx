@@ -568,14 +568,16 @@ export function ChatShellController() {
       <div className="pc-main relative flex flex-col flex-1 overflow-hidden">
         <div className="relative z-10 h-full w-full px-6 pt-4 pb-6">
           <div className="grid h-full min-h-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_22.5rem]">
-            <div className="pc-dialog pixel-notch relative flex min-h-0 flex-col overflow-hidden">
+            <div className="pixel-frame pc-dialog relative flex min-h-0 flex-col overflow-hidden">
               <header className="pc-dialog-head">
                 <div className="pc-portrait-frame">
                   <NovaCatPortrait state={catState} scale={3} accent={orbPalette.circle1} />
                 </div>
-                <div className="min-w-0 flex-1">
-                  <h2 className="pc-dialog-name">Nova</h2>
-                  <p className="pc-dialog-topic truncate" title={activeTitle}>{activeTitle}</p>
+                <div className="pc-title-wrap">
+                  <div className="pixel-plaque pc-plaque">
+                    <h2 className="pixel-title pc-dialog-name">Nova</h2>
+                    <p className="pc-dialog-topic truncate" title={activeTitle}>{activeTitle}</p>
+                  </div>
                 </div>
                 <span className="pc-state" data-state={catState} role="status" aria-label={`Nova is ${CAT_STATE_LABEL[catState].toLowerCase()}`}>
                   <i aria-hidden="true" />
@@ -609,17 +611,17 @@ export function ChatShellController() {
             {/* Right sidebar panels */}
             <aside ref={sidebarPanelsRef} className="relative hidden min-h-0 flex-col gap-4 pt-0 xl:flex">
               {/* Mission Pipeline */}
-              <section className="pc-panel pixel-notch min-h-0 flex-1 flex flex-col">
+              <section className="pixel-card pc-panel min-h-0 flex-1 flex flex-col">
                 <div className="pc-panel-head">
                   <div className="flex min-w-0 items-center gap-2">
                     <Pin className="w-4 h-4 shrink-0" />
-                    <h2 className="pc-panel-title truncate">Mission Pipeline</h2>
+                    <h2 className="pc-panel-title pixel-outline-sm truncate">Mission Pipeline</h2>
                   </div>
                   <button
                     onClick={() => {
                       router.push("/deployments?mode=advanced&kind=automation")
                     }}
-                    className="pc-icon-btn group/mission-gear"
+                    className="pixel-btn pixel-btn--ghost pc-icon-btn group/mission-gear"
                     aria-label="Open mission settings"
                   >
                     <Settings className="w-3.5 h-3.5 mx-auto group-hover/mission-gear:rotate-90 transition-transform duration-200" />
@@ -635,7 +637,7 @@ export function ChatShellController() {
                       </p>
                     )}
                     {missions.map((mission) => (
-                      <div key={mission.id} className="pc-card">
+                      <div key={mission.id} className="pixel-card pc-card">
                         <div className="flex items-start justify-between gap-2">
                           <p className="pc-card-title text-[13px] leading-tight">{mission.title}</p>
                           <div className="flex items-center gap-1 flex-nowrap shrink-0">
@@ -661,16 +663,16 @@ export function ChatShellController() {
               </section>
 
               {/* Integrations */}
-              <section className="pc-panel pixel-notch">
+              <section className="pixel-card pc-panel">
                 <div className="pc-panel-head">
                   <div className="flex min-w-0 items-center gap-2">
                     <Blocks className="w-4 h-4 shrink-0" />
-                    <h2 className="pc-panel-title truncate">Integrations</h2>
+                    <h2 className="pc-panel-title pixel-outline-sm truncate">Integrations</h2>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => router.push("/integrations")}
-                      className="pc-icon-btn group/gear"
+                      className="pixel-btn pixel-btn--ghost pc-icon-btn group/gear"
                       aria-label="Open integrations settings"
                     >
                       <Settings className="w-3.5 h-3.5 mx-auto group-hover/gear:rotate-90 transition-transform duration-200" />

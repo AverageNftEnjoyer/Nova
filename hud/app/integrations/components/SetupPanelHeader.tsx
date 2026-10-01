@@ -41,10 +41,10 @@ export function SetupPanelHeader({
           onClick={onToggle}
           disabled={isSavingAny}
           className={cn(
-            "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+            "pixel-btn",
             isConnected
-              ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
-              : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20"
+              ? "pixel-btn--red"
+              : "pixel-btn--teal"
           )}
         >
           {isConnected ? toggleLabel.disable : toggleLabel.enable}
@@ -53,7 +53,7 @@ export function SetupPanelHeader({
           onClick={onSave}
           disabled={isSavingAny}
           className={cn(
-            "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60"
+            "pixel-btn pixel-btn--gold"
           )}
         >
           <Save className="w-3.5 h-3.5" />

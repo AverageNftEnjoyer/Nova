@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, type ReactNode } from "react"
+import { cn } from "@/lib/shared/utils"
 import type { IntegrationSetupKey } from "@/lib/integrations/navigation"
 import type { TownBuilding, TownProgress, TownQuest } from "@/lib/town/types"
 import type { TownProgressState } from "../../hooks/use-town-progress"
@@ -42,7 +43,7 @@ export function TownHallBody({ town, integrationsGrid, integrations, onSetup }: 
             ["integrations", "Integrations"],
           ] as const
         ).map(([id, label]) => (
-          <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className="game-tab" data-active={tab === id ? "true" : undefined}>
+          <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className="pixel-btn pixel-btn--ghost game-tab" data-active={tab === id ? "true" : undefined}>
             {label}
           </button>
         ))}
@@ -78,18 +79,18 @@ function TownProgressPanel({ progress, error, integrations, onSetup }: TownProgr
     <div className="game-scroll flex h-full min-h-0 flex-col gap-3 overflow-y-auto pr-1">
       {error ? <p className="font-pixel text-[12px] text-(--px-red)">Showing the last update: {error}</p> : null}
 
-      <section className="pixel-subpanel flex items-center gap-3 px-3 py-3" aria-label="Town level">
+      <section className="pixel-card flex items-center gap-3" aria-label="Town level">
         <span className="game-level-num game-level-num--lg" aria-hidden="true">
           <span className="game-level-lv">LV</span>
           <span>{level.level}</span>
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           <div className="flex items-baseline justify-between gap-3">
-            <span className="pixel-label text-[13px]! text-(--px-accent)">{level.title}</span>
-            <span className="font-pixel text-[12px] tabular-nums text-(--px-muted)">{formatXp(level.xp)} XP total</span>
+            <span className="pixel-label pixel-label--rare text-[14px]!">{level.title}</span>
+            <span className="font-pixel text-[13px] tabular-nums text-(--px-text)">{formatXp(level.xp)} XP total</span>
           </div>
           <GameBar value={xp.ratio} tone="xp" label="Experience" valueText={`${formatXp(xp.into)} of ${formatXp(xp.span)} XP`} />
-          <div className="flex justify-between gap-3 font-pixel text-[12px] tabular-nums text-(--px-muted)">
+          <div className="flex justify-between gap-3 font-pixel text-[13px] tabular-nums text-(--px-muted)">
             <span>
               {formatXp(xp.into)} / {formatXp(xp.span)} XP
             </span>
@@ -106,11 +107,11 @@ function TownProgressPanel({ progress, error, integrations, onSetup }: TownProgr
       </dl>
 
       <section aria-labelledby="town-xp-sources">
-        <h3 id="town-xp-sources" className="pixel-label mb-1.5 text-(--px-muted)">
+        <h3 id="town-xp-sources" className="pixel-label mb-1.5 text-(--px-text)">
           What earned XP
         </h3>
         {sources.length === 0 ? (
-          <p className="pixel-subpanel px-3 py-2 font-pixel text-[13px] text-(--px-muted)">Nothing yet. Finish a quest to earn your first XP.</p>
+          <p className="pixel-card font-pixel text-[14px] text-(--px-muted)">Nothing yet. Finish a quest to earn your first XP.</p>
         ) : (
           <table className="game-table w-full">
             <thead>
@@ -141,7 +142,7 @@ function TownProgressPanel({ progress, error, integrations, onSetup }: TownProgr
 
       {nextMilestones.length ? (
         <section aria-labelledby="town-next-unlocks">
-          <h3 id="town-next-unlocks" className="pixel-label mb-1.5 text-(--px-muted)">
+          <h3 id="town-next-unlocks" className="pixel-label mb-1.5 text-(--px-text)">
             Next milestones
           </h3>
           <ul className="flex flex-col gap-1.5">
@@ -153,11 +154,11 @@ function TownProgressPanel({ progress, error, integrations, onSetup }: TownProgr
       ) : null}
 
       <section aria-labelledby="town-buildings">
-        <h3 id="town-buildings" className="pixel-label mb-1.5 text-(--px-muted)">
+        <h3 id="town-buildings" className="pixel-label mb-1.5 text-(--px-text)">
           Buildings
         </h3>
         {progress.buildings.length === 0 ? (
-          <p className="pixel-subpanel px-3 py-2 font-pixel text-[13px] text-(--px-muted)">No buildings reported yet.</p>
+          <p className="pixel-card font-pixel text-[14px] text-(--px-muted)">No buildings reported yet.</p>
         ) : (
           <ul className="grid grid-cols-2 gap-1.5">
             {progress.buildings.map((building) => (
@@ -172,19 +173,19 @@ function TownProgressPanel({ progress, error, integrations, onSetup }: TownProgr
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="pixel-subpanel flex flex-col gap-1 px-2.5 py-2">
-      <dt className="pixel-label text-[10px]! text-(--px-muted)">{label}</dt>
-      <dd className="font-pixel text-[18px] tabular-nums text-(--px-text)">{value}</dd>
+    <div className="pixel-card flex flex-col gap-1">
+      <dt className="pixel-label text-(--px-muted)">{label}</dt>
+      <dd className="font-pixel text-[20px] tabular-nums text-(--px-text)">{value}</dd>
     </div>
   )
 }
 
 function MilestoneRow({ quest }: { quest: TownQuest }) {
   return (
-    <li className="pixel-subpanel flex items-center gap-2 px-2.5 py-2">
-      <span className="min-w-0 flex-1 truncate font-pixel text-[13px] text-(--px-text)">{quest.title}</span>
+    <li className="pixel-card flex items-center gap-2">
+      <span className="min-w-0 flex-1 truncate font-pixel text-[14px] text-(--px-text)">{quest.title}</span>
       <GameBar value={questRatio(quest)} label={quest.title} valueText={`${quest.progress} of ${quest.goal}`} className="w-24 shrink-0" />
-      <span className="w-16 shrink-0 text-right font-pixel text-[12px] tabular-nums text-(--px-accent)">+{formatXp(quest.xpReward)} XP</span>
+      <span className="w-20 shrink-0 text-right font-pixel text-[13px] tabular-nums text-(--px-accent)">+{formatXp(quest.xpReward)} XP</span>
     </li>
   )
 }
@@ -194,30 +195,31 @@ function BuildingRow({ building, integration, onSetup }: { building: TownBuildin
   const buildingName = integrationBuildingName(building.integration)
   const next = building.nextLevelUses
   return (
-    <li className="pixel-subpanel flex min-w-0 items-center gap-2 px-2 py-1.5" data-connected={building.connected ? "true" : "false"}>
+    <li className="pixel-card flex min-w-0 items-center gap-2" data-connected={building.connected ? "true" : "false"} data-state={building.connected ? undefined : "locked"}>
       <span className="flex h-6 w-6 shrink-0 items-center justify-center">{integration?.icon}</span>
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex items-baseline gap-1.5">
           <span className="truncate font-pixel text-[13px] text-(--px-text)">{buildingName ?? label}</span>
-          {buildingName ? <span className="truncate font-pixel text-[11px] text-(--px-muted)">{label}</span> : null}
+          {buildingName ? <span className="truncate font-pixel text-[12px] text-(--px-muted)">{label}</span> : null}
         </span>
         {building.connected ? (
-          <span className="flex items-center gap-1.5">
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className={cn("pixel-label", building.level >= 2 ? "pixel-label--rare" : "pixel-label--common")}>Lv {building.level}</span>
             <span className="game-pips" aria-label={`Level ${building.level} of 3`}>
               {[1, 2, 3].map((pip) => (
                 <span key={pip} className="game-pip" data-on={building.level >= pip ? "true" : undefined} />
               ))}
             </span>
-            <span className="truncate font-pixel text-[11px] tabular-nums text-(--px-muted)">
+            <span className="truncate font-pixel text-[12px] tabular-nums text-(--px-muted)">
               {next !== null ? `${formatXp(building.uses)}/${formatXp(next)} uses` : `${formatXp(building.uses)} uses · max`}
             </span>
           </span>
         ) : (
-          <span className="font-pixel text-[11px] text-(--px-muted)">Empty lot</span>
+          <span className="pixel-label pixel-label--off">Empty lot</span>
         )}
       </span>
       {!building.connected ? (
-        <button type="button" onClick={() => onSetup(building.integration)} className="pixel-chip h-6! shrink-0 px-2! text-[12px]!" aria-label={`Set up ${label}`}>
+        <button type="button" onClick={() => onSetup(building.integration)} className="pixel-btn pixel-btn--teal game-sm shrink-0" aria-label={`Set up ${label}`}>
           Build
         </button>
       ) : null}

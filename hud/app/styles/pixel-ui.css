@@ -1,43 +1,482 @@
 /*
  * Pixel UI: the Home city's HUD, hotspots and popup windows.
- * Night tokens by default, day tokens under html.light. Every frame is a notched pixel box (clip-path steps),
- * never a rounded card, and nothing glows except the scene itself.
+ * One daytime theme (spec: docs/frontend/nova-city-day-ui.md): slate-blue riveted stone frames, purple cards with a
+ * bright rim, white outlined caps. Every box is a notched pixel box (clip-path steps), never a rounded card, and
+ * nothing blurs or glows. There is no light/dark split for pixel UI.
  */
 
 :root {
   --px-unit: 3px;
-  --px-bg: #120f24;
-  --px-bg-2: #1b1733;
-  --px-bg-3: #251f45;
-  --px-border: #3b3470;
-  --px-border-hi: #7a6fd0;
-  --px-text: #f1ecff;
-  --px-muted: #a9a1d6;
-  --px-accent: #ffcf6a;
-  --px-accent-2: #3ff2ff;
-  --px-pink: #ff4fa0;
-  --px-green: #58f08c;
-  --px-red: #ff5a5a;
-  --px-scrim: rgba(6, 5, 16, 0.55);
-  --px-shadow: rgba(0, 0, 0, 0.45);
+
+  /* Stone frame */
+  --px-frame: #4f73a8;
+  --px-frame-hi: #9cc0ea;
+  --px-frame-lo: #2b4a7c;
+  --px-frame-line: #14213f;
+
+  /* Surfaces */
+  --px-bg: #3b2a72;
+  --px-bg-2: #4b3590;
+  --px-bg-3: #6a45b0;
+  --px-border: #14213f;
+  --px-border-hi: #c7a9ff;
+
+  /* Text */
+  --px-text: #ffffff;
+  --px-text-line: #1a1238;
+  --px-ink: #1d2a4a;
+  --px-muted: #c9bff0;
+
+  /* Colours */
+  --px-accent: #ffcf4a;
+  --px-accent-2: #27c4c4;
+  --px-pink: #ff7aa8;
+  --px-orange: #ff9a4d;
+  --px-green: #5fe08a;
+  --px-red: #e5483f;
+
+  /* Backdrop, hard drop shadow, and the flat colour the camera shows past the map's edge */
+  --px-scrim: rgba(20, 33, 63, 0.45);
+  --px-shadow: #14213f;
+  --px-world-edge: #7ec8e8;
+
+  /* Hard text outlines: use as `text-shadow: var(--px-outline-2)` (8 directions, never blurred) */
+  --px-outline-1: -1px -1px 0 var(--px-text-line), 0 -1px 0 var(--px-text-line), 1px -1px 0 var(--px-text-line),
+    -1px 0 0 var(--px-text-line), 1px 0 0 var(--px-text-line), -1px 1px 0 var(--px-text-line), 0 1px 0 var(--px-text-line),
+    1px 1px 0 var(--px-text-line);
+  --px-outline-2: -2px -2px 0 var(--px-text-line), 0 -2px 0 var(--px-text-line), 2px -2px 0 var(--px-text-line),
+    -2px 0 0 var(--px-text-line), 2px 0 0 var(--px-text-line), -2px 2px 0 var(--px-text-line), 0 2px 0 var(--px-text-line),
+    2px 2px 0 var(--px-text-line);
 }
 
-html.light {
-  --px-bg: #fdf6e8;
-  --px-bg-2: #f2e6cd;
-  --px-bg-3: #e8d8b8;
-  --px-border: #6a584c;
-  --px-border-hi: #2f78b4;
-  --px-text: #2a2230;
-  --px-muted: #6d5f6a;
-  --px-accent: #c2362e;
-  --px-accent-2: #1f78b4;
-  --px-pink: #d2407f;
-  --px-green: #1f9a55;
-  --px-red: #d23a3a;
-  --px-scrim: rgba(40, 30, 50, 0.28);
-  --px-shadow: rgba(40, 30, 60, 0.25);
+/* ===== Day theme core ===== */
+/*
+ * Component classes. Everything else (HUD, windows, pages) builds on these. Sizes scale with `--hud-s` (set by
+ * .game-hud per breakpoint, 1 elsewhere) and `--px-unit` (3px).
+ *
+ *   .pixel-frame                Slate stone panel: riveted corners, bevel, speckle texture. Padding 15px. Put
+ *                               .pixel-card / .pixel-plaque / a --px-bg inset inside. <section class="pixel-frame">
+ *   .pixel-card                 Purple card with a bright rim. Works on div, button, a. data-state="active" = gold
+ *                               rim, data-state="locked" = desaturated. Hover/focus raises to --px-bg-3.
+ *   .pixel-title                Bold white caps with a hard 2px outline (display font). <h2 class="pixel-title">
+ *   .pixel-close                Round red close button with a pixel X. Empty <button class="pixel-close"
+ *                               aria-label="Close"></button>; absolutely position it yourself (28px at 1x).
+ *   .pixel-btn                  Chunky bevelled button, white outlined caps. + --teal (primary, like NEXT) --gold
+ *                               --red --ghost; --icon for square icon-only (44px). Pressed shifts 2px.
+ *   .pixel-label                Tiny outlined caps label under a name. + --common (orange) --rare (pink) --ok
+ *                               (green) --off (muted); bare = inherits colour (set a text-(--px-*) utility).
+ *   .pixel-bar                  Segmented bar: <div class="pixel-bar pixel-bar--teal"><span class="pixel-bar-fill"
+ *                               style="width:40%"></span></div>. Fill: default/--gold, --teal, --green, --pink, --red.
+ *   .pixel-orb-btn              Round HUD icon button (56px at 1x). Icon child centred; optional
+ *                               <span class="pixel-orb-btn__badge">3</span> (count) and
+ *                               <span class="pixel-orb-btn__dot"></span> (news dot); data-active="true" = gold.
+ *   .pixel-plaque               Small framed label plate for names / counters. + --frame (slate instead of purple).
+ *   .pixel-outline(-sm)         Utility: the 2px (1px) hard text outline for any text on a dark surface.
+ *
+ * clip-path steps clip outlines, so focus rings are drawn inset (outline-offset below zero).
+ */
+
+/* Stepped corners: one notch the size of the border (`--n`, default one pixel unit). */
+.pixel-notch,
+.pixel-frame,
+.pixel-card,
+.pixel-plaque,
+.pixel-btn,
+.pixel-chip {
+  clip-path: polygon(
+    0 var(--n, var(--px-unit)), var(--n, var(--px-unit)) var(--n, var(--px-unit)), var(--n, var(--px-unit)) 0,
+    calc(100% - var(--n, var(--px-unit))) 0, calc(100% - var(--n, var(--px-unit))) var(--n, var(--px-unit)), 100% var(--n, var(--px-unit)),
+    100% calc(100% - var(--n, var(--px-unit))), calc(100% - var(--n, var(--px-unit))) calc(100% - var(--n, var(--px-unit))),
+    calc(100% - var(--n, var(--px-unit))) 100%, var(--n, var(--px-unit)) 100%, var(--n, var(--px-unit)) calc(100% - var(--n, var(--px-unit))),
+    0 calc(100% - var(--n, var(--px-unit)))
+  );
 }
+
+.pixel-outline {
+  text-shadow: var(--px-outline-2);
+}
+
+.pixel-outline-sm {
+  text-shadow: var(--px-outline-1);
+}
+
+/* Frame ----------------------------------------------------------------------------------------------------- */
+.pixel-frame {
+  position: relative;
+  padding: calc(var(--px-unit) * 5);
+  color: var(--px-text);
+  /* Speckle / crack texture: a 24x24 tile drawn at 2px per pixel in two translucent tones (the only literal
+     colours in the theme: they must tint any frame colour, so they are white / near-black at low alpha). */
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' shape-rendering='crispEdges'%3E%3Cpath fill='%23fff' fill-opacity='.16' d='M3 4h2v1H3zM14 9h2v1h-2zM8 18h2v1H8zM20 15h1v1h-1zM18 3h1v1h-1zM6 13h1v1H6zM12 21h2v1h-2z'/%3E%3Cpath fill='%23000' fill-opacity='.16' d='M4 5h2v1H4zM15 10h2v1h-2zM9 19h2v1H9zM21 16h1v1h-1zM11 2h1v1h-1zM12 3h1v1h-1zM12 4h1v1h-1zM13 5h1v1h-1zM19 4h1v1h-1zM7 14h1v1H7zM13 22h2v1h-2z'/%3E%3C/svg%3E")
+      0 0 / 48px 48px,
+    var(--px-frame);
+  image-rendering: pixelated;
+  border: var(--px-unit) solid var(--px-frame-line);
+  box-shadow:
+    inset var(--px-unit) var(--px-unit) 0 0 var(--px-frame-hi),
+    inset calc(var(--px-unit) * -1) calc(var(--px-unit) * -1) 0 0 var(--px-frame-lo);
+}
+
+/* Rivets: a 6px lit square with a darker square offset 2px behind it, in each corner of the frame. */
+.pixel-frame::before {
+  --d: calc(var(--px-unit) * 2);
+  --o: calc(var(--px-unit) * 2);
+  --o2: calc(var(--px-unit) * 2 + 2px);
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--px-frame-hi), var(--px-frame-hi)) left var(--o) top var(--o) / var(--d) var(--d) no-repeat,
+    linear-gradient(var(--px-frame-hi), var(--px-frame-hi)) right var(--o) top var(--o) / var(--d) var(--d) no-repeat,
+    linear-gradient(var(--px-frame-hi), var(--px-frame-hi)) left var(--o) bottom var(--o) / var(--d) var(--d) no-repeat,
+    linear-gradient(var(--px-frame-hi), var(--px-frame-hi)) right var(--o) bottom var(--o) / var(--d) var(--d) no-repeat,
+    linear-gradient(var(--px-frame-line), var(--px-frame-line)) left var(--o2) top var(--o2) / var(--d) var(--d) no-repeat,
+    linear-gradient(var(--px-frame-line), var(--px-frame-line)) right calc(var(--o) - 2px) top var(--o2) / var(--d) var(--d) no-repeat,
+    linear-gradient(var(--px-frame-line), var(--px-frame-line)) left var(--o2) bottom calc(var(--o) - 2px) / var(--d) var(--d) no-repeat,
+    linear-gradient(var(--px-frame-line), var(--px-frame-line)) right calc(var(--o) - 2px) bottom calc(var(--o) - 2px) / var(--d) var(--d) no-repeat;
+}
+
+/* Card ------------------------------------------------------------------------------------------------------ */
+.pixel-card {
+  --rim: var(--px-border-hi);
+  display: block;
+  position: relative;
+  padding: calc(var(--px-unit) * 3);
+  text-align: left;
+  color: var(--px-text);
+  background: var(--px-bg-2);
+  border: var(--px-unit) solid var(--px-frame-line);
+  /* 2px bright rim, then a 3px darker lip along the bottom */
+  box-shadow:
+    inset 0 0 0 2px var(--rim),
+    inset 0 -5px 0 0 var(--px-text-line);
+}
+
+.pixel-card:is(button, a, [tabindex], [role="button"]) {
+  cursor: pointer;
+}
+
+.pixel-card:is(button, a, [tabindex], [role="button"]):hover,
+.pixel-card:is(button, a, [tabindex], [role="button"]):focus-visible {
+  background: var(--px-bg-3);
+}
+
+.pixel-card:focus-visible {
+  outline: var(--px-unit) solid var(--px-accent);
+  outline-offset: calc(var(--px-unit) * -2);
+}
+
+.pixel-card[data-state="active"] {
+  --rim: var(--px-accent);
+}
+
+.pixel-card[data-state="locked"] {
+  filter: saturate(0.3) brightness(0.85);
+}
+
+/* Title ----------------------------------------------------------------------------------------------------- */
+.pixel-title {
+  margin: 0;
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  font-size: calc(18px * var(--hud-s, 1));
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--px-text);
+  text-shadow: var(--px-outline-2);
+}
+
+/* Round buttons: close and orb ------------------------------------------------------------------------------ */
+/* Three layers: ::before = outline (stepped circle), ::after = face (same shape, inset by the outline), content on
+   top. The element itself is not clipped, so badges can hang over its edge. */
+.pixel-close,
+.pixel-orb-btn {
+  --face: var(--px-frame);
+  --face-hi: color-mix(in srgb, var(--face) 55%, white);
+  --face-lo: color-mix(in srgb, var(--face) 60%, black);
+  --rim: calc(var(--px-unit) * var(--hud-s, 1));
+  position: relative;
+  isolation: isolate;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--px-text);
+  cursor: pointer;
+}
+
+.pixel-close::before,
+.pixel-close::after,
+.pixel-orb-btn::before,
+.pixel-orb-btn::after {
+  content: "";
+  position: absolute;
+  clip-path: polygon(
+    0 calc(var(--cs) * 3), var(--cs) calc(var(--cs) * 3), var(--cs) calc(var(--cs) * 2), calc(var(--cs) * 2) calc(var(--cs) * 2),
+    calc(var(--cs) * 2) var(--cs), calc(var(--cs) * 3) var(--cs), calc(var(--cs) * 3) 0,
+    calc(100% - var(--cs) * 3) 0, calc(100% - var(--cs) * 3) var(--cs), calc(100% - var(--cs) * 2) var(--cs),
+    calc(100% - var(--cs) * 2) calc(var(--cs) * 2), calc(100% - var(--cs)) calc(var(--cs) * 2), calc(100% - var(--cs)) calc(var(--cs) * 3), 100% calc(var(--cs) * 3),
+    100% calc(100% - var(--cs) * 3), calc(100% - var(--cs)) calc(100% - var(--cs) * 3), calc(100% - var(--cs)) calc(100% - var(--cs) * 2),
+    calc(100% - var(--cs) * 2) calc(100% - var(--cs) * 2), calc(100% - var(--cs) * 2) calc(100% - var(--cs)), calc(100% - var(--cs) * 3) calc(100% - var(--cs)),
+    calc(100% - var(--cs) * 3) 100%, calc(var(--cs) * 3) 100%, calc(var(--cs) * 3) calc(100% - var(--cs)),
+    calc(var(--cs) * 2) calc(100% - var(--cs)), calc(var(--cs) * 2) calc(100% - var(--cs) * 2), var(--cs) calc(100% - var(--cs) * 2),
+    var(--cs) calc(100% - var(--cs) * 3), 0 calc(100% - var(--cs) * 3)
+  );
+}
+
+.pixel-close::before,
+.pixel-orb-btn::before {
+  inset: 0;
+  z-index: -2;
+  background: var(--px-frame-line);
+}
+
+.pixel-close::after,
+.pixel-orb-btn::after {
+  inset: var(--rim);
+  z-index: -1;
+  background-color: var(--face);
+  box-shadow:
+    inset var(--rim) var(--rim) 0 0 var(--face-hi),
+    inset calc(var(--rim) * -1) calc(var(--rim) * -1) 0 0 var(--face-lo);
+}
+
+.pixel-close:hover::after,
+.pixel-orb-btn:hover::after,
+.pixel-close:focus-visible::after,
+.pixel-orb-btn:focus-visible::after {
+  background-color: var(--face-hi);
+}
+
+.pixel-close:focus-visible,
+.pixel-orb-btn:focus-visible {
+  outline: none;
+}
+
+.pixel-close:focus-visible::before,
+.pixel-orb-btn:focus-visible::before {
+  background: var(--px-accent);
+}
+
+.pixel-close:active,
+.pixel-orb-btn:active {
+  transform: translateY(2px);
+}
+
+/* Close: 28px, red, a pixel X (white with a dark outline, drawn as a crisp SVG) in the face layer. */
+.pixel-close {
+  --cs: calc(2px * var(--hud-s, 1));
+  --face: var(--px-red);
+  width: calc(28px * var(--hud-s, 1));
+  height: calc(28px * var(--hud-s, 1));
+}
+
+.pixel-close:empty::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' shape-rendering='crispEdges'%3E%3Cpath fill='%231a1238' d='M0 0h1v1h-1zM0 1h1v1h-1zM0 2h1v1h-1zM1 0h1v1h-1zM1 2h1v1h-1zM2 0h1v1h-1zM6 0h1v1h-1zM6 1h1v1h-1zM7 0h1v1h-1zM8 0h1v1h-1zM8 2h1v1h-1zM1 3h1v1h-1zM2 3h1v1h-1zM3 1h1v1h-1zM5 1h1v1h-1zM5 2h1v1h-1zM7 3h1v1h-1zM2 4h1v1h-1zM3 4h1v1h-1zM4 2h1v1h-1zM6 4h1v1h-1zM4 6h1v1h-1zM5 6h1v1h-1zM2 5h1v1h-1zM5 7h1v1h-1zM6 7h1v1h-1zM7 5h1v1h-1zM1 5h1v1h-1zM1 6h1v1h-1zM3 7h1v1h-1zM6 8h1v1h-1zM7 8h1v1h-1zM8 6h1v1h-1zM8 8h1v1h-1zM0 6h1v1h-1zM0 7h1v1h-1zM0 8h1v1h-1zM1 8h1v1h-1zM2 8h1v1h-1zM3 0h1v1h-1zM9 0h1v1h-1zM9 1h1v1h-1zM9 2h1v1h-1zM4 1h1v1h-1zM8 3h1v1h-1zM7 4h1v1h-1zM8 5h1v1h-1zM4 7h1v1h-1zM9 6h1v1h-1zM9 7h1v1h-1zM9 8h1v1h-1zM3 8h1v1h-1z'/%3E%3Cpath fill='%23fff' d='M1 1h1v1h-1zM7 1h1v1h-1zM2 2h1v1h-1zM6 2h1v1h-1zM3 3h1v1h-1zM5 3h1v1h-1zM4 4h1v1h-1zM5 5h1v1h-1zM3 5h1v1h-1zM6 6h1v1h-1zM2 6h1v1h-1zM7 7h1v1h-1zM1 7h1v1h-1zM2 1h1v1h-1zM8 1h1v1h-1zM3 2h1v1h-1zM7 2h1v1h-1zM4 3h1v1h-1zM6 3h1v1h-1zM5 4h1v1h-1zM6 5h1v1h-1zM4 5h1v1h-1zM7 6h1v1h-1zM3 6h1v1h-1zM8 7h1v1h-1zM2 7h1v1h-1z'/%3E%3C/svg%3E");
+  background-position: center;
+  background-size: 62% 62%;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+}
+
+/* Orb: 56px at 1x, slate; icon centred. */
+.pixel-orb-btn {
+  --cs: calc(4px * var(--hud-s, 1));
+  width: calc(56px * var(--hud-s, 1));
+  height: calc(56px * var(--hud-s, 1));
+}
+
+.pixel-orb-btn[data-active="true"] {
+  --face: var(--px-accent);
+  color: var(--px-ink);
+}
+
+.pixel-orb-btn > svg {
+  width: 46%;
+  height: 46%;
+  filter: drop-shadow(2px 2px 0 var(--px-text-line));
+}
+
+.pixel-orb-btn[data-active="true"] > svg {
+  filter: none;
+}
+
+.pixel-orb-btn__badge {
+  position: absolute;
+  right: calc(var(--px-unit) * -1);
+  bottom: calc(var(--px-unit) * -1);
+  display: grid;
+  place-items: center;
+  min-width: calc(22px * var(--hud-s, 1));
+  height: calc(22px * var(--hud-s, 1));
+  padding: 0 4px;
+  background: var(--px-accent);
+  border: var(--px-unit) solid var(--px-frame-line);
+  color: var(--px-ink);
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  font-size: calc(11px * var(--hud-s, 1));
+  line-height: 1;
+}
+
+.pixel-orb-btn__dot {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: calc(14px * var(--hud-s, 1));
+  height: calc(14px * var(--hud-s, 1));
+  background: var(--px-pink);
+  border: var(--px-unit) solid var(--px-frame-line);
+}
+
+/* Button ---------------------------------------------------------------------------------------------------- */
+.pixel-btn {
+  --face: var(--px-frame);
+  --face-hi: color-mix(in srgb, var(--face) 55%, white);
+  --face-lo: color-mix(in srgb, var(--face) 60%, black);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(8px * var(--hud-s, 1));
+  min-height: calc(40px * var(--hud-s, 1));
+  padding: 0 calc(16px * var(--hud-s, 1)) 3px;
+  background: var(--face);
+  border: var(--px-unit) solid var(--px-frame-line);
+  box-shadow:
+    inset var(--px-unit) var(--px-unit) 0 0 var(--face-hi),
+    inset calc(var(--px-unit) * -1) calc(var(--px-unit) * -2) 0 0 var(--face-lo);
+  color: var(--px-text);
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  font-size: calc(14px * var(--hud-s, 1));
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: var(--px-outline-1);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pixel-btn:hover {
+  filter: brightness(1.12);
+}
+
+.pixel-btn:focus-visible {
+  outline: var(--px-unit) solid var(--px-accent);
+  outline-offset: calc(var(--px-unit) * -2);
+}
+
+.pixel-btn:active {
+  transform: translateY(2px);
+  box-shadow:
+    inset var(--px-unit) var(--px-unit) 0 0 var(--face-lo),
+    inset calc(var(--px-unit) * -1) calc(var(--px-unit) * -1) 0 0 var(--face-hi);
+}
+
+.pixel-btn:disabled,
+.pixel-btn[aria-disabled="true"] {
+  filter: saturate(0.2) brightness(0.8);
+  cursor: not-allowed;
+  transform: none;
+}
+
+.pixel-btn--teal { --face: var(--px-accent-2); }
+.pixel-btn--gold { --face: var(--px-accent); }
+.pixel-btn--red { --face: var(--px-red); }
+
+.pixel-btn--ghost {
+  --face: var(--px-bg-2);
+  --face-hi: var(--px-border-hi);
+  --face-lo: var(--px-bg);
+}
+
+.pixel-btn--icon {
+  width: calc(44px * var(--hud-s, 1));
+  min-height: calc(44px * var(--hud-s, 1));
+  padding: 0 0 3px;
+}
+
+/* Label ----------------------------------------------------------------------------------------------------- */
+.pixel-label {
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  font-size: calc(12px * var(--hud-s, 1));
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  text-shadow: var(--px-outline-1);
+}
+
+.pixel-label--common { color: var(--px-orange); }
+.pixel-label--rare { color: var(--px-pink); }
+.pixel-label--ok { color: var(--px-green); }
+.pixel-label--off { color: var(--px-muted); }
+
+/* Bar ------------------------------------------------------------------------------------------------------- */
+.pixel-bar {
+  --bar: var(--px-accent);
+  --bar-lo: color-mix(in srgb, var(--bar) 62%, black);
+  position: relative;
+  height: calc(16px * var(--hud-s, 1));
+  background: var(--px-text-line);
+  border: var(--px-unit) solid var(--px-frame-line);
+  box-shadow: inset 0 var(--px-unit) 0 0 color-mix(in srgb, var(--px-text-line) 50%, black);
+  overflow: hidden;
+}
+
+.pixel-bar--teal { --bar: var(--px-accent-2); }
+.pixel-bar--green { --bar: var(--px-green); }
+.pixel-bar--pink { --bar: var(--px-pink); }
+.pixel-bar--red { --bar: var(--px-red); }
+
+.pixel-bar-fill {
+  display: block;
+  height: 100%;
+  background:
+    linear-gradient(to bottom, color-mix(in srgb, var(--bar) 25%, white) 0 2px, transparent 2px),
+    repeating-linear-gradient(90deg, var(--bar) 0 4px, var(--bar-lo) 4px 6px);
+  transition: width 480ms steps(6);
+}
+
+/* Plaque ---------------------------------------------------------------------------------------------------- */
+.pixel-plaque {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(8px * var(--hud-s, 1));
+  min-height: calc(30px * var(--hud-s, 1));
+  padding: calc(4px * var(--hud-s, 1)) calc(12px * var(--hud-s, 1)) calc(7px * var(--hud-s, 1));
+  background: var(--px-bg-2);
+  border: var(--px-unit) solid var(--px-frame-line);
+  box-shadow:
+    inset 0 0 0 2px var(--px-border-hi),
+    inset 0 -5px 0 0 var(--px-text-line);
+  color: var(--px-text);
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  font-size: calc(13px * var(--hud-s, 1));
+  line-height: 1.1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-shadow: var(--px-outline-1);
+  white-space: nowrap;
+}
+
+.pixel-plaque--frame {
+  background: var(--px-frame);
+  box-shadow:
+    inset var(--px-unit) var(--px-unit) 0 0 var(--px-frame-hi),
+    inset calc(var(--px-unit) * -1) calc(var(--px-unit) * -1) 0 0 var(--px-frame-lo);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pixel-bar-fill {
+    transition: none;
+  }
+}
+/* ===== end Day theme core ===== */
 
 .font-pixel {
   font-family: var(--font-pixel), ui-monospace, monospace;
@@ -47,17 +486,6 @@ html.light {
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
 }
 
-/* Notched corners: the pixel-art box. */
-.pixel-notch {
-  clip-path: polygon(
-    0 var(--px-unit), var(--px-unit) var(--px-unit), var(--px-unit) 0,
-    calc(100% - var(--px-unit)) 0, calc(100% - var(--px-unit)) var(--px-unit), 100% var(--px-unit),
-    100% calc(100% - var(--px-unit)), calc(100% - var(--px-unit)) calc(100% - var(--px-unit)),
-    calc(100% - var(--px-unit)) 100%, var(--px-unit) 100%, var(--px-unit) calc(100% - var(--px-unit)),
-    0 calc(100% - var(--px-unit))
-  );
-}
-
 .pixel-box {
   background: var(--px-bg);
   border: var(--px-unit) solid var(--px-border);
@@ -65,35 +493,46 @@ html.light {
   color: var(--px-text);
 }
 
-/* HUD chips (top bar, footer, popup buttons). Translucent so the city shows through. */
+/* Chips: small slate buttons (zoom controls, window page buttons, music transport). */
 .pixel-chip {
+  --n: 2px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
   height: 36px;
   padding: 0 12px;
-  background: color-mix(in srgb, var(--px-bg) 82%, transparent);
-  border: 2px solid var(--px-border);
+  background: var(--px-frame);
+  border: 2px solid var(--px-frame-line);
+  box-shadow: inset 2px 2px 0 0 var(--px-frame-hi), inset -2px -2px 0 0 var(--px-frame-lo);
   color: var(--px-text);
   font-family: var(--font-pixel), ui-monospace, monospace;
   font-size: 14px;
   line-height: 1;
-  transition: border-color 120ms steps(2), background-color 120ms steps(2), transform 80ms steps(2);
+  text-shadow: var(--px-outline-1);
+  cursor: pointer;
 }
 
-.pixel-chip:hover,
+.pixel-chip:hover {
+  background: color-mix(in srgb, var(--px-frame) 78%, white);
+}
+
 .pixel-chip:focus-visible {
-  border-color: var(--px-border-hi);
-  background: color-mix(in srgb, var(--px-bg-3) 92%, transparent);
-  outline: none;
+  outline: 2px solid var(--px-accent);
+  outline-offset: -5px;
 }
 
 .pixel-chip:active {
   transform: translateY(2px);
 }
 
+.pixel-chip:disabled {
+  filter: saturate(0.2) brightness(0.8);
+  cursor: not-allowed;
+}
+
 .pixel-chip[data-active="true"] {
-  border-color: var(--px-accent);
+  background: var(--px-bg);
+  box-shadow: inset 2px 2px 0 0 var(--px-accent), inset -2px -2px 0 0 var(--px-accent);
   color: var(--px-accent);
 }
 
@@ -101,13 +540,6 @@ html.light {
   width: 36px;
   padding: 0;
   justify-content: center;
-}
-
-.pixel-label {
-  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 /* ── Scene hotspots ──────────────────────────────────────────────────────── */
@@ -200,29 +632,8 @@ html.light {
 
 /* ── Popup windows ───────────────────────────────────────────────────────── */
 
-.pixel-window {
-  display: flex;
-  flex-direction: column;
-  background: var(--px-bg);
-  border: var(--px-unit) solid var(--px-border);
-  box-shadow: 0 0 0 var(--px-unit) var(--px-shadow);
-  color: var(--px-text);
-  animation: pixel-pop 140ms steps(3);
-}
-
 @keyframes pixel-pop {
   from { transform: scale(0.94); opacity: 0.4; }
-}
-
-.pixel-window-titlebar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 38px;
-  flex-shrink: 0;
-  padding: 0 6px 0 12px;
-  background: var(--px-bg-3);
-  border-bottom: var(--px-unit) solid var(--px-border);
 }
 
 /* Existing modules rendered inside a pixel window: same components and behavior, pixel skin. */
@@ -281,50 +692,10 @@ html.light {
   background: var(--px-scrim);
 }
 
-/* ── Footer player bar ───────────────────────────────────────────────────── */
-
-.pixel-seek {
-  position: relative;
-  height: 10px;
-  background: var(--px-bg-2);
-  border: 2px solid var(--px-border);
-  cursor: pointer;
-}
-
-.pixel-seek-fill {
-  height: 100%;
-  background: repeating-linear-gradient(90deg, var(--px-accent) 0 4px, color-mix(in srgb, var(--px-accent) 70%, var(--px-bg)) 4px 6px);
-}
-
-.pixel-seek-thumb {
-  position: absolute;
-  top: 50%;
-  width: 8px;
-  height: 14px;
-  transform: translate(-50%, -50%);
-  background: var(--px-text);
-  border: 2px solid var(--px-border);
-  opacity: 0;
-}
-
-.pixel-seek:focus-visible {
-  outline: 2px solid var(--px-accent);
-  outline-offset: 2px;
-}
-
-.pixel-seek:hover .pixel-seek-thumb,
-.pixel-seek:focus-visible .pixel-seek-thumb,
-.pixel-seek[data-dragging="true"] .pixel-seek-thumb {
-  opacity: 1;
-}
-
-/* HUD text sits straight on the sky, like the reference's title: a hard 2px drop keeps it readable. */
+/* HUD text sits straight on the sky, like the reference's title: the hard 2px outline keeps it readable. */
 .pixel-wordmark {
-  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6);
-}
-
-html.light .pixel-wordmark {
-  text-shadow: none;
+  color: var(--px-text);
+  text-shadow: var(--px-outline-2);
 }
 
 /* A small bobbing diamond over every place, like a game's "you can use this" marker. */
@@ -353,37 +724,15 @@ html.light .pixel-wordmark {
 
 @media (prefers-reduced-motion: reduce) {
   .pixel-hotspot-marker,
-  .pixel-hotspot:hover::before,
-  .pixel-window {
+  .pixel-hotspot:hover::before {
     animation: none;
   }
 }
 
-/* Home modules were sized for dense glass panels; a pixel face needs a little more room to stay legible. */
-.pixel-window-body {
-  zoom: 1.14;
-}
-
-/* Night-only scenes (the District) keep night tokens even when the app theme is light. */
+/* Retired: the District used to force night tokens. Everything is Day now, so this is a no-op alias that keeps
+   the pages still carrying the class (integrations, Home) working until their owners remove it. */
 .pixel-night {
-  --px-bg: #120f24;
-  --px-bg-2: #1b1733;
-  --px-bg-3: #251f45;
-  --px-border: #3b3470;
-  --px-border-hi: #7a6fd0;
-  --px-text: #f1ecff;
-  --px-muted: #a9a1d6;
-  --px-accent: #ffcf6a;
-  --px-accent-2: #3ff2ff;
-  --px-pink: #ff4fa0;
-  --px-green: #58f08c;
-  --px-red: #ff5a5a;
-  --px-scrim: rgba(6, 5, 16, 0.55);
-  --px-shadow: rgba(0, 0, 0, 0.45);
-}
-
-html.light .pixel-night .pixel-wordmark {
-  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6);
+  color-scheme: normal;
 }
 
 /* ── Scene camera (Nova City pan / zoom) ─────────────────────────────────────
@@ -396,7 +745,7 @@ html.light .pixel-night .pixel-wordmark {
   user-select: none;
   -webkit-user-select: none;
   outline: none;
-  background: linear-gradient(to bottom, #111a36 0%, #151a33 45%, #1f1d2b 100%);
+  background: var(--px-world-edge);
 }
 
 .pixel-camera[data-dragging="true"],
@@ -424,8 +773,18 @@ html.light .pixel-night .pixel-wordmark {
 }
 
 /* ══ Game UI: level badge, quests, tutorial guide, celebrations (hud/app/home/components/game) ══════════════
- * Same rules as the rest of the pixel UI: notched boxes, pixel fonts, steps() motion, no glows or soft shadows.
+ * Built on the Day theme core (.pixel-frame / .pixel-card / .pixel-btn / .pixel-label / .pixel-bar). These are only
+ * the parts the core does not cover. Hard pixels, steps() motion, no glows or soft shadows. Everything that floats
+ * over the city scales with `--hud-s` (set on .game-hud-root).
  */
+
+/* Things that zoom as a whole (windows, tutorial bubble, toasts) must not scale their core pieces a second time. */
+.pixel-window,
+.game-bubble,
+.game-toast,
+.game-levelup {
+  --hud-s: 1;
+}
 
 /* ── Level number box (Town Hall panel) ── */
 .game-level-num {
@@ -434,190 +793,110 @@ html.light .pixel-night .pixel-wordmark {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   background: var(--px-accent);
-  color: #120f24;
-  box-shadow: inset -3px -3px 0 0 color-mix(in srgb, var(--px-accent) 60%, #120f24);
+  border: var(--px-unit) solid var(--px-frame-line);
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--px-accent) 45%, white),
+    inset 0 -4px 0 0 color-mix(in srgb, var(--px-accent) 60%, black);
+  color: var(--px-ink);
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1;
 }
 
 .game-level-lv {
-  font-size: 7px;
+  font-size: 8px;
   letter-spacing: 0.1em;
   margin-bottom: 2px;
 }
 
 .game-level-num--lg {
-  width: 58px;
-  height: 58px;
-  font-size: 24px;
-  box-shadow: inset -4px -4px 0 0 color-mix(in srgb, var(--px-accent) 60%, #120f24);
+  width: 64px;
+  height: 64px;
+  font-size: 26px;
 }
 
 .game-level-num--lg .game-level-lv {
-  font-size: 9px;
+  font-size: 10px;
   margin-bottom: 4px;
 }
 
-/* ── Progress bars ── */
-.game-bar {
-  --game-bar: var(--px-green);
-  position: relative;
-  height: 10px;
-  background: var(--px-bg-2);
-  border: 2px solid var(--px-border);
-}
-
-.game-bar--xp { --game-bar: var(--px-accent-2); }
-.game-bar--done { --game-bar: var(--px-accent); }
-
-.game-bar-fill {
-  height: 100%;
-  background: repeating-linear-gradient(90deg, var(--game-bar) 0 6px, color-mix(in srgb, var(--game-bar) 62%, var(--px-bg)) 6px 8px);
-  transition: width 480ms steps(6);
-}
-
-/* ── Quests chip ── */
-.game-count {
-  display: inline-grid;
-  place-items: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  background: var(--px-accent);
-  color: #120f24;
+/* ── Tabs (quest log, Town Hall): small pixel buttons, the open one teal like NEXT ── */
+.game-tab,
+.pixel-btn.game-sm {
+  min-height: 32px;
+  padding: 0 12px 3px;
   font-size: 12px;
 }
 
-.game-dot {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  width: 10px;
-  height: 10px;
-  background: var(--px-pink);
-  border: 2px solid var(--px-bg);
-  animation: game-blink 1s steps(2) infinite;
-}
-
-@keyframes game-blink {
-  50% { background: var(--px-accent); }
-}
-
-/* ── Tabs, quest cards, tags, tables ── */
-.game-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 30px;
-  padding: 0 10px;
-  background: var(--px-bg-2);
-  border: 2px solid var(--px-border);
-  color: var(--px-text);
-  font-family: var(--font-pixel), ui-monospace, monospace;
-  font-size: 14px;
-  line-height: 1;
-}
-
-.game-tab:hover,
-.game-tab:focus-visible {
-  border-color: var(--px-border-hi);
-  outline: none;
-}
-
 .game-tab[data-active="true"] {
-  background: var(--px-bg-3);
-  border-color: var(--px-accent);
-  color: var(--px-accent);
+  --face: var(--px-accent-2);
+  --face-hi: color-mix(in srgb, var(--face) 55%, white);
+  --face-lo: color-mix(in srgb, var(--face) 60%, black);
 }
 
+/* ── Quest cards: the card's rim tells the status (active = gold via data-state, done = green) ── */
 .game-quest {
-  padding: 8px 10px 10px;
-  background: var(--px-bg-2);
-  border: 2px solid var(--px-border);
-}
-
-.game-quest[data-status="active"] {
-  box-shadow: inset 4px 0 0 0 var(--px-accent);
-  padding-left: 14px;
+  padding: 10px 12px 14px;
 }
 
 .game-quest[data-status="completed"] {
-  border-color: color-mix(in srgb, var(--px-green) 45%, var(--px-border));
+  --rim: var(--px-green);
 }
 
-.game-quest[data-status="locked"] {
-  opacity: 0.55;
-}
-
-.game-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  flex-shrink: 0;
-  height: 18px;
-  padding: 0 5px;
-  border: 2px solid currentColor;
-  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: 8px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--px-accent);
-}
-
-.game-tag[data-status="completed"] { color: var(--px-green); }
-.game-tag[data-status="locked"] { color: var(--px-muted); }
-
+/* ── Tables, pips, links, scroll ── */
 .game-table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   background: var(--px-bg-2);
-  border: 2px solid var(--px-border);
+  border: var(--px-unit) solid var(--px-frame-line);
+  box-shadow: inset 0 0 0 2px var(--px-border-hi);
   font-family: var(--font-pixel), ui-monospace, monospace;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .game-table th {
-  padding: 5px 8px;
+  padding: 6px 10px;
   background: var(--px-bg-3);
-  color: var(--px-muted);
+  color: var(--px-text);
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: normal;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  text-shadow: var(--px-outline-1);
 }
 
 .game-table td {
-  padding: 5px 8px;
-  border-top: 2px solid var(--px-border);
+  padding: 6px 10px;
+  border-top: 2px solid var(--px-frame-line);
 }
 
 .game-table tr[data-zero="true"] td {
-  opacity: 0.55;
+  opacity: 0.6;
 }
 
 .game-pips {
   display: inline-flex;
-  gap: 2px;
+  gap: 3px;
 }
 
 .game-pip {
-  width: 8px;
-  height: 8px;
-  border: 2px solid var(--px-border);
+  width: 10px;
+  height: 10px;
+  background: var(--px-bg);
+  border: 2px solid var(--px-frame-line);
 }
 
 .game-pip[data-on="true"] {
   background: var(--px-accent);
-  border-color: var(--px-accent);
 }
 
 .game-link {
   font-family: var(--font-pixel), ui-monospace, monospace;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--px-muted);
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -629,121 +908,257 @@ html.light .pixel-night .pixel-wordmark {
   outline: none;
 }
 
+.game-link:focus-visible {
+  text-decoration-color: var(--px-accent);
+  text-decoration-thickness: 3px;
+}
+
 .game-scroll {
   scrollbar-width: thin;
-  scrollbar-color: var(--px-border) transparent;
+  scrollbar-color: var(--px-border-hi) var(--px-bg);
 }
 
-/* ── Tutorial guide: the speech bubble, the arrow and the ring on the target building ── */
-/* Sits above the camera's zoom buttons (bottom right); there is no footer. */
+/* ── Form bits shared by the game windows ── */
+.game-input {
+  background: var(--px-bg);
+  border: var(--px-unit) solid var(--px-frame-line);
+  box-shadow: inset var(--px-unit) var(--px-unit) 0 0 color-mix(in srgb, var(--px-bg) 55%, black);
+  color: var(--px-text);
+  outline: none;
+}
+
+.game-input:focus-visible {
+  border-color: var(--px-accent);
+}
+
+/* Error text: the red token is too dark to read on the indigo surfaces, so it is lifted toward white. */
+.game-error {
+  color: color-mix(in srgb, var(--px-red) 55%, white);
+}
+
+.pixel-btn--icon[data-active="true"] {
+  --face: var(--px-accent);
+  --face-hi: color-mix(in srgb, var(--face) 55%, white);
+  --face-lo: color-mix(in srgb, var(--face) 60%, black);
+}
+
+.pixel-btn.game-play {
+  width: calc(54px * var(--hud-s, 1));
+  min-height: calc(54px * var(--hud-s, 1));
+}
+
+/* ── Music seek bar: a pixel bar you can drag (the fill and thumb are written to by the music window) ── */
+.game-seek {
+  position: relative;
+  height: 18px;
+  background: var(--px-text-line);
+  border: var(--px-unit) solid var(--px-frame-line);
+  cursor: pointer;
+}
+
+.game-seek-fill {
+  height: 100%;
+  background:
+    linear-gradient(to bottom, color-mix(in srgb, var(--px-accent-2) 25%, white) 0 2px, transparent 2px),
+    repeating-linear-gradient(90deg, var(--px-accent-2) 0 4px, color-mix(in srgb, var(--px-accent-2) 62%, black) 4px 6px);
+}
+
+.game-seek-thumb {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 26px;
+  transform: translate(-50%, -50%);
+  background: var(--px-text);
+  border: 3px solid var(--px-frame-line);
+  opacity: 0;
+}
+
+.game-seek:focus-visible {
+  outline: var(--px-unit) solid var(--px-accent);
+  outline-offset: 2px;
+}
+
+.game-seek:hover .game-seek-thumb,
+.game-seek:focus-visible .game-seek-thumb,
+.game-seek[data-dragging="true"] .game-seek-thumb {
+  opacity: 1;
+}
+
+/* ── Tutorial guide: Nova's riveted speech frame, the arrow and the ring on the target ── */
+/* Bottom-left (the tutorial bubble's corner); it moves to the bottom-right when the target is on the left, and then
+   clears the Settings button and the zoom controls. Scaled as a whole with --hud-s. */
 .game-tutorial {
   position: fixed;
-  bottom: 72px;
+  bottom: 28px;
   z-index: 60;
-  width: min(400px, calc(100vw - 32px));
+  width: min(400px, calc(100vw / var(--hud-s, 1) - 32px));
+  zoom: var(--hud-s, 1);
+  /* Hard drop shadow that follows the notched frame. */
+  filter: drop-shadow(0 4px 0 var(--px-shadow));
 }
 
-/* The bubble's tail: a stepped triangle under the guide's portrait. */
+.game-tutorial--right {
+  bottom: 84px;
+}
+
+/* The bubble's tail: a stepped triangle under the guide's portrait (outline layer, then frame layer). */
+.game-tutorial::before,
 .game-tutorial::after {
   content: "";
   position: absolute;
-  left: 22px;
-  bottom: -12px;
-  width: 18px;
+  clip-path: polygon(0 0, 100% 0, 100% 34%, 67% 34%, 67% 67%, 34% 67%, 34% 100%, 0 100%);
+}
+
+.game-tutorial::after {
+  left: 24px;
+  bottom: -15px;
+  width: 24px;
+  height: 18px;
+  background: var(--px-frame-line);
+}
+
+.game-tutorial::before {
+  left: 27px;
+  bottom: -9px;
+  z-index: 1;
+  width: 15px;
   height: 12px;
-  background: var(--px-border-hi);
-  clip-path: polygon(0 0, 100% 0, 100% 33%, 67% 33%, 67% 67%, 33% 67%, 33% 100%, 0 100%);
+  background: var(--px-frame);
 }
 
 .game-bubble {
-  background: var(--px-bg);
-  border: var(--px-unit) solid var(--px-border-hi);
-  box-shadow: 0 0 0 var(--px-unit) var(--px-shadow);
-  color: var(--px-text);
+  padding: 12px;
   animation: pixel-pop 140ms steps(3);
+}
+
+.game-bubble-body {
+  background: var(--px-bg);
+  border: var(--px-unit) solid var(--px-frame-line);
+  box-shadow: inset var(--px-unit) var(--px-unit) 0 0 color-mix(in srgb, var(--px-bg) 55%, black);
+}
+
+.game-bubble-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 8px;
+  background: var(--px-bg-2);
+  border-bottom: var(--px-unit) solid var(--px-frame-line);
+  box-shadow: inset 0 -2px 0 0 var(--px-border-hi);
+}
+
+.game-bubble-face {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  background: var(--px-bg-3);
+  border: var(--px-unit) solid var(--px-frame-line);
+  box-shadow: inset 0 0 0 2px var(--px-border-hi);
 }
 
 .game-tutorial-reopen {
   position: fixed;
-  left: 16px;
-  bottom: 24px;
+  left: calc(16px * var(--hud-s, 1));
+  bottom: calc(16px * var(--hud-s, 1));
   z-index: 60;
 }
 
+/* The ring sits on the target building: gold dashes with a dark keyline on both sides so it reads on any ground. */
 .game-target-ring {
   position: fixed;
   z-index: 55;
   pointer-events: none;
-  border: 2px dashed var(--px-accent-2);
+  border: calc(3px * var(--hud-s, 1)) dashed var(--px-accent);
+  box-shadow:
+    0 0 0 calc(3px * var(--hud-s, 1)) var(--px-frame-line),
+    inset 0 0 0 calc(3px * var(--hud-s, 1)) var(--px-frame-line);
   animation: game-march 0.8s steps(2) infinite;
 }
 
 @keyframes game-march {
-  50% { border-color: color-mix(in srgb, var(--px-accent-2) 40%, transparent); }
+  50% { border-color: var(--px-text); }
 }
 
-/* A stepped down-arrow (24x24); left/top place its tip. */
+/* A stepped down-arrow (24x24, gold with a dark outline); left/top place its tip. The element is not clipped: the
+   outline is its ::before, the fill its ::after, both cut to the same arrow. */
 .game-arrow {
-  position: fixed;
-  z-index: 56;
-  width: 24px;
-  height: 24px;
-  margin-left: -12px;
-  margin-top: -28px;
-  pointer-events: none;
-  background: var(--px-accent-2);
-  clip-path: polygon(
+  --arrow: polygon(
     35% 0, 65% 0, 65% 50%, 100% 50%, 100% 60%, 90% 60%, 90% 70%, 80% 70%, 80% 80%, 70% 80%, 70% 90%, 60% 90%,
     60% 100%, 40% 100%, 40% 90%, 30% 90%, 30% 80%, 20% 80%, 20% 70%, 10% 70%, 10% 60%, 0 60%, 0 50%, 35% 50%
   );
-  filter: drop-shadow(2px 2px 0 rgba(0, 0, 0, 0.7));
+  position: fixed;
+  z-index: 56;
+  width: 28px;
+  height: 28px;
+  margin-left: -14px;
+  margin-top: -32px;
+  pointer-events: none;
+  scale: var(--hud-s, 1);
+  transform-origin: 50% 100%;
   animation: game-arrow-bob 0.9s steps(2) infinite;
+}
+
+.game-arrow::before,
+.game-arrow::after {
+  content: "";
+  position: absolute;
+  clip-path: var(--arrow);
+}
+
+.game-arrow::before {
+  inset: -3px;
+  background: var(--px-frame-line);
+}
+
+.game-arrow::after {
+  inset: 0;
+  background: var(--px-accent);
 }
 
 @keyframes game-arrow-bob {
   50% { transform: translateY(-6px); }
 }
 
-/* Pointing up at a HUD chip from below; left/top place its tip. */
-.game-arrow--up {
-  margin-top: 0;
-  rotate: 180deg;
-}
-
 /* ── Celebrations ── */
+/* Toasts hang just below the corner clusters, centred; level-ups stamp in the middle of the screen. */
 .game-toast-stage {
   position: fixed;
-  top: calc(var(--game-hud-h, 64px) + 12px);
-  left: 50%;
+  top: 96px;
+  left: 0;
+  right: 0;
   z-index: 130;
-  transform: translateX(-50%);
-  width: min(440px, calc(100vw - 32px));
+  display: flex;
+  justify-content: center;
+  zoom: var(--hud-s, 1);
   pointer-events: none;
 }
 
 .game-toast {
   --game-kind: var(--px-accent-2);
+  --rim: var(--game-kind);
   display: flex;
   align-items: center;
   gap: 12px;
-  width: 100%;
-  padding: 10px 14px;
-  background: var(--px-bg);
-  border: var(--px-unit) solid var(--px-border);
-  box-shadow: inset 6px 0 0 0 var(--game-kind), 0 0 0 var(--px-unit) var(--px-shadow);
+  width: 440px;
+  max-width: calc(100% - 32px);
+  padding: 10px 14px 14px;
   pointer-events: auto;
+  cursor: pointer;
+  filter: drop-shadow(0 4px 0 var(--px-shadow));
   animation: game-drop 240ms steps(4);
 }
 
 .game-toast[data-kind="quest-complete"] { --game-kind: var(--px-green); }
 .game-toast[data-kind="achievement"] { --game-kind: var(--px-pink); }
-.game-toast[data-kind="building-up"] { --game-kind: var(--px-accent-2); }
+.game-toast[data-kind="building-up"] { --game-kind: var(--px-orange); }
 
 .game-toast-icon {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
-  margin-left: 4px;
   background: var(--game-kind);
   clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
 }
@@ -760,6 +1175,7 @@ html.light .pixel-night .pixel-wordmark {
   justify-content: center;
   align-items: flex-start;
   padding-top: 18vh;
+  zoom: var(--hud-s, 1);
   pointer-events: none;
 }
 
@@ -768,26 +1184,21 @@ html.light .pixel-night .pixel-wordmark {
 }
 
 .game-levelup {
-  --px-unit: 4px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  min-width: min(420px, calc(100vw - 32px));
-  padding: 18px 28px 20px;
-  background:
-    repeating-linear-gradient(0deg, transparent 0 6px, color-mix(in srgb, var(--px-bg-2) 70%, transparent) 6px 8px),
-    var(--px-bg);
-  border: 4px solid var(--px-accent);
+  gap: 8px;
+  min-width: min(420px, calc(100vw / var(--hud-s, 1) - 32px));
+  padding: 22px 32px 26px;
   pointer-events: auto;
+  cursor: pointer;
+  filter: drop-shadow(0 6px 0 var(--px-shadow));
   animation: game-stamp 320ms steps(4);
 }
 
 .game-levelup-title {
   font-size: 32px;
-  line-height: 1.1;
   color: var(--px-accent);
-  text-shadow: 3px 3px 0 #120f24;
 }
 
 @keyframes game-stamp {
@@ -809,6 +1220,8 @@ html.light .pixel-night .pixel-wordmark {
   height: 8px;
   margin: -4px 0 0 -4px;
   background: var(--px-accent);
+  border: 2px solid var(--px-frame-line);
+  box-sizing: content-box;
   opacity: 0;
   animation: game-spark 900ms steps(4) calc(var(--i) * 70ms) 2;
 }
@@ -822,7 +1235,7 @@ html.light .pixel-night .pixel-wordmark {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .game-dot,
+  .game-orb .pixel-orb-btn__dot,
   .game-target-ring,
   .game-arrow,
   .game-bubble,
@@ -831,150 +1244,136 @@ html.light .pixel-night .pixel-wordmark {
     animation: none;
   }
 
-  .game-bar-fill {
-    transition: none;
-  }
-
   .game-sparks {
     display: none;
   }
 }
 
-/* ── Themed popup windows (one look per building) ─────────────────────────────
-   PixelWindow sets data-theme / data-material and the theme's tokens inline (hud/app/home/components/pixel/
-   window-themes.ts): --pw-accent (the building's sign colour), --pw-accent-2, --pw-sign (title board), --pw-line,
-   --pw-frame-base/light/dark and --pw-frame-tile (a small pixel tile of the frame material: brick, planks, stone,
-   steel, hazard, airmail, marquee bulbs, hedge). Same structure everywhere: material frame, sign board title bar,
-   plain body. Hard 2px offsets only, never a blur. */
+/* ── Popup windows ───────────────────────────────────────────────────────────
+   PixelWindow (hud/app/home/components/pixel/pixel-window.tsx): a .pixel-window shell (unclipped, so the title plaque
+   and the close button can overhang the frame's edge) holding a .pixel-frame with the body inset on --px-bg.
+   window-themes.ts sets --pw-accent / --pw-accent-2 per building (plaque rim, emblem) and --px-accent for the
+   module inside. */
 
-.pixel-window--themed {
-  gap: 8px;
-  padding: 10px;
-  background: var(--pw-frame-tile) 0 0 / var(--pw-frame-tile-size) repeat, var(--pw-frame-base);
-  image-rendering: pixelated;
-  border: 3px solid var(--pw-line);
-  box-shadow:
-    inset 2px 2px 0 0 color-mix(in srgb, var(--pw-frame-light) 70%, transparent),
-    inset -2px -2px 0 0 color-mix(in srgb, var(--pw-line) 70%, transparent);
+.pixel-window {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  container-type: inline-size;
+  color: var(--px-text);
+  /* Hard drop shadow: follows the notched frame, never blurred. */
+  filter: drop-shadow(0 6px 0 var(--px-shadow));
   animation: pixel-window-open 220ms steps(4) both;
 }
 
-.pixel-window--themed .pixel-window-titlebar {
-  position: relative;
-  height: 58px;
-  gap: 10px;
-  padding: 0 6px 0 4px;
-  background: var(--pw-sign);
-  border: 3px solid var(--pw-line);
-  /* The sign's tube: a 2px inner line in the neon colour, then a dark gap. */
-  box-shadow:
-    inset 0 0 0 2px color-mix(in srgb, var(--pw-accent) 55%, var(--pw-sign)),
-    inset 0 0 0 4px var(--pw-sign);
-  image-rendering: auto;
+.pixel-window-frame {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding-top: calc(var(--px-unit) * 13);
 }
 
-.pixel-window--themed .pixel-window-body {
+.pixel-window-body {
+  flex: 1;
+  min-height: 0;
   background: var(--px-bg);
-  border: 3px solid var(--pw-line);
-  box-shadow: inset 0 3px 0 0 color-mix(in srgb, var(--pw-line) 60%, var(--px-bg));
-  image-rendering: auto;
+  border: var(--px-unit) solid var(--px-frame-line);
+  /* Recessed: shadowed top / left inside, lit lip along the bottom outside. */
+  box-shadow:
+    inset var(--px-unit) var(--px-unit) 0 0 color-mix(in srgb, var(--px-bg) 55%, black),
+    0 var(--px-unit) 0 0 var(--px-frame-hi);
+  /* Home modules were sized for dense glass panels; a pixel face needs a little more room to stay legible. */
+  zoom: 1.14;
 }
 
-/* The building itself, cropped from the painting, in a framed picture at the left of the sign. */
-.pixel-window-vignette {
-  flex-shrink: 0;
-  outline: 2px solid var(--pw-line);
-  box-shadow: 0 0 0 4px var(--pw-frame-dark);
-  margin-left: 6px;
-}
-
-.pixel-window-sign {
+.pixel-window-plaque {
+  position: absolute;
+  top: calc(var(--px-unit) * -6);
+  left: 50%;
+  z-index: 2;
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-width: 0;
+  gap: 10px;
+  max-width: calc(100% - 150px);
+  padding: 7px 18px 10px;
+  transform: translateX(-50%);
+  background: var(--px-bg-2);
+  border: var(--px-unit) solid var(--px-frame-line);
+  /* Rim in the building's sign colour, then the lip. */
+  box-shadow:
+    inset 0 0 0 2px var(--pw-accent, var(--px-border-hi)),
+    inset 0 -5px 0 0 var(--px-text-line);
 }
 
-.pixel-window-emblem {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
+.pixel-window-heading {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
 }
 
 .pixel-window-name {
-  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: 16px;
-  line-height: 1.15;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--pw-accent);
-  /* Neon tube depth: a hard darker copy under the letters. */
-  text-shadow: 2px 2px 0 color-mix(in srgb, var(--pw-accent) 30%, #000);
-  animation: pixel-window-sign-on 700ms steps(1) both;
+  font-size: 17px;
 }
 
 .pixel-window-role {
+  max-width: 100%;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  padding-left: 26px;
   font-family: var(--font-pixel), ui-monospace, monospace;
   font-size: 14px;
-  line-height: 1.1;
+  line-height: 1;
   color: var(--px-muted);
 }
 
-/* A narrow sign (the small windows) keeps the place name whole: page buttons drop to their icon (their title says
-   where they go). */
-.pixel-window--themed .pixel-window-titlebar {
-  container-type: inline-size;
+.pixel-window-emblem {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 
-@container (max-width: 480px) {
-  .pixel-window-titlebar .pixel-chip > span {
+.pixel-window-close {
+  position: absolute;
+  top: calc(var(--px-unit) * -3);
+  right: calc(var(--px-unit) * -3);
+  z-index: 3;
+}
+
+.pixel-window-actions {
+  position: absolute;
+  top: 9px;
+  right: 27px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A narrow window keeps the title whole: page buttons drop to their icon (their title says where they go). */
+@container (max-width: 500px) {
+  .pixel-window-actions .pixel-chip > span {
     display: none;
   }
 }
 
-.pixel-window--themed .pixel-window-titlebar .pixel-chip {
-  border-color: color-mix(in srgb, var(--pw-accent) 45%, var(--pw-line));
+/* Large screens: the whole window scales (the Home HUD scales with --hud-s at the same breakpoints). */
+@media (min-width: 1920px) {
+  .pixel-window { zoom: 1.25; }
 }
 
-.pixel-window--themed .pixel-window-titlebar .pixel-chip:hover,
-.pixel-window--themed .pixel-window-titlebar .pixel-chip:focus-visible {
-  border-color: var(--pw-accent);
-  color: var(--pw-accent);
+@media (min-width: 2560px) {
+  .pixel-window { zoom: 1.6; }
 }
 
-/* Cinema: a row of marquee bulbs along the top of the sign that chase. */
-.pixel-window--themed[data-material="marquee"] .pixel-window-titlebar::after {
-  content: "";
-  position: absolute;
-  inset: 5px 8px auto;
-  height: 3px;
-  background: repeating-linear-gradient(90deg, var(--pw-accent-2) 0 3px, transparent 3px 9px);
-  animation: pixel-window-chase 900ms steps(3) infinite;
-  pointer-events: none;
-}
-
-/* Power Plant: a hazard strip under the sign. */
-.pixel-window--themed[data-material="hazard"] .pixel-window-titlebar::after {
-  content: "";
-  position: absolute;
-  inset: auto 4px 4px;
-  height: 3px;
-  background: repeating-linear-gradient(90deg, var(--pw-accent-2) 0 6px, var(--pw-line) 6px 12px);
-  pointer-events: none;
-}
-
-/* Airmail frame: the paper colour is light, so the frame gets a dark inner edge to keep the body's edge crisp. */
-.pixel-window--themed[data-material="airmail"] .pixel-window-body,
-.pixel-window--themed[data-material="airmail"] .pixel-window-titlebar {
-  outline: 2px solid var(--pw-line);
+@media (min-width: 3200px) {
+  .pixel-window { zoom: 2; }
 }
 
 /* Opening: the window drops in like a shutter, in four hard steps. */
@@ -984,114 +1383,216 @@ html.light .pixel-night .pixel-wordmark {
   100% { transform: none; }
 }
 
-/* The neon sign switches on with a stutter. */
-@keyframes pixel-window-sign-on {
-  0% { opacity: 0.15; }
-  30% { opacity: 1; }
-  45% { opacity: 0.3; }
-  60% { opacity: 1; }
-}
-
-@keyframes pixel-window-chase {
-  to { background-position: 9px 0; }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .pixel-window--themed,
-  .pixel-window-name,
-  .pixel-window--themed[data-material="marquee"] .pixel-window-titlebar::after {
+  .pixel-window {
     animation: none;
   }
 }
 
 /* ===== Game HUD ===== */
-/* Home's top bar: logo + player panel left, large labelled buttons right. --hud-s scales it for large screens. */
-.game-hud {
+/*
+ * Home's corner-anchored HUD (spec: docs/frontend/nova-city-day-ui.md, "Home HUD layout"). No header band; the
+ * city fills the screen and four corner clusters float over it:
+ *
+ *   top-left   portrait orb (Profile) + wordmark + name plaque (level, title, XP bar: Town Hall), with the
+ *              Quests / Music orb rail stacked under it along the left edge
+ *   top-right  window controls (Electron only), XP counter plaque, weather chip
+ *   bottom-right  Settings orb, with the camera's zoom / recenter buttons to its left
+ *   bottom-left   Nova's tutorial bubble (components/game/tutorial-guide.tsx)
+ *
+ * `.game-hud-root` is Home's screen and owns --hud-s, the scale every pixel-UI size multiplies by (1 up to 1919px
+ * wide, then 1.25, 1.6, 2 for 1080p, 1440p, 4K).
+ */
+.game-hud-root {
   --hud-s: 1;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: calc(12px * var(--hud-s));
-  padding: calc(8px * var(--hud-s)) calc(12px * var(--hud-s)) 0;
+  position: relative;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--px-world-edge);
 }
 
 @media (min-width: 1920px) {
-  .game-hud { --hud-s: 1.25; }
+  .game-hud-root { --hud-s: 1.25; }
 }
 
 @media (min-width: 2560px) {
-  .game-hud { --hud-s: 1.6; }
+  .game-hud-root { --hud-s: 1.6; }
 }
 
 @media (min-width: 3200px) {
-  .game-hud { --hud-s: 2; }
+  .game-hud-root { --hud-s: 2; }
+}
+
+/* The Electron window is frameless: this strip along the top is its drag handle (the clusters opt out). */
+.game-hud-drag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9;
+  height: calc(12px * var(--hud-s));
 }
 
 .game-hud-left,
-.game-hud-right {
+.game-hud-right,
+.game-hud-br {
+  position: absolute;
+  z-index: 10;
+}
+
+.game-hud-left {
+  top: calc(12px * var(--hud-s));
+  left: calc(12px * var(--hud-s));
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
+  gap: calc(14px * var(--hud-s));
+}
+
+.game-hud-right {
+  top: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: calc(8px * var(--hud-s));
+}
+
+.game-hud-br {
+  right: calc(16px * var(--hud-s));
+  bottom: calc(16px * var(--hud-s));
+}
+
+/* Player: portrait orb, then wordmark above the name plaque. */
+.game-hud-player {
+  display: flex;
+  align-items: flex-end;
   gap: calc(10px * var(--hud-s));
+}
+
+.game-hud-id {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(5px * var(--hud-s));
   min-width: 0;
 }
 
-.game-hud-right {
-  flex-shrink: 0;
+.game-hud-wordmark {
+  display: flex;
   align-items: center;
+  gap: calc(10px * var(--hud-s));
+  padding-left: calc(2px * var(--hud-s));
 }
 
 .game-hud-logo {
-  display: block;
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: calc(24px * var(--hud-s));
+  font-size: calc(15px * var(--hud-s));
+  font-weight: 700;
+  letter-spacing: 0.14em;
   line-height: 1;
-  color: var(--px-text);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.game-hud-logo:hover {
+  color: var(--px-accent);
+}
+
+.game-hud-logo:focus-visible {
+  outline: var(--px-unit) solid var(--px-accent);
+  outline-offset: 2px;
 }
 
 .game-hud-presence {
   display: flex;
   align-items: center;
   gap: calc(6px * var(--hud-s));
-  margin-top: calc(6px * var(--hud-s));
   font-family: var(--font-pixel), ui-monospace, monospace;
-  font-size: calc(13px * var(--hud-s));
-  color: var(--px-muted);
+  font-size: calc(14px * var(--hud-s));
+  line-height: 1;
+  text-shadow: var(--px-outline-1);
 }
 
-/* Player panel: portrait, name + level, title, XP bar. */
-.game-player {
-  display: flex;
-  align-items: center;
-  gap: calc(10px * var(--hud-s));
-  width: calc(272px * var(--hud-s));
-  min-width: 0;
-  padding: calc(5px * var(--hud-s)) calc(10px * var(--hud-s)) calc(5px * var(--hud-s)) calc(5px * var(--hud-s));
-  background: color-mix(in srgb, var(--px-bg) 86%, transparent);
-  border: 2px solid var(--px-border);
-  color: var(--px-text);
-  text-align: left;
-  transition: border-color 120ms steps(2), background-color 120ms steps(2);
+/* Presence colours come from nova-presence (Tailwind text-*-400 on the dot, label): the hard outline carries them on
+   the bright map. The dot gets a dark keyline of its own. */
+.game-hud-presence > span:first-child {
+  outline: 2px solid var(--px-frame-line);
 }
 
-button.game-player:hover,
-button.game-player:focus-visible {
-  border-color: var(--px-border-hi);
-  background: color-mix(in srgb, var(--px-bg-3) 92%, transparent);
-  outline: none;
+/* Portrait orb: 72px, the face holds the avatar or the initial, cut to the orb's stepped circle. */
+.pixel-orb-btn.game-portrait {
+  --cs: calc(5px * var(--hud-s));
+  width: calc(72px * var(--hud-s));
+  height: calc(72px * var(--hud-s));
 }
 
-.game-player-portrait {
+.game-portrait-face {
+  --cs: calc(4px * var(--hud-s));
+  position: absolute;
+  inset: var(--rim);
   display: grid;
   place-items: center;
-  flex-shrink: 0;
-  width: calc(52px * var(--hud-s));
-  height: calc(52px * var(--hud-s));
   overflow: hidden;
   background: var(--px-bg-3);
-  border: 2px solid var(--px-border-hi);
   color: var(--px-accent);
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: calc(20px * var(--hud-s));
+  font-size: calc(30px * var(--hud-s));
+  line-height: 1;
+  text-shadow: var(--px-outline-2);
+  clip-path: polygon(
+    0 calc(var(--cs) * 3), var(--cs) calc(var(--cs) * 3), var(--cs) calc(var(--cs) * 2), calc(var(--cs) * 2) calc(var(--cs) * 2),
+    calc(var(--cs) * 2) var(--cs), calc(var(--cs) * 3) var(--cs), calc(var(--cs) * 3) 0,
+    calc(100% - var(--cs) * 3) 0, calc(100% - var(--cs) * 3) var(--cs), calc(100% - var(--cs) * 2) var(--cs),
+    calc(100% - var(--cs) * 2) calc(var(--cs) * 2), calc(100% - var(--cs)) calc(var(--cs) * 2), calc(100% - var(--cs)) calc(var(--cs) * 3), 100% calc(var(--cs) * 3),
+    100% calc(100% - var(--cs) * 3), calc(100% - var(--cs)) calc(100% - var(--cs) * 3), calc(100% - var(--cs)) calc(100% - var(--cs) * 2),
+    calc(100% - var(--cs) * 2) calc(100% - var(--cs) * 2), calc(100% - var(--cs) * 2) calc(100% - var(--cs)), calc(100% - var(--cs) * 3) calc(100% - var(--cs)),
+    calc(100% - var(--cs) * 3) 100%, calc(var(--cs) * 3) 100%, calc(var(--cs) * 3) calc(100% - var(--cs)),
+    calc(var(--cs) * 2) calc(100% - var(--cs)), calc(var(--cs) * 2) calc(100% - var(--cs) * 2), var(--cs) calc(100% - var(--cs) * 2),
+    var(--cs) calc(100% - var(--cs) * 3), 0 calc(100% - var(--cs) * 3)
+  );
+}
+
+.pixel-orb-btn:hover .game-portrait-face,
+.pixel-orb-btn:focus-visible .game-portrait-face {
+  background: var(--px-accent-2);
+  color: var(--px-text);
+}
+
+/* Name plaque: the player's name, level chip, title, XP bar. A button (opens Town Hall) once progress has loaded. */
+.pixel-plaque.game-player {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: calc(4px * var(--hud-s));
+  width: calc(252px * var(--hud-s));
+  min-width: 0;
+  padding: calc(6px * var(--hud-s)) calc(12px * var(--hud-s)) calc(10px * var(--hud-s));
+  text-align: left;
+  white-space: normal;
+  filter: drop-shadow(0 calc(3px * var(--hud-s)) 0 var(--px-shadow));
+}
+
+button.pixel-plaque.game-player {
+  cursor: pointer;
+}
+
+button.pixel-plaque.game-player:hover,
+button.pixel-plaque.game-player:focus-visible {
+  background: var(--px-bg-3);
+}
+
+button.pixel-plaque.game-player:focus-visible {
+  outline: var(--px-unit) solid var(--px-accent);
+  outline-offset: calc(var(--px-unit) * -2);
+}
+
+.game-player-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(8px * var(--hud-s));
+  min-width: 0;
 }
 
 .game-player-name {
@@ -1099,129 +1600,215 @@ button.game-player:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-pixel), ui-monospace, monospace;
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
   font-size: calc(16px * var(--hud-s));
-  line-height: 1;
-  color: var(--px-text);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  text-shadow: var(--px-outline-1);
 }
 
 .game-player-lv {
   flex-shrink: 0;
-  padding: calc(2px * var(--hud-s)) calc(5px * var(--hud-s));
+  padding: calc(3px * var(--hud-s)) calc(6px * var(--hud-s)) calc(4px * var(--hud-s));
   background: var(--px-accent);
-  color: #120f24;
+  border: 2px solid var(--px-frame-line);
+  color: var(--px-ink);
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
   font-size: calc(11px * var(--hud-s));
   line-height: 1;
+  text-shadow: none;
 }
 
 .game-player-sub {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: calc(10px * var(--hud-s));
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--px-accent);
 }
-
-.game-player[data-state] .game-player-sub { color: var(--px-muted); text-transform: none; }
 
 .game-player-xp {
+  flex-shrink: 0;
   font-family: var(--font-pixel), ui-monospace, monospace;
-  font-size: calc(12px * var(--hud-s));
+  font-size: calc(13px * var(--hud-s));
   line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--px-muted);
+  text-shadow: none;
 }
 
-.game-player .game-bar {
-  height: calc(10px * var(--hud-s));
+.game-player .pixel-bar {
+  height: calc(14px * var(--hud-s));
 }
 
-/* Large labelled HUD buttons (Quests, Music, Weather, Profile, Settings). */
-.game-hud-btn {
+/* Left rail: round icon buttons, a tooltip plaque to the right on hover / keyboard focus. */
+.game-hud-rail {
+  display: flex;
+  flex-direction: column;
+  gap: calc(12px * var(--hud-s));
+  padding-left: calc(8px * var(--hud-s));
+}
+
+.game-orb {
   position: relative;
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: calc(8px * var(--hud-s));
-  height: calc(52px * var(--hud-s));
-  min-width: calc(52px * var(--hud-s));
-  padding: 0 calc(12px * var(--hud-s));
-  background: color-mix(in srgb, var(--px-bg) 86%, transparent);
-  border: 2px solid var(--px-border);
-  box-shadow: inset 0 calc(-3px * var(--hud-s)) 0 0 var(--px-bg-2);
-  color: var(--px-text);
-  font-family: var(--font-pixel), ui-monospace, monospace;
-  font-size: calc(16px * var(--hud-s));
-  line-height: 1;
-  white-space: nowrap;
-  transition: border-color 120ms steps(2), background-color 120ms steps(2), transform 80ms steps(2);
 }
 
-.game-hud-btn:hover,
-.game-hud-btn:focus-visible {
-  border-color: var(--px-border-hi);
-  background: color-mix(in srgb, var(--px-bg-3) 92%, transparent);
-  outline: none;
+.game-orb .pixel-orb-btn {
+  filter: drop-shadow(0 calc(3px * var(--hud-s)) 0 var(--px-shadow));
 }
 
-.game-hud-btn:active { transform: translateY(2px); }
-
-.game-hud-btn[data-active="true"] {
-  border-color: var(--px-accent);
-  color: var(--px-accent);
+.game-orb .pixel-orb-btn > svg {
+  width: 48%;
+  height: 48%;
 }
 
-.game-hud-btn-icon {
-  width: calc(24px * var(--hud-s));
-  height: calc(24px * var(--hud-s));
-  flex-shrink: 0;
+.game-orb .pixel-orb-btn__badge {
+  font-size: calc(12px * var(--hud-s));
 }
 
-.game-hud-btn-label {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: calc(4px * var(--hud-s));
+.game-orb .pixel-orb-btn__dot {
+  animation: game-blink 1s steps(2) infinite;
 }
 
-.game-hud-btn-value {
-  font-size: calc(13px * var(--hud-s));
-  color: var(--px-muted);
-}
-
-.game-hud-btn .game-count {
-  min-width: calc(20px * var(--hud-s));
-  height: calc(20px * var(--hud-s));
-  font-size: calc(13px * var(--hud-s));
-}
-
-/* A steady marker (not an alert): music is playing. */
-.game-dot--live {
+.game-orb .pixel-orb-btn__dot.game-orb-dot--live {
   background: var(--px-green);
   animation: none;
 }
 
-/* Below 1280px the labels collapse and the buttons are icon squares (the title/aria-label still name them). */
-@media (max-width: 1279px) {
-  .game-hud-btn-label { display: none; }
-  .game-hud-btn { padding: 0; }
-  .game-hud-left { gap: 8px; }
-  .game-player { width: 240px; }
+@keyframes game-blink {
+  50% { background: var(--px-accent); }
 }
-/* Camera zoom/recenter buttons grow with the HUD on large screens (anchored to the bottom-right corner). */
-.pixel-camera-controls { transform-origin: bottom right; }
-@media (min-width: 1920px) { .pixel-camera-controls { transform: scale(1.25); } }
-@media (min-width: 2560px) { .pixel-camera-controls { transform: scale(1.6); } }
-@media (min-width: 3200px) { .pixel-camera-controls { transform: scale(2); } }
+
+.game-tip {
+  position: absolute;
+  left: calc(100% + 10px * var(--hud-s));
+  top: 50%;
+  z-index: 3;
+  display: none;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.game-tip[data-side="left"] {
+  left: auto;
+  right: calc(100% + 10px * var(--hud-s));
+}
+
+.game-orb:hover .game-tip,
+.game-orb:has(:focus-visible) .game-tip {
+  display: inline-flex;
+}
+
+/* Right cluster: window controls (Electron), then the XP counter and the weather chip. */
+.game-winctl {
+  display: flex;
+  background: var(--px-frame-line);
+}
+
+.game-winctl:empty {
+  display: none;
+}
+
+.game-hud-counter {
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--hud-s));
+  margin-top: calc(12px * var(--hud-s));
+  margin-right: calc(12px * var(--hud-s));
+}
+
+.game-winctl + .game-hud-counter {
+  margin-top: 0;
+}
+
+.pixel-plaque.game-chip {
+  min-height: calc(44px * var(--hud-s));
+  padding: calc(4px * var(--hud-s)) calc(14px * var(--hud-s)) calc(8px * var(--hud-s));
+  font-size: calc(16px * var(--hud-s));
+  filter: drop-shadow(0 calc(3px * var(--hud-s)) 0 var(--px-shadow));
+}
+
+button.pixel-plaque.game-chip {
+  cursor: pointer;
+}
+
+button.pixel-plaque.game-chip:hover,
+button.pixel-plaque.game-chip:focus-visible {
+  background: var(--px-bg-3);
+}
+
+button.pixel-plaque.game-chip:focus-visible {
+  outline: var(--px-unit) solid var(--px-accent);
+  outline-offset: calc(var(--px-unit) * -2);
+}
+
+.game-chip-icon {
+  width: calc(22px * var(--hud-s));
+  height: calc(22px * var(--hud-s));
+  flex-shrink: 0;
+}
+
+.game-chip-icon--coin {
+  image-rendering: pixelated;
+}
+
+/* Camera zoom / recenter (rendered by the scene, positioned here): a row to the left of the Settings orb, dressed as
+   small pixel buttons. */
+.pixel-camera-controls {
+  right: calc(88px * var(--hud-s, 1));
+  bottom: calc(22px * var(--hud-s, 1)) !important;
+  gap: calc(8px * var(--hud-s, 1));
+}
+
+.pixel-camera-controls .pixel-chip {
+  --n: var(--px-unit);
+  width: calc(44px * var(--hud-s, 1));
+  height: calc(44px * var(--hud-s, 1));
+  padding: 0 0 3px;
+  background: var(--px-frame);
+  border: var(--px-unit) solid var(--px-frame-line);
+  box-shadow:
+    inset var(--px-unit) var(--px-unit) 0 0 var(--px-frame-hi),
+    inset calc(var(--px-unit) * -1) calc(var(--px-unit) * -2) 0 0 var(--px-frame-lo);
+}
+
+.pixel-camera-controls .pixel-chip svg {
+  width: calc(20px * var(--hud-s, 1));
+  height: calc(20px * var(--hud-s, 1));
+  filter: drop-shadow(2px 2px 0 var(--px-text-line));
+}
+
+.pixel-camera-controls .pixel-chip:hover {
+  background: var(--px-frame-hi);
+}
+
+.pixel-camera-controls .pixel-chip:focus-visible {
+  outline: var(--px-unit) solid var(--px-accent);
+  outline-offset: calc(var(--px-unit) * -2);
+}
+
+/* Below 1280px the corner clusters tighten: the name plaque narrows, the weather chip keeps only its temperature. */
+@media (max-width: 1279px) {
+  .pixel-plaque.game-player {
+    width: calc(220px * var(--hud-s));
+  }
+
+  .game-hud-rail {
+    padding-left: calc(4px * var(--hud-s));
+  }
+}
 /* ===== end Game HUD ===== */
 
 /* ===== Integrations page ===== */
-/* /integrations dressed as Nova City's Town Hall: one painted building card per integration, pixel panels for the
-   setup forms. Same night tokens as the District (the root carries .pixel-night). Hard borders and 2px offsets only;
-   no blur, no glow. The page zooms up at large viewports so the pixel type stays readable at 4K. */
+/* /integrations dressed as Nova City's Town Hall in the Day theme: one big riveted .pixel-frame holding a title plaque,
+   a close button, a caption row and three panels (building cards, setup, status). Cards, buttons and labels come from
+   the Day theme core; this section only lays them out and re-skins the setup forms (which keep their Tailwind markup)
+   onto Day tokens. Hard borders and 2px offsets only; no blur, no glow. The page zooms up at large viewports so the
+   pixel type stays readable at 4K. */
 
 .ig-root {
   --ig-zoom: 1.1;
@@ -1229,9 +1816,12 @@ button.game-player:focus-visible {
   position: relative;
   zoom: var(--ig-zoom);
   height: calc(100dvh / var(--ig-zoom));
+  /* The island itself, tinted flat with the scrim so the frame stands out. */
   background:
-    repeating-linear-gradient(0deg, transparent 0 5px, rgba(255, 255, 255, 0.02) 5px 6px),
-    var(--px-bg);
+    linear-gradient(var(--px-scrim), var(--px-scrim)),
+    url("/pixel-city/town/background.webp") center / cover no-repeat,
+    var(--px-frame-lo);
+  image-rendering: pixelated;
   color: var(--px-text);
   font-family: var(--font-pixel), ui-monospace, monospace;
 }
@@ -1245,7 +1835,7 @@ button.game-player:focus-visible {
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: thin;
-  scrollbar-color: var(--px-border-hi) var(--px-bg-2);
+  scrollbar-color: var(--px-frame-hi) var(--px-frame-lo);
 }
 
 .ig-page {
@@ -1255,7 +1845,7 @@ button.game-player:focus-visible {
   padding: 16px 16px 24px;
 }
 
-@media (min-width: 1024px) { .ig-page { padding: 16px 24px 24px; } }
+@media (min-width: 1024px) { .ig-page { padding: 20px 28px 28px; } }
 
 /* Everything inside is square: the existing modules keep their markup, the skin takes the corners away. */
 .ig-root *,
@@ -1280,15 +1870,41 @@ button.game-player:focus-visible {
 .ig-root h2 {
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
   letter-spacing: 0.08em;
+  color: var(--px-text);
+  text-shadow: var(--px-outline-2);
 }
+
+/* Utility colours the setup modules use, mapped onto Day tokens (>= 4.5:1 on --px-bg / --px-bg-2). */
+.ig-root .text-slate-100,
+.ig-root .text-slate-200,
+.ig-root .text-slate-300 { color: var(--px-text); }
+.ig-root .text-slate-400,
+.ig-root .text-slate-500 { color: var(--px-muted); }
+.ig-root .text-emerald-200,
+.ig-root .text-emerald-300,
+.ig-root .text-emerald-100 { color: var(--px-green); }
+.ig-root .text-rose-200,
+.ig-root .text-rose-300 { color: var(--px-pink); }
+.ig-root .text-amber-200,
+.ig-root .text-amber-300 { color: var(--px-accent); }
+.ig-root .bg-slate-400 { background-color: var(--px-muted); }
+.ig-root .bg-emerald-400 { background-color: var(--px-green); }
+.ig-root .bg-rose-400 { background-color: var(--px-red); }
 
 .ig-root input,
 .ig-root textarea,
 .ig-root select {
-  border: 2px solid var(--px-border) !important;
-  background-color: var(--px-bg) !important;
+  border: var(--px-unit) solid var(--px-frame-line) !important;
+  background-color: var(--px-text-line) !important;
+  box-shadow: inset 0 var(--px-unit) 0 0 var(--px-bg) !important;
   color: var(--px-text) !important;
   font-family: var(--font-pixel), ui-monospace, monospace;
+}
+
+.ig-root input::placeholder,
+.ig-root textarea::placeholder {
+  color: var(--px-muted);
+  opacity: 0.8;
 }
 
 .ig-root input:focus,
@@ -1303,100 +1919,162 @@ button.game-player:focus-visible {
   transition: none;
 }
 
-.ig-root button:not(:disabled):active {
-  transform: translateY(2px);
+.ig-root button.pixel-btn,
+.ig-root button.pixel-close {
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
 }
 
-.ig-root button:focus-visible {
+/* Setup buttons are pixel-btn: a little smaller than the HUD size, labels may wrap instead of clipping. */
+.ig-root .ig-panel .pixel-btn {
+  min-height: 34px;
+  padding: 0 12px 3px;
+  font-size: 12px;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.15;
+}
+
+.ig-root .ig-panel .pixel-btn.ig-btn-sm {
+  min-height: 28px;
+  padding: 0 8px 3px;
+  font-size: 10px;
+}
+
+.ig-root button:not(.pixel-btn):not(.pixel-close):not(.pixel-card):focus-visible {
   outline: 2px solid var(--px-accent);
   outline-offset: 1px;
 }
 
-/* ── Header ── */
-.ig-header {
-  display: flex;
+/* ── Frame header ── */
+.ig-frame {
+  --n: calc(var(--px-unit) * 2);
+  padding: 20px;
+}
+
+.ig-head {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  gap: 14px;
-  margin-bottom: 16px;
-  padding: 10px 14px;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ig-head-side {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ig-head-end {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ig-head-end .pixel-close {
+  --cs: 3px;
+  width: 40px;
+  height: 40px;
+}
+
+.ig-head-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 28px 10px;
   background: var(--px-bg-2);
-  border: 3px solid var(--px-border);
-  box-shadow: inset -3px -3px 0 0 var(--px-bg-3), 3px 3px 0 0 var(--px-shadow);
+  border: var(--px-unit) solid var(--px-frame-line);
+  box-shadow:
+    inset 0 0 0 2px var(--px-border-hi),
+    inset 0 -5px 0 0 var(--px-text-line);
 }
 
-.ig-orb {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  flex-shrink: 0;
-  background: var(--px-bg);
-  border: 2px solid var(--px-border);
-}
-
-.ig-orb:hover,
-.ig-orb:focus-visible {
-  border-color: var(--px-accent);
-}
-
-.ig-wordmark {
-  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+.ig-title {
   font-size: 26px;
-  line-height: 1;
-  letter-spacing: 0.06em;
-  color: var(--px-accent);
-  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6);
 }
 
-.ig-version {
+.ig-title-sub {
+  margin: 0;
+}
+
+.ig-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.ig-caption-hint {
   font-size: 13px;
-  color: var(--px-accent-2);
+  color: var(--px-text);
+  text-shadow: var(--px-outline-1);
 }
 
-.ig-subtitle {
-  font-size: 14px;
-  color: var(--px-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+@media (max-width: 1100px) {
+  .ig-head { grid-template-columns: minmax(0, 1fr) auto; }
+  .ig-head-title { grid-column: 1 / -1; grid-row: 2; }
+  .ig-title { font-size: 20px; }
 }
 
 /* ── Layout ── */
 .ig-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
+  gap: 14px;
 }
 
 @media (min-width: 1280px) {
   .ig-grid {
-    grid-template-columns: minmax(380px, 32%) minmax(0, 1fr) minmax(300px, 22%);
+    grid-template-columns: minmax(440px, 40%) minmax(0, 1fr) minmax(260px, 20%);
   }
 }
 
 /* Every column is as tall as the viewport allows; its lists scroll inside. */
 .ig-module {
-  height: max(600px, calc(100dvh / var(--ig-zoom) - 150px));
+  height: max(600px, calc(100dvh / var(--ig-zoom) - 230px));
   max-height: 1500px;
 }
 
-/* ── Panels ── */
+/* ── Panels: the indigo inset of the frame ── */
 .ig-panel {
   background: var(--px-bg);
-  border: 3px solid var(--px-border);
-  box-shadow: inset -3px -3px 0 0 var(--px-bg-2), 3px 3px 0 0 var(--px-shadow);
+  border: var(--px-unit) solid var(--px-frame-line);
+  box-shadow:
+    inset 0 0 0 2px var(--px-frame-lo),
+    inset 0 var(--px-unit) 0 2px var(--px-text-line);
   color: var(--px-text);
 }
 
+/* Sub-panels and tiles inside a setup panel: purple cards. */
 .ig-sub {
   background: var(--px-bg-2);
-  border: 2px solid var(--px-border);
+  border: var(--px-unit) solid var(--px-frame-line);
+  box-shadow: inset 0 0 0 2px var(--px-border-hi);
 }
+
+.ig-tile,
+.ig-root [class*="bg-black/20"] {
+  background: var(--px-text-line);
+  border: 2px solid var(--px-frame-line);
+  color: var(--px-text);
+}
+
+.ig-note {
+  border: 2px solid currentColor;
+  background: var(--px-text-line);
+}
+
+.ig-note--ok { color: var(--px-green); }
+.ig-note--warn { color: var(--px-accent); }
+.ig-note--bad { color: var(--px-pink); }
 
 .ig-root .home-subpanel-surface,
 .ig-root .home-module-surface {
   background: var(--px-bg-2) !important;
-  border-color: var(--px-border) !important;
+  border-color: var(--px-frame-line) !important;
 }
 
 .ig-root .home-spotlight-card--hover:hover {
@@ -1406,10 +2084,10 @@ button.game-player:focus-visible {
 /* ── Building cards ── */
 .ig-buildings {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 12px;
   margin: 0;
-  padding: 0 4px 4px 0;
+  padding: 0 4px 6px 0;
   list-style: none;
 }
 
@@ -1418,22 +2096,7 @@ button.game-player:focus-visible {
   flex-direction: column;
   width: 100%;
   height: 100%;
-  padding: 0;
-  text-align: left;
-  color: var(--px-text);
-  background: var(--px-bg-2);
-  border: 3px solid var(--px-border);
-  box-shadow: inset -2px -2px 0 0 var(--px-bg-3);
-}
-
-.ig-building:hover,
-.ig-building:focus-visible {
-  border-color: var(--px-border-hi);
-}
-
-.ig-building[data-active="true"] {
-  border-color: var(--ig-sign);
-  background: var(--px-bg-3);
+  padding: 6px 6px 8px;
 }
 
 .ig-building-art {
@@ -1442,13 +2105,13 @@ button.game-player:focus-visible {
   aspect-ratio: 1.6 / 1;
   overflow: hidden;
   background-color: var(--px-bg);
-  border-bottom: 3px solid var(--px-border);
+  border: 2px solid var(--px-frame-line);
   image-rendering: pixelated;
 }
 
-/* A building that is not connected yet stands dark: its crop is dimmed and desaturated (a flat filter, no glow). */
+/* A building that is not connected yet stands dim: its crop is desaturated (a flat filter, no glow). */
 .ig-building[data-connected="false"] .ig-building-art {
-  filter: saturate(0.3) brightness(0.62);
+  filter: saturate(0.35) brightness(0.8);
 }
 
 /* No painted building in the city (News): an empty lot, drawn as pixel hatching. */
@@ -1471,7 +2134,7 @@ button.game-player:focus-visible {
   height: 40px;
 }
 
-/* The neon sign board along the foot of the picture. */
+/* The sign board along the foot of the picture: lit in the building's colour when connected, dark when not. */
 .ig-building-sign {
   position: absolute;
   inset: auto 0 0;
@@ -1480,8 +2143,8 @@ button.game-player:focus-visible {
   gap: 6px;
   min-height: 26px;
   padding: 3px 6px;
-  background: #0a0818;
-  border-top: 2px solid var(--px-border);
+  background: var(--px-text-line);
+  border-top: 2px solid var(--px-frame-line);
   color: var(--px-muted);
 }
 
@@ -1496,8 +2159,8 @@ button.game-player:focus-visible {
 }
 
 @keyframes ig-sign-fault {
-  0%, 62%, 70%, 100% { opacity: 0.55; }
-  64%, 68% { opacity: 0.2; }
+  0%, 62%, 70%, 100% { opacity: 0.7; }
+  64%, 68% { opacity: 0.3; }
 }
 
 .ig-building-sign-icon {
@@ -1524,39 +2187,20 @@ button.game-player:focus-visible {
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.7);
 }
 
 .ig-building-meta {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 8px;
+  padding: 8px 4px 0;
 }
 
 .ig-building-label {
-  font-size: 16px;
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  font-size: 15px;
   line-height: 1.1;
   color: var(--px-text);
-}
-
-.ig-building-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--px-red);
-}
-
-.ig-building-state[data-connected="true"] {
-  color: var(--px-green);
-}
-
-.ig-building-light {
-  width: 8px;
-  height: 8px;
-  flex-shrink: 0;
-  background: currentColor;
 }
 
 .ig-building-level {
@@ -1573,19 +2217,17 @@ button.game-player:focus-visible {
 .ig-building-pip {
   width: 12px;
   height: 8px;
-  background: var(--px-bg);
-  border: 2px solid var(--px-border);
+  background: var(--px-text-line);
+  border: 2px solid var(--px-frame-line);
 }
 
 .ig-building-pip[data-on="true"] {
   background: var(--px-accent);
-  border-color: var(--px-accent);
+  border-color: var(--px-frame-line);
+  box-shadow: inset 0 2px 0 0 var(--px-text);
 }
 
 .ig-building-lv {
-  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: 11px;
-  letter-spacing: 0.08em;
   color: var(--px-accent);
 }
 
@@ -1599,8 +2241,8 @@ button.game-player:focus-visible {
   margin: 0;
   padding: 0;
   list-style: none;
-  border: 2px solid var(--px-border);
-  background: var(--px-bg);
+  border: 2px solid var(--px-frame-line);
+  background: var(--px-text-line);
 }
 
 .ig-active-row {
@@ -1615,11 +2257,12 @@ button.game-player:focus-visible {
 
 /* Setup panel headers: the title block gives way (and wraps) instead of running under the action buttons. */
 .ig-root section > div.flex.items-center.justify-between {
+  flex-wrap: wrap;
   gap: 12px;
 }
 
 .ig-root section > div.flex.items-center.justify-between > :first-child {
-  min-width: 0;
+  min-width: min(100%, 220px);
   flex: 1 1 0;
 }
 
@@ -1636,7 +2279,8 @@ button.game-player:focus-visible {
 
 /* ===== Residents ===== */
 /* One focusable button per resident, kept on its figure by the scene each frame. Mouse clicks go through the canvas
-   hit test (pointer-events: none), so the button only matters for keyboard and assistive tech. */
+   hit test (pointer-events: none), so the button only matters for keyboard and assistive tech. The focus ring is gold
+   dashes with a dark keyline so it reads on the bright map. */
 .pixel-resident {
   position: absolute;
   left: 0;
@@ -1653,47 +2297,91 @@ button.game-player:focus-visible {
   content: "";
   position: absolute;
   inset: -3px;
-  border: 2px dashed var(--px-accent-2);
+  border: 3px dashed var(--px-accent);
+  box-shadow:
+    0 0 0 3px var(--px-frame-line),
+    inset 0 0 0 3px var(--px-frame-line);
   animation: pixel-march 0.8s steps(2) infinite;
 }
 /* ===== end Residents ===== */
 
+/* ===== Popup modules ===== */
+/* The Home modules (tasks, notes, crypto, analytics, chats, schedule, ...) keep their markup and behaviour; inside a
+   pixel window their panels become core cards and their slate greys become the theme's text colours (the muted one
+   still clears 4.5:1 on the indigo surfaces). */
+.pixel-window-body .pixel-subpanel {
+  background: var(--px-bg-2);
+  border: var(--px-unit) solid var(--px-frame-line);
+  box-shadow:
+    inset 0 0 0 2px var(--px-border-hi),
+    inset 0 -4px 0 0 var(--px-text-line);
+}
+
+.pixel-window-body .text-slate-50,
+.pixel-window-body .text-slate-100,
+.pixel-window-body .text-slate-200 {
+  color: var(--px-text);
+}
+
+.pixel-window-body .text-slate-300,
+.pixel-window-body .text-slate-400,
+.pixel-window-body .text-slate-500 {
+  color: var(--px-muted);
+}
+
+.pixel-window-body .pixel-chip {
+  min-height: 30px;
+}
+/* ===== end Popup modules ===== */
+
 /* ===== Chat page ===== */
 /*
- * /chat (and the sidebar on /history) as a pixel RPG messenger: Nova the cat in a dialogue window, speech bubbles
- * with stepped tails, an inventory-slot integrations grid. Every size is a multiple of --pc-u (1 css px up to
- * 1080p, 2 from 2560 wide) so borders stay whole pixels and the page reads the same at 4K; text is in rem and the
- * root font size doubles with it (also scaling portaled menus). Hard borders only: no blur, no glow.
+ * /chat (and the sidebar on /history) as a daytime pixel RPG messenger: a slate stone frame holds the conversation
+ * list, another holds the dialogue with Nova the cat, speech bubbles are parchment (Nova) and purple (you) with
+ * stepped tails, and the right-hand panels are purple cards. Built on the Day theme core (.pixel-frame / .pixel-card /
+ * .pixel-btn / .pixel-plaque / .pixel-title). Every size is a multiple of --pc-u (1 css px) so borders stay whole
+ * pixels. At 4K (>= 3200px wide) the whole page is zoomed 2x with `zoom` (--pc-zoom) instead of overriding the root
+ * font size, so the user's font-size setting keeps working. --hud-s is pinned to 1 here: zoom does the scaling.
+ * Hard borders only: no blur, no glow, no gradients beyond 2-tone dither.
  */
 
-html:has(.pixel-chat, .pixel-chat-side) {
+.pixel-chat,
+.pixel-chat-side {
+  --hud-s: 1;
   --pc-u: 1px;
   --pc-b: calc(var(--pc-u) * 3);
   --pc-b2: calc(var(--pc-u) * 2);
-}
-
-/* The theme provider sets the root font size inline (14-18px by width), so 4K needs !important to double it. */
-@media (min-width: 3200px) {
-  html:has(.pixel-chat, .pixel-chat-side) {
-    font-size: 36px !important;
-    --pc-u: 2px;
-  }
+  /* Parchment: Nova's bubble surface, derived from the day palette (dark ink text on it, contrast > 10:1). */
+  --pc-paper: color-mix(in srgb, var(--px-accent) 14%, white);
+  --pc-paper-lo: color-mix(in srgb, var(--px-accent) 30%, var(--px-muted));
+  --pc-paper-line: var(--px-frame-line);
 }
 
 .pixel-chat {
   --px-unit: var(--pc-b);
+  position: relative;
   height: 100dvh;
   width: 100%;
-  background: var(--px-bg);
   color: var(--px-text);
+  /* flat sky with a 2-tone dither of cloud pixels */
+  background:
+    conic-gradient(at 50% 50%, color-mix(in srgb, var(--px-world-edge) 82%, white) 25%, transparent 0 50%, color-mix(in srgb, var(--px-world-edge) 82%, white) 0 75%, transparent 0)
+      0 0 / calc(var(--pc-u) * 8) calc(var(--pc-u) * 8),
+    var(--px-world-edge);
+  image-rendering: pixelated;
+}
+
+/* 4K: scale the whole page (and its viewport height) by 2. */
+@media (min-width: 3200px) {
+  .pixel-chat {
+    --pc-zoom: 2;
+    zoom: var(--pc-zoom);
+    height: calc(100dvh / var(--pc-zoom));
+  }
 }
 
 .pixel-chat .pc-main {
-  background-color: var(--px-bg);
-  background-image:
-    linear-gradient(var(--px-bg-2) var(--pc-b2), transparent 0),
-    linear-gradient(90deg, var(--px-bg-2) var(--pc-b2), transparent 0);
-  background-size: calc(var(--pc-u) * 24) calc(var(--pc-u) * 24);
+  background: transparent;
 }
 
 .pixel-chat *,
@@ -1703,6 +2391,9 @@ html:has(.pixel-chat, .pixel-chat-side) {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
+
+/* The home-spotlight glow layer is a soft effect: not part of the day look. */
+.pixel-chat-side .home-global-spotlight { display: none; }
 
 /* ── Nova the cat (portrait) ─────────────────────────────────────────────── */
 
@@ -1717,9 +2408,8 @@ html:has(.pixel-chat, .pixel-chat-side) {
   width: calc(24 * var(--cat-px));
   height: calc(24 * var(--cat-px));
   vertical-align: middle;
-  /* the cat's fur is near-black: a lilac backing keeps it readable on the night palette */
-  background: color-mix(in srgb, var(--px-border-hi) 50%, var(--px-bg));
-  box-shadow: 0 0 0 var(--pc-b2, 2px) var(--px-border);
+  /* the cat's fur is near-black: a pale sky backing keeps it readable */
+  background: color-mix(in srgb, var(--px-world-edge) 55%, white);
 }
 
 .nova-cat-sprite {
@@ -1762,6 +2452,7 @@ html:has(.pixel-chat, .pixel-chat-side) {
   width: var(--m);
   height: var(--m);
   background: var(--cat-accent);
+  box-shadow: 0 0 0 var(--pc-u, 1px) var(--px-frame-line);
   animation: nova-cat-dot 0.9s steps(1, end) infinite;
 }
 
@@ -1806,19 +2497,19 @@ html:has(.pixel-chat, .pixel-chat-side) {
   animation: nova-cat-flash 1s steps(1, end) infinite;
 }
 
-/* muted: sleepy "z", slow bob */
+/* muted: sleepy "z", slow bob (the backing is light now, so the z is drawn in the frame blue) */
 .nova-cat[data-state="muted"] .nova-cat-sprite { animation-duration: 4s; }
 .nova-cat[data-state="muted"] .nova-cat-mark {
   display: block;
   background: transparent;
   box-shadow:
-    0 0 0 0 var(--px-muted),
-    var(--m) 0 0 0 var(--px-muted),
-    calc(var(--m) * 2) 0 0 0 var(--px-muted),
-    var(--m) var(--m) 0 0 var(--px-muted),
-    0 calc(var(--m) * 2) 0 0 var(--px-muted),
-    var(--m) calc(var(--m) * 2) 0 0 var(--px-muted),
-    calc(var(--m) * 2) calc(var(--m) * 2) 0 0 var(--px-muted);
+    0 0 0 0 var(--px-frame),
+    var(--m) 0 0 0 var(--px-frame),
+    calc(var(--m) * 2) 0 0 0 var(--px-frame),
+    var(--m) var(--m) 0 0 var(--px-frame),
+    0 calc(var(--m) * 2) 0 0 var(--px-frame),
+    var(--m) calc(var(--m) * 2) 0 0 var(--px-frame),
+    calc(var(--m) * 2) calc(var(--m) * 2) 0 0 var(--px-frame);
 }
 
 /* offline: dimmed, still, red cross */
@@ -1849,7 +2540,8 @@ html:has(.pixel-chat, .pixel-chat-side) {
   .nova-cat-dots i,
   .nova-cat-mark,
   .pc-typing i,
-  .pc-blink {
+  .pc-blink,
+  .pc-state i {
     animation: none !important;
   }
 }
@@ -1857,46 +2549,67 @@ html:has(.pixel-chat, .pixel-chat-side) {
 /* ── Dialogue window (main column) ───────────────────────────────────────── */
 
 .pixel-chat .pc-dialog {
-  background: var(--px-bg);
-  border: var(--pc-b) solid var(--px-border);
-  color: var(--px-text);
+  padding: calc(var(--pc-u) * 15);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pc-u) * 10);
 }
 
 .pc-dialog-head {
+  position: relative;
   display: flex;
   flex: none;
   align-items: center;
-  gap: calc(var(--pc-u) * 14);
-  padding: calc(var(--pc-u) * 8) calc(var(--pc-u) * 14);
-  background: var(--px-bg-3);
-  border-bottom: var(--pc-b) solid var(--px-border);
+  gap: calc(var(--pc-u) * 12);
+  min-width: 0;
 }
 
+/* Round-ish framed portrait: stepped corners, slate bevel, gold rim. */
 .pc-portrait-frame {
   display: flex;
   flex: none;
   padding: calc(var(--pc-u) * 3);
-  background: var(--px-bg);
-  border: var(--pc-b2) solid var(--px-border-hi);
+  background: var(--px-frame-lo);
+  border: var(--pc-b) solid var(--px-frame-line);
+  box-shadow:
+    inset 0 0 0 var(--pc-b2) var(--px-accent),
+    0 var(--pc-b) 0 0 var(--px-shadow);
+  --n: calc(var(--pc-u) * 6);
+  clip-path: polygon(
+    0 var(--n), var(--n) var(--n), var(--n) 0, calc(100% - var(--n)) 0, calc(100% - var(--n)) var(--n), 100% var(--n),
+    100% calc(100% - var(--n)), calc(100% - var(--n)) calc(100% - var(--n)), calc(100% - var(--n)) 100%, var(--n) 100%,
+    var(--n) calc(100% - var(--n)), 0 calc(100% - var(--n))
+  );
+}
+
+.pc-title-wrap {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  justify-content: center;
+}
+
+.pc-plaque {
+  flex-direction: column;
+  gap: calc(var(--pc-u) * 3);
+  min-width: 0;
+  max-width: 100%;
+  padding-inline: calc(var(--pc-u) * 24);
+  text-align: center;
 }
 
 .pixel-chat .pc-dialog-name {
-  margin: 0;
-  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
   font-size: 1.25rem;
-  line-height: 1.1;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
   color: var(--px-accent);
-  text-shadow: var(--pc-b2) var(--pc-b2) 0 rgba(0, 0, 0, 0.6);
 }
 
-html.light .pc-dialog-name { text-shadow: none; }
-
 .pc-dialog-topic {
-  margin-top: calc(var(--pc-u) * 4);
-  font-size: 0.875rem;
-  color: var(--px-muted);
+  max-width: 100%;
+  font-family: var(--font-pixel), ui-monospace, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--px-text);
 }
 
 .pc-state {
@@ -1906,11 +2619,13 @@ html.light .pc-dialog-name { text-shadow: none; }
   gap: calc(var(--pc-u) * 8);
   padding: calc(var(--pc-u) * 5) calc(var(--pc-u) * 10);
   background: var(--px-bg);
-  border: var(--pc-b2) solid var(--px-border);
+  border: var(--pc-b) solid var(--px-frame-line);
+  box-shadow: inset 0 0 0 var(--pc-u) var(--px-border-hi);
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
   font-size: 0.625rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+  text-shadow: var(--px-outline-1);
   color: var(--px-green);
 }
 
@@ -1928,8 +2643,16 @@ html.light .pc-dialog-name { text-shadow: none; }
 .pc-state[data-state="muted"] { color: var(--px-muted); }
 .pc-state[data-state="offline"] { color: var(--px-red); }
 
+/* The message area is an inset of the frame: a pale sky-lit room, dithered floor. */
 .pc-dialog-body {
-  background: var(--px-bg);
+  background:
+    conic-gradient(at 50% 50%, color-mix(in srgb, var(--px-bg) 94%, white) 25%, transparent 0 50%, color-mix(in srgb, var(--px-bg) 94%, white) 0 75%, transparent 0)
+      0 0 / calc(var(--pc-u) * 6) calc(var(--pc-u) * 6),
+    var(--px-bg);
+  border: var(--pc-b) solid var(--px-frame-line);
+  box-shadow:
+    inset 0 var(--pc-b) 0 0 var(--px-text-line),
+    0 var(--pc-u) 0 0 var(--px-frame-hi);
 }
 
 .pc-blink { animation: nova-cat-flash 1s steps(1, end) infinite; }
@@ -1946,7 +2669,11 @@ html.light .pc-dialog-name { text-shadow: none; }
 
 .pc-row--user { justify-content: flex-end; }
 
-.pc-avatar { flex: none; margin-top: calc(var(--pc-u) * 2); }
+.pc-avatar {
+  flex: none;
+  margin-top: calc(var(--pc-u) * 2);
+  box-shadow: 0 0 0 var(--pc-b2) var(--px-frame-line), 0 var(--pc-b) 0 var(--pc-b2) var(--px-shadow);
+}
 
 .pc-avatar--user {
   display: flex;
@@ -1956,8 +2683,7 @@ html.light .pc-dialog-name { text-shadow: none; }
   align-items: center;
   justify-content: center;
   background: var(--px-bg-2);
-  border: var(--pc-b2) solid var(--px-border-hi);
-  color: var(--px-muted);
+  color: var(--px-text);
 }
 
 .pc-col {
@@ -1971,30 +2697,36 @@ html.light .pc-dialog-name { text-shadow: none; }
 .pc-col--compact { max-width: 82%; }
 .pc-col--wide { max-width: 96%; }
 
+/* Nova's bubble: parchment, dark ink. */
 .pc-bubble {
-  --pc-bg: var(--px-bg-2);
-  --pc-line: var(--px-border);
+  --pc-bg: var(--pc-paper);
+  --pc-line: var(--pc-paper-line);
   position: relative;
   min-width: 0;
   max-width: 100%;
   background: var(--pc-bg);
   border: var(--pc-b) solid var(--pc-line);
   box-shadow:
-    inset calc(var(--pc-u) * -3) calc(var(--pc-u) * -3) 0 0 var(--px-bg),
+    inset calc(var(--pc-u) * -3) calc(var(--pc-u) * -3) 0 0 var(--pc-paper-lo),
     0 var(--pc-b) 0 0 var(--px-shadow);
-  color: var(--px-text);
+  color: var(--px-ink);
 }
 
+/* Your bubble: purple with a bright rim, white outlined text. */
 .pc-bubble--user {
   --pc-bg: var(--px-bg-3);
-  --pc-line: var(--px-border-hi);
+  --pc-line: var(--px-frame-line);
   box-shadow:
-    inset calc(var(--pc-u) * 3) calc(var(--pc-u) * -3) 0 0 var(--px-bg),
+    inset 0 0 0 var(--pc-b2) var(--px-border-hi),
+    inset 0 calc(var(--pc-u) * -5) 0 0 var(--px-text-line),
     0 var(--pc-b) 0 0 var(--px-shadow);
+  color: var(--px-text);
+  text-shadow: var(--px-outline-1);
 }
 
 .pc-bubble-body { padding: calc(var(--pc-u) * 12) calc(var(--pc-u) * 16); }
 .pc-bubble-body--compact { padding: calc(var(--pc-u) * 8) calc(var(--pc-u) * 14); }
+.pc-bubble--user .pc-bubble-body { padding-bottom: calc(var(--pc-u) * 15); }
 
 /* Stepped tails: a 5-row pixel arrow in the border colour, with a 3-row fill that opens the bubble's edge. */
 .pc-bubble--nova::before,
@@ -2038,7 +2770,7 @@ html.light .pc-dialog-name { text-shadow: none; }
   background: none;
   -webkit-background-clip: border-box;
   background-clip: border-box;
-  color: var(--px-accent-2);
+  color: var(--px-bg-3);
   animation: none;
   font-family: var(--font-pixel), ui-monospace, monospace;
   font-size: 0.875rem;
@@ -2052,7 +2784,7 @@ html.light .pc-dialog-name { text-shadow: none; }
   display: block;
   width: calc(var(--pc-u) * 6);
   height: calc(var(--pc-u) * 6);
-  background: var(--px-accent);
+  background: var(--px-bg-3);
   animation: nova-cat-dot 0.9s steps(1, end) infinite;
 }
 
@@ -2064,7 +2796,8 @@ html.light .pc-dialog-name { text-shadow: none; }
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
   font-size: 0.5625rem;
   letter-spacing: 0.08em;
-  color: var(--px-muted);
+  color: var(--px-text);
+  text-shadow: var(--px-outline-1);
 }
 
 .pc-time--compact { margin-top: calc(var(--pc-u) * 6); }
@@ -2073,29 +2806,30 @@ html.light .pc-dialog-name { text-shadow: none; }
   width: calc(var(--pc-u) * 80);
   height: calc(var(--pc-u) * 80);
   overflow: hidden;
-  border: var(--pc-b2) solid var(--px-border);
+  border: var(--pc-b2) solid var(--px-frame-line);
 }
 
 .pc-nlp { width: 100%; min-width: 0; margin-top: calc(var(--pc-u) * 8); }
 
+/* Small cards (NLP hint, mission rows, Running Now): .pixel-card does the box, this sets the rhythm. */
 .pc-card {
   margin-top: calc(var(--pc-u) * 8);
-  padding: calc(var(--pc-u) * 8) calc(var(--pc-u) * 10);
-  background: var(--px-bg-2);
-  border: var(--pc-b2) solid var(--px-border);
-  color: var(--px-text);
-  text-align: left;
+  padding: calc(var(--pc-u) * 8) calc(var(--pc-u) * 10) calc(var(--pc-u) * 11);
+  min-width: 0;
 }
 
 .pc-panel .pc-card,
 .pc-side .pc-card { margin-top: 0; }
+
+.pc-card-title { color: var(--px-text); text-shadow: var(--px-outline-1); overflow-wrap: anywhere; }
 
 .pc-card-label {
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
   font-size: 0.625rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--px-muted);
+  color: var(--px-orange);
+  text-shadow: var(--px-outline-1);
 }
 
 .pc-card-desc { color: var(--px-muted); }
@@ -2108,8 +2842,10 @@ html.light .pc-dialog-name { text-shadow: none; }
   gap: calc(var(--pc-u) * 6);
   padding: calc(var(--pc-u) * 5) calc(var(--pc-u) * 10);
   background: var(--px-bg-2);
-  border: var(--pc-b2) solid var(--px-border);
+  border: var(--pc-b2) solid var(--px-frame-line);
+  box-shadow: inset 0 0 0 var(--pc-u) var(--px-border-hi);
   color: var(--px-text);
+  text-shadow: var(--px-outline-1);
   font-family: var(--font-pixel), ui-monospace, monospace;
   font-size: 0.75rem;
   line-height: 1;
@@ -2117,37 +2853,46 @@ html.light .pc-dialog-name { text-shadow: none; }
 
 .pc-chip-btn:hover,
 .pc-chip-btn:focus-visible {
-  border-color: var(--px-border-hi);
   background: var(--px-bg-3);
-  outline: none;
+  outline: var(--pc-b2) solid var(--px-accent);
+  outline-offset: calc(var(--pc-b2) * -1);
 }
 
 .pc-chip-btn:disabled { cursor: not-allowed; opacity: 0.6; }
 
-/* Markdown inside bubbles */
+/* Markdown inside bubbles: ink on parchment, dark code slabs with light text. */
+.pc-bubble--nova strong { color: var(--px-ink); }
+
 .pc-bubble pre {
-  background: var(--px-bg) !important;
-  border: var(--pc-b2) solid var(--px-border) !important;
-  box-shadow: none !important;
+  background: var(--px-text-line) !important;
+  border: var(--pc-b2) solid var(--px-frame-line) !important;
+  border-radius: 0 !important;
+  box-shadow: inset 0 0 0 var(--pc-u) var(--px-frame-lo) !important;
   color: var(--px-text);
   font-family: var(--font-geist-mono), ui-monospace, monospace;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
+.pc-bubble pre span { color: var(--px-accent-2); text-shadow: none; }
+
 .pc-bubble code {
-  background: var(--px-bg) !important;
-  color: var(--px-accent) !important;
+  border-radius: 0 !important;
+  background: var(--pc-paper-lo) !important;
+  color: var(--px-ink) !important;
   font-family: var(--font-geist-mono), ui-monospace, monospace;
 }
 
 .pc-bubble pre code {
   background: transparent !important;
   padding: 0;
-  color: inherit !important;
+  color: var(--px-text) !important;
+  text-shadow: none;
 }
 
-.pc-bubble a { color: var(--px-accent-2); }
-.pc-bubble a:hover { color: var(--px-accent); }
-.pc-bubble strong { color: var(--px-text); }
+.pc-bubble--nova a { color: var(--px-bg-3); text-decoration: underline; }
+.pc-bubble--nova a:hover { color: var(--px-red); }
+.pc-bubble--user a { color: var(--px-accent); }
 
 .pc-log { scrollbar-width: none; }
 
@@ -2162,23 +2907,26 @@ html.light .pc-dialog-name { text-shadow: none; }
   padding: calc(var(--pc-u) * 24) 0;
 }
 
+.pc-empty .nova-cat { box-shadow: 0 0 0 var(--pc-b2) var(--px-frame-line), 0 var(--pc-b) 0 var(--pc-b2) var(--px-shadow); }
+
 .pc-empty-title {
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
   font-size: 1rem;
   letter-spacing: 0.06em;
-  color: var(--px-accent);
+  color: var(--px-bg-3);
 }
 
-.pc-empty-sub { margin-top: calc(var(--pc-u) * 6); font-size: 0.875rem; color: var(--px-muted); }
+.pc-empty-sub { margin-top: calc(var(--pc-u) * 6); font-size: 0.875rem; color: var(--px-ink); }
 
 .pc-error {
   display: flex;
   align-items: center;
   gap: calc(var(--pc-u) * 12);
   padding: calc(var(--pc-u) * 12) calc(var(--pc-u) * 14);
-  background: var(--px-bg);
+  background: var(--pc-paper);
   border: var(--pc-b) solid var(--px-red);
-  color: var(--px-red);
+  box-shadow: 0 var(--pc-b) 0 0 var(--px-shadow);
+  color: var(--px-ink);
 }
 
 .pc-error > div { flex: 1; min-width: 0; }
@@ -2187,7 +2935,7 @@ html.light .pc-dialog-name { text-shadow: none; }
 
 .pc-composer-dock {
   position: absolute;
-  bottom: calc(var(--pc-u) * 12);
+  bottom: calc(var(--pc-u) * 8);
   left: 0;
   right: 0;
   z-index: 10;
@@ -2205,72 +2953,40 @@ html.light .pc-dialog-name { text-shadow: none; }
   display: flex;
   align-items: flex-end;
   gap: calc(var(--pc-u) * 8);
-  padding: calc(var(--pc-u) * 8);
-  background: var(--px-bg-3);
-  border: var(--pc-b) solid var(--px-border);
-  box-shadow: 0 var(--pc-b) 0 0 var(--px-shadow);
+  padding: calc(var(--pc-u) * 15);
 }
 
-.pc-composer:focus-within { border-color: var(--pc-accent); }
+.pc-composer:focus-within { --px-frame-hi: var(--pc-accent); }
 
 .pixel-chat .pc-composer-input {
   flex: 1;
   min-width: 0;
-  min-height: calc(var(--pc-u) * 40);
-  padding: calc(var(--pc-u) * 10) calc(var(--pc-u) * 12);
+  min-height: calc(var(--pc-u) * 44);
+  padding: calc(var(--pc-u) * 12) calc(var(--pc-u) * 12);
   resize: none;
-  border: var(--pc-b2) solid var(--px-border) !important;
-  background: var(--px-bg) !important;
-  color: var(--px-text) !important;
-  caret-color: var(--px-accent);
+  border: var(--pc-b) solid var(--px-frame-line) !important;
+  border-radius: 0 !important;
+  background: var(--pc-paper) !important;
+  box-shadow: inset 0 var(--pc-b) 0 0 var(--pc-paper-lo) !important;
+  color: var(--px-ink) !important;
+  caret-color: var(--px-bg-3);
   font-family: var(--font-pixel), ui-monospace, monospace;
   font-size: 0.875rem;
   line-height: 1.35;
   outline: none;
 }
 
-.pixel-chat .pc-composer-input:focus { border-color: var(--pc-accent) !important; }
-.pixel-chat .pc-composer-input::placeholder { color: var(--px-muted); opacity: 1; }
-.pixel-chat .pc-composer-input:disabled { opacity: 0.5; }
+.pixel-chat .pc-composer-input:focus { border-color: var(--px-bg-3) !important; }
+.pixel-chat .pc-composer-input::placeholder { color: var(--px-frame-lo); opacity: 0.8; }
+.pixel-chat .pc-composer-input:disabled { opacity: 0.6; }
 
 .pc-composer-actions { display: flex; align-items: flex-end; gap: calc(var(--pc-u) * 8); }
 
-.pc-btn {
-  display: inline-flex;
-  min-width: calc(var(--pc-u) * 40);
-  height: calc(var(--pc-u) * 40);
-  align-items: center;
-  justify-content: center;
-  gap: calc(var(--pc-u) * 8);
-  padding: 0 calc(var(--pc-u) * 10);
-  background: var(--px-bg-2);
-  border: var(--pc-b2) solid var(--px-border);
-  box-shadow: 0 var(--pc-b2) 0 0 var(--px-shadow);
-  color: var(--px-text);
-  font-family: var(--font-pixel), ui-monospace, monospace;
-  font-size: 0.875rem;
-  line-height: 1;
-  transition: border-color 120ms steps(2), background-color 120ms steps(2), transform 80ms steps(2);
-}
-
-.pc-btn:hover:not(:disabled),
-.pc-btn:focus-visible {
-  border-color: var(--px-border-hi);
-  background: var(--px-bg-3);
-  outline: none;
-}
-
-.pc-btn:active:not(:disabled) { transform: translateY(var(--pc-b2)); box-shadow: none; }
-.pc-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-
+/* Buttons are .pixel-btn; these tune the pieces the core does not know about. */
 .pc-composer-attach { font-size: 1.5rem; }
-.pc-btn--send { color: var(--pc-accent, var(--px-accent)); border-color: var(--pc-accent, var(--px-accent)); }
-.pc-btn--muted { color: var(--px-red); }
+.pc-btn--muted { --face: var(--px-red); }
 .pc-btn--hidden { opacity: 0 !important; pointer-events: none; }
-
-.pc-btn--primary { color: var(--px-accent); border-color: var(--px-accent); }
-.pc-btn--primary:hover:not(:disabled) { border-color: var(--px-text); }
-.pc-btn--block { width: 100%; font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace; font-size: 0.6875rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.pc-btn--block { width: 100%; min-width: 0; padding-inline: calc(var(--pc-u) * 8); font-size: 0.75rem; letter-spacing: 0.04em; white-space: normal; text-align: center; }
 
 .pc-files {
   position: absolute;
@@ -2287,13 +3003,16 @@ html.light .pc-dialog-name { text-shadow: none; }
 
 .pc-file {
   display: inline-flex;
-  max-width: 14rem;
+  max-width: min(14rem, 100%);
+  min-width: 0;
   align-items: center;
   gap: calc(var(--pc-u) * 6);
   padding: calc(var(--pc-u) * 4) calc(var(--pc-u) * 8);
   background: var(--px-bg-2);
-  border: var(--pc-b2) solid var(--px-accent-2);
-  color: var(--px-accent-2);
+  border: var(--pc-b) solid var(--px-frame-line);
+  box-shadow: inset 0 0 0 var(--pc-b2) var(--px-accent-2), 0 var(--pc-b) 0 0 var(--px-shadow);
+  color: var(--px-text);
+  text-shadow: var(--px-outline-1);
 }
 
 .pc-file-size { font-size: 0.625rem; white-space: nowrap; color: var(--px-muted); }
@@ -2302,20 +3021,23 @@ html.light .pc-dialog-name { text-shadow: none; }
   display: inline-flex;
   width: calc(var(--pc-u) * 18);
   height: calc(var(--pc-u) * 18);
+  flex: none;
   align-items: center;
   justify-content: center;
-  color: var(--px-accent-2);
+  background: var(--px-red);
+  border: var(--pc-b2) solid var(--px-frame-line);
+  color: var(--px-text);
 }
 
-.pc-file-remove:hover,
-.pc-file-remove:focus-visible { background: var(--px-bg-3); color: var(--px-red); outline: none; }
+.pc-file-remove:hover { background: var(--px-bg-3); }
+.pc-file-remove:focus-visible { outline: var(--pc-b2) solid var(--px-accent); outline-offset: var(--pc-u); }
 
-/* ── Right panels ────────────────────────────────────────────────────────── */
+/* ── Right panels (.pixel-card) ──────────────────────────────────────────── */
 
 .pc-panel {
-  background: var(--px-bg);
-  border: var(--pc-b) solid var(--px-border);
-  color: var(--px-text);
+  padding: calc(var(--pc-u) * 9) calc(var(--pc-u) * 9) calc(var(--pc-u) * 12);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .pc-panel-head {
@@ -2324,40 +3046,38 @@ html.light .pc-dialog-name { text-shadow: none; }
   align-items: center;
   justify-content: space-between;
   gap: calc(var(--pc-u) * 8);
-  padding: calc(var(--pc-u) * 8) calc(var(--pc-u) * 10);
-  background: var(--px-bg-3);
-  border-bottom: var(--pc-b) solid var(--px-border);
+  padding: calc(var(--pc-u) * 2) calc(var(--pc-u) * 2) calc(var(--pc-u) * 8);
 }
 
 .pixel-chat .pc-panel-title {
   margin: 0;
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--px-text);
 }
 
-.pc-panel-body { padding: calc(var(--pc-u) * 12); }
-
-.pc-icon-btn {
-  display: inline-flex;
-  width: calc(var(--pc-u) * 32);
-  height: calc(var(--pc-u) * 32);
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  background: var(--px-bg-2);
-  border: var(--pc-b2) solid var(--px-border);
-  color: var(--px-muted);
+.pc-panel-body {
+  padding: calc(var(--pc-u) * 10);
+  background: var(--px-bg);
+  border: var(--pc-b) solid var(--px-frame-line);
+  box-shadow: inset 0 var(--pc-b) 0 0 var(--px-text-line);
 }
 
-.pc-icon-btn:hover,
-.pc-icon-btn:focus-visible { border-color: var(--px-border-hi); color: var(--px-accent); outline: none; }
+/* Small square icon buttons (.pixel-btn--ghost does the look). */
+.pc-icon-btn {
+  width: calc(var(--pc-u) * 32);
+  min-height: calc(var(--pc-u) * 32) !important;
+  height: calc(var(--pc-u) * 32);
+  flex: none;
+  padding: 0 0 calc(var(--pc-u) * 2) !important;
+}
 
 .pc-tag {
   display: inline-block;
-  padding: calc(var(--pc-u) * 2) calc(var(--pc-u) * 6);
+  padding: calc(var(--pc-u) * 2) calc(var(--pc-u) * 6) calc(var(--pc-u) * 3);
+  background: var(--px-text-line);
   border: var(--pc-b2) solid currentColor;
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
   font-size: 0.5625rem;
@@ -2367,20 +3087,22 @@ html.light .pc-dialog-name { text-shadow: none; }
 }
 
 .pc-tag[data-on="true"] { color: var(--px-green); }
-.pc-tag[data-on="false"] { color: var(--px-red); }
+.pc-tag[data-on="false"] { color: var(--px-orange); }
 
 .pc-time-chip {
   padding: calc(var(--pc-u) * 2) calc(var(--pc-u) * 6);
-  background: var(--px-bg);
-  border: var(--pc-b2) solid var(--px-border);
+  background: var(--px-text-line);
+  border: var(--pc-b2) solid var(--px-frame-line);
   font-size: 0.625rem;
-  color: var(--px-muted);
+  color: var(--px-text);
 }
 
+/* Integration slots: inventory grid on a dark inset; each slot is a small framed square. */
 .pc-slots {
   padding: calc(var(--pc-u) * 8);
-  background: var(--px-bg-2);
-  border: var(--pc-b2) solid var(--px-border);
+  background: var(--px-bg);
+  border: var(--pc-b) solid var(--px-frame-line);
+  box-shadow: inset 0 var(--pc-b) 0 0 var(--px-text-line);
 }
 
 .pc-slot {
@@ -2388,22 +3110,25 @@ html.light .pc-dialog-name { text-shadow: none; }
   height: calc(var(--pc-u) * 36);
   align-items: center;
   justify-content: center;
-  background: var(--px-bg);
-  border: var(--pc-b2) solid var(--px-border);
+  background: var(--px-bg-2);
+  border: var(--pc-b2) solid var(--px-frame-line);
+  box-shadow: inset 0 0 0 var(--pc-u) var(--px-border-hi);
+  color: var(--px-text);
 }
 
-button.pc-slot:hover,
-button.pc-slot:focus-visible { border-color: var(--px-border-hi); outline: none; }
-.pc-slot--on { border-color: var(--px-green); background: var(--px-bg-3); }
-.pc-slot--off { border-color: color-mix(in srgb, var(--px-red) 60%, var(--px-border)); }
-.pc-slot--wait { border-color: var(--px-muted); }
-.pc-slot--empty { border-style: dashed; opacity: 0.5; }
+button.pc-slot { cursor: pointer; }
+button.pc-slot:hover { background: var(--px-bg-3); }
+button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); outline-offset: calc(var(--pc-b2) * -1); }
+.pc-slot--on { background: var(--px-bg-3); box-shadow: inset 0 0 0 var(--pc-b2) var(--px-green); }
+.pc-slot--off { box-shadow: inset 0 0 0 var(--pc-u) var(--px-red); filter: saturate(0.5) brightness(0.85); }
+.pc-slot--wait { box-shadow: inset 0 0 0 var(--pc-u) var(--px-muted); }
+.pc-slot--empty { background: transparent; box-shadow: none; border-style: dashed; border-color: var(--px-frame-lo); }
 
 .pc-toast {
   padding: calc(var(--pc-u) * 4) calc(var(--pc-u) * 10);
-  background: var(--px-bg);
+  background: var(--pc-paper);
   border: var(--pc-b2) solid var(--px-red);
-  color: var(--px-red);
+  color: var(--px-ink);
   font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
@@ -2411,9 +3136,10 @@ button.pc-slot:focus-visible { border-color: var(--px-border-hi); outline: none;
 
 .pc-banner {
   padding: calc(var(--pc-u) * 8) calc(var(--pc-u) * 14);
-  background: var(--px-bg);
-  border: var(--pc-b) solid var(--px-accent);
-  color: var(--px-accent);
+  background: var(--px-accent);
+  border: var(--pc-b) solid var(--px-frame-line);
+  box-shadow: 0 var(--pc-b) 0 0 var(--px-shadow);
+  color: var(--px-ink);
   font-size: 0.75rem;
 }
 
@@ -2425,23 +3151,26 @@ button.pc-slot:focus-visible { border-color: var(--px-border-hi); outline: none;
 
 .pc-hint--flush { padding: 0; }
 
-/* ── Conversation list (sidebar) ─────────────────────────────────────────── */
+/* ── Conversation list (sidebar, .pixel-frame) ───────────────────────────── */
 
 .pc-side {
-  background: var(--px-bg);
-  border-right: var(--pc-b) solid var(--px-border);
+  padding: calc(var(--pc-u) * 15) calc(var(--pc-u) * 12);
+  gap: calc(var(--pc-u) * 8);
   color: var(--px-text);
 }
 
-.pc-side--embedded { border: var(--pc-b) solid var(--px-border); }
+/* fixed variant (/history): the frame floats over the page like a window */
+.pc-side:not(.pc-side--embedded) { box-shadow: inset var(--px-unit) var(--px-unit) 0 0 var(--px-frame-hi), inset calc(var(--px-unit) * -1) calc(var(--px-unit) * -1) 0 0 var(--px-frame-lo); }
 
 /* The sidebar on /history has no .pixel-chat root: scale its text the same way. */
 .pixel-chat-side { font-size: 1rem; }
 
+/* inner blocks sit above the rivet layer */
+.pc-side > * { position: relative; z-index: 1; }
+.pc-side > .home-global-spotlight { display: none; }
+
 .pc-side-head {
-  padding: calc(var(--pc-u) * 12);
-  background: var(--px-bg-3);
-  border-bottom: var(--pc-b) solid var(--px-border);
+  padding: calc(var(--pc-u) * 10) calc(var(--pc-u) * 12) calc(var(--pc-u) * 13);
 }
 
 .pc-home-btn {
@@ -2451,12 +3180,12 @@ button.pc-slot:focus-visible { border-color: var(--px-border-hi); outline: none;
   flex: none;
   align-items: center;
   justify-content: center;
-  background: var(--px-bg);
-  border: var(--pc-b2) solid var(--px-border-hi);
+  padding: 0;
+  background: color-mix(in srgb, var(--px-world-edge) 55%, white);
 }
 
 .pc-home-btn:hover,
-.pc-home-btn:focus-visible { border-color: var(--px-accent); outline: none; }
+.pc-home-btn:focus-visible { background: var(--px-accent); }
 
 .pixel-chat-side .pc-wordmark {
   margin: 0;
@@ -2465,15 +3194,14 @@ button.pc-slot:focus-visible { border-color: var(--px-border-hi); outline: none;
   line-height: 1;
   letter-spacing: 0.06em;
   color: var(--px-text);
-  text-shadow: var(--pc-b2) var(--pc-b2) 0 rgba(0, 0, 0, 0.6);
+  text-shadow: var(--px-outline-2);
 }
-
-html.light .pc-wordmark { text-shadow: none; }
 
 .pc-version {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-size: 0.625rem;
   color: var(--px-accent);
+  text-shadow: var(--px-outline-1);
 }
 
 .pc-presence-dot {
@@ -2486,6 +3214,7 @@ html.light .pc-wordmark { text-shadow: none; }
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
   font-size: 0.625rem;
   letter-spacing: 0.1em;
+  text-shadow: var(--px-outline-1);
 }
 
 .pc-clock {
@@ -2493,8 +3222,8 @@ html.light .pc-wordmark { text-shadow: none; }
   flex-direction: column;
   align-items: center;
   padding: calc(var(--pc-u) * 3) calc(var(--pc-u) * 8);
-  background: var(--px-bg);
-  border: var(--pc-b2) solid var(--px-border);
+  background: var(--px-text-line);
+  border: var(--pc-b2) solid var(--px-frame-line);
 }
 
 .pc-clock-date {
@@ -2518,77 +3247,72 @@ html.light .pc-wordmark { text-shadow: none; }
   font-size: 0.625rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--px-muted);
+  color: var(--px-text);
+  text-shadow: var(--px-outline-1);
 }
 
+/* Folder headers are ghost buttons: full width, left aligned. */
 .pc-fold {
-  display: flex;
   width: 100%;
-  height: calc(var(--pc-u) * 32);
-  align-items: center;
   justify-content: space-between;
+  min-height: calc(var(--pc-u) * 32);
   margin-bottom: calc(var(--pc-u) * 8);
-  padding: 0 calc(var(--pc-u) * 10);
-  background: var(--px-bg-3);
-  border: var(--pc-b2) solid var(--px-border);
-  color: var(--px-muted);
-  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  padding: 0 calc(var(--pc-u) * 10) calc(var(--pc-u) * 3);
   font-size: 0.625rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
 }
 
-.pc-fold:hover,
-.pc-fold:focus-visible { border-color: var(--px-border-hi); color: var(--px-text); outline: none; }
-
+/* A conversation row is a purple card; the active one has the gold rim. */
 .pc-convo {
-  position: relative;
   display: flex;
   width: 100%;
   align-items: center;
   gap: calc(var(--pc-u) * 8);
   margin-bottom: calc(var(--pc-u) * 8);
-  padding: calc(var(--pc-u) * 8) calc(var(--pc-u) * 10);
-  background: var(--px-bg-2);
-  border: var(--pc-b2) solid var(--px-border);
+  padding: calc(var(--pc-u) * 8) calc(var(--pc-u) * 10) calc(var(--pc-u) * 11);
   color: var(--px-muted);
   cursor: pointer;
 }
 
 .pc-convo--quick { margin-bottom: 0; }
 .pc-convo:hover,
-.pc-convo:focus-visible { border-color: var(--px-border-hi); outline: none; }
+.pc-convo:focus-visible { background: var(--px-bg-3); }
+.pc-convo:focus-visible { outline: var(--pc-b) solid var(--px-accent); outline-offset: calc(var(--pc-b) * -2); }
 
 .pc-convo[data-active="true"] {
+  --rim: var(--px-accent);
   background: var(--px-bg-3);
-  border-color: var(--px-accent);
-  box-shadow: inset calc(var(--pc-u) * 4) 0 0 0 var(--px-accent);
-  padding-left: calc(var(--pc-u) * 14);
 }
 
-.pc-convo-title { color: var(--px-text); }
+.pc-convo-title { color: var(--px-text); text-shadow: var(--px-outline-1); }
 .pc-convo-date { color: var(--px-muted); }
 
 .pc-convo-options { opacity: 0; }
 .pc-convo:hover .pc-convo-options,
 .pc-convo:focus-within .pc-convo-options,
+.pc-convo-options:focus-visible,
 .pc-convo-options[data-state="open"] { opacity: 1; }
 
 .pixel-chat-side .pc-rename {
-  border: var(--pc-b2) solid var(--px-accent) !important;
-  background: var(--px-bg) !important;
-  color: var(--px-text) !important;
+  border: var(--pc-b2) solid var(--px-frame-line) !important;
+  border-radius: 0 !important;
+  background: var(--pc-paper) !important;
+  color: var(--px-ink) !important;
 }
 
-.pc-side-scroll { scrollbar-width: thin; scrollbar-color: var(--px-border) transparent; }
+.pc-side-scroll {
+  margin-inline: calc(var(--pc-u) * 4);
+  background: var(--px-bg);
+  border: var(--pc-b) solid var(--px-frame-line);
+  box-shadow: inset 0 var(--pc-b) 0 0 var(--px-text-line);
+  scrollbar-width: thin;
+  scrollbar-color: var(--px-frame-hi) var(--px-text-line);
+}
 
 .pc-profile {
   display: flex;
   align-items: center;
   gap: calc(var(--pc-u) * 10);
-  padding: calc(var(--pc-u) * 8) calc(var(--pc-u) * 10);
-  background: var(--px-bg-2);
-  border: var(--pc-b) solid var(--px-border);
+  padding: calc(var(--pc-u) * 8) calc(var(--pc-u) * 10) calc(var(--pc-u) * 11);
 }
 
 .pc-profile-avatar {
@@ -2600,21 +3324,27 @@ html.light .pc-wordmark { text-shadow: none; }
   justify-content: center;
   overflow: hidden;
   background: var(--px-bg);
-  border: var(--pc-b2) solid var(--px-border-hi);
-  color: var(--px-muted);
+  border: var(--pc-b2) solid var(--px-frame-line);
+  color: var(--px-text);
 }
 
-.pc-profile-name { font-size: 0.9375rem; color: var(--px-text); }
+.pc-profile-name { font-size: 0.9375rem; color: var(--px-text); text-shadow: var(--px-outline-1); }
 .pc-profile-model { font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 0.6875rem; color: var(--px-accent); }
 
-/* Conversation options menu (portaled to body, so it carries its own skin). */
+/* Conversation options menu (portaled to body, so it carries its own skin: a small stone frame). */
 .pc-menu {
+  --pc-u: 1px;
+  --pc-b: calc(var(--pc-u) * 3);
+  --pc-b2: calc(var(--pc-u) * 2);
   min-width: 11rem;
-  padding: calc(var(--pc-u) * 4);
-  background: var(--px-bg) !important;
-  border: var(--pc-b) solid var(--px-border) !important;
+  padding: calc(var(--pc-u) * 6) !important;
+  background: var(--px-frame) !important;
+  border: var(--pc-b) solid var(--px-frame-line) !important;
   border-radius: 0 !important;
-  box-shadow: 0 var(--pc-b) 0 0 var(--px-shadow) !important;
+  box-shadow:
+    inset var(--pc-b) var(--pc-b) 0 0 var(--px-frame-hi),
+    inset calc(var(--pc-b) * -1) calc(var(--pc-b) * -1) 0 0 var(--px-frame-lo),
+    0 var(--pc-b) 0 0 var(--px-shadow) !important;
   color: var(--px-text);
   font-family: var(--font-pixel), ui-monospace, monospace;
 }
@@ -2625,14 +3355,23 @@ html.light .pc-wordmark { text-shadow: none; }
   display: flex;
   align-items: center;
   gap: calc(var(--pc-u) * 10);
+  margin-bottom: calc(var(--pc-u) * 4);
   padding: calc(var(--pc-u) * 8) calc(var(--pc-u) * 10) !important;
+  background: var(--px-bg-2);
+  box-shadow: inset 0 0 0 var(--pc-u) var(--px-border-hi);
   color: var(--px-text) !important;
+  text-shadow: var(--px-outline-1);
   font-size: 0.875rem;
   cursor: pointer;
 }
 
-.pc-menu-item[data-highlighted] { background: var(--px-bg-3) !important; color: var(--px-accent) !important; }
-.pc-menu-item--danger { color: var(--px-red) !important; }
-.pc-menu-item--danger[data-highlighted] { color: var(--px-red) !important; }
-.pc-menu-sep { height: var(--pc-b2); margin: calc(var(--pc-u) * 4) 0; background: var(--px-border); }
+.pc-menu-item[data-highlighted] { background: var(--px-bg-3) !important; box-shadow: inset 0 0 0 var(--pc-b2) var(--px-accent); color: var(--px-text) !important; }
+.pc-menu-item--danger { background: var(--px-red) !important; box-shadow: none; }
+.pc-menu-item--danger[data-highlighted] { filter: brightness(1.15); box-shadow: inset 0 0 0 var(--pc-b2) var(--px-accent); }
+.pc-menu-sep { height: var(--pc-b2); margin: calc(var(--pc-u) * 4) 0; background: var(--px-frame-line); }
+
+@media (min-width: 3200px) {
+  /* the portaled menu is outside .pixel-chat: scale it the same way */
+  .pc-menu { zoom: 2; }
+}
 /* ===== end Chat page ===== */

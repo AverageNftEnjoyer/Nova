@@ -172,7 +172,7 @@ export function MusicWindow({
     <PixelWindow place="Music" role="Spotify" theme="default" size="sm" onClose={onClose}>
       <div className="flex flex-col gap-4 p-4">
         <div className="flex items-center gap-3">
-          <div className="relative h-20 w-20 shrink-0 overflow-hidden border-2 border-(--px-border) bg-(--px-bg-2)">
+          <div className="pixel-card relative h-20 w-20 shrink-0 overflow-hidden p-0!">
             {art ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={art} alt="Album art" className="h-full w-full object-cover [image-rendering:pixelated]" />
@@ -182,13 +182,13 @@ export function MusicWindow({
           </div>
           {!connected ? (
             <div className="min-w-0">
-              <p className="pixel-label text-(--px-text)">Spotify disconnected</p>
-              <p className="font-pixel mt-1 text-[14px] leading-snug text-(--px-muted)">{error || "Connect Spotify to play music over the city."}</p>
+              <p className="pixel-label pixel-label--off">Spotify disconnected</p>
+              <p className="font-pixel mt-1.5 text-[15px] leading-snug text-(--px-muted)">{error || "Connect Spotify to play music over the city."}</p>
             </div>
           ) : (
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <EqualizerBars isPlaying={playing} className="h-3 shrink-0" />
+                <EqualizerBars isPlaying={playing} className="h-3 shrink-0" barStyle={{ backgroundColor: "var(--px-accent-2)", borderRadius: 0 }} />
                 <p className="font-pixel truncate text-[17px] leading-tight text-(--px-text)">{nowPlaying?.trackName || "No active track"}</p>
               </div>
               <p className="font-pixel mt-1 truncate text-[14px] leading-tight text-(--px-muted)">
@@ -200,20 +200,20 @@ export function MusicWindow({
 
         {!connected ? (
           <div className="flex gap-2">
-            <button type="button" onClick={onConnectSpotify} disabled={connecting} className="pixel-chip disabled:cursor-wait disabled:opacity-60">
+            <button type="button" onClick={onConnectSpotify} disabled={connecting} className="pixel-btn pixel-btn--teal">
               {connecting ? "Opening..." : "Connect"}
             </button>
-            <button type="button" onClick={onOpenIntegrations} className="pixel-chip">
+            <button type="button" onClick={onOpenIntegrations} className="pixel-btn pixel-btn--ghost">
               Setup
             </button>
           </div>
         ) : (
           <>
             <div className="flex items-center justify-center gap-2">
-              <button type="button" onClick={onPlaySmart} disabled={busy} className="pixel-chip pixel-chip--icon" aria-label="Play from favorite playlist" title="Play from favorite playlist">
+              <button type="button" onClick={onPlaySmart} disabled={busy} className="pixel-btn pixel-btn--ghost pixel-btn--icon" aria-label="Play from favorite playlist" title="Play from favorite playlist">
                 <Shuffle className="h-4 w-4" />
               </button>
-              <button type="button" onClick={onPrevious} disabled={busy} className="pixel-chip pixel-chip--icon" aria-label="Previous track">
+              <button type="button" onClick={onPrevious} disabled={busy} className="pixel-btn pixel-btn--ghost pixel-btn--icon" aria-label="Previous track">
                 <SkipBack className="h-4 w-4" />
               </button>
               <button
@@ -221,20 +221,20 @@ export function MusicWindow({
                 onClick={onTogglePlayPause}
                 disabled={busy && !deviceUnavailable}
                 data-active="true"
-                className="pixel-chip pixel-chip--icon h-11! w-11!"
+                className="pixel-btn pixel-btn--teal pixel-btn--icon game-play"
                 aria-label={deviceUnavailable ? "Launch Spotify" : playing ? "Pause Spotify" : "Play Spotify"}
                 title={deviceUnavailable ? "Launch Spotify" : undefined}
               >
                 {deviceUnavailable ? <SpotifyIcon className="h-5 w-5" /> : playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
               </button>
-              <button type="button" onClick={onNext} disabled={busy} className="pixel-chip pixel-chip--icon" aria-label="Next track">
+              <button type="button" onClick={onNext} disabled={busy} className="pixel-btn pixel-btn--ghost pixel-btn--icon" aria-label="Next track">
                 <SkipForward className="h-4 w-4" />
               </button>
               <button
                 type="button"
                 onClick={() => setRepeatTrack((value) => !value)}
                 data-active={repeatTrack}
-                className="pixel-chip pixel-chip--icon"
+                className="pixel-btn pixel-btn--ghost pixel-btn--icon"
                 aria-label={repeatTrack ? "Disable repeat" : "Repeat song"}
                 title={repeatTrack ? "Repeat: on" : "Repeat: off"}
               >
@@ -243,7 +243,7 @@ export function MusicWindow({
             </div>
 
             <div className="flex items-center gap-2">
-              <span ref={timeRef} className="font-pixel w-10 shrink-0 text-right text-[13px] tabular-nums text-(--px-muted)" />
+              <span ref={timeRef} className="font-pixel w-10 shrink-0 text-right text-[14px] tabular-nums text-(--px-muted)" />
               <div
                 ref={barRef}
                 role="slider"
@@ -256,20 +256,20 @@ export function MusicWindow({
                 onPointerDown={handleSeekDown}
                 onKeyDown={handleSeekKey}
                 data-dragging={seekDragPct !== null}
-                className="pixel-seek min-w-0 flex-1 select-none"
+                className="game-seek min-w-0 flex-1 select-none"
               >
-                <div ref={fillRef} className="pixel-seek-fill" />
-                <div ref={thumbRef} className="pixel-seek-thumb" />
+                <div ref={fillRef} className="game-seek-fill" />
+                <div ref={thumbRef} className="game-seek-thumb" />
               </div>
-              <span className="font-pixel w-10 shrink-0 text-[13px] tabular-nums text-(--px-muted)">{formatTime(nowPlaying?.durationMs || 0)}</span>
+              <span className="font-pixel w-10 shrink-0 text-[14px] tabular-nums text-(--px-muted)">{formatTime(nowPlaying?.durationMs || 0)}</span>
             </div>
 
             {deviceUnavailable ? (
-              <a href="spotify:" className="pixel-chip self-start">
+              <a href="spotify:" className="pixel-btn pixel-btn--teal self-start">
                 Launch Spotify
               </a>
             ) : error && !timedOut ? (
-              <p className="font-pixel text-[13px] text-(--px-red)" title={error}>
+              <p className="game-error font-pixel text-[14px]" title={error}>
                 {error}
               </p>
             ) : null}

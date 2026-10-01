@@ -27,10 +27,10 @@ interface TargetRect {
   height: number
 }
 
-/** The HUD bar's height: the arrow never sits under it. */
-const HUD_CLEARANCE = 72
+/** The arrow never sits closer than this to the top edge (the HUD is corner clusters now, not a bar). */
+const TOP_CLEARANCE = 16
 
-/** What a step points at: a building in the city, or the HUD's Settings chip (skills live in Settings). */
+/** What a step points at: a building in the city, or the HUD's Settings button (skills live in Settings). */
 type PointerTarget = { kind: "hotspot"; place: CityPlaceId; label: string | null } | { kind: "settings" }
 
 /** The building's button: by its place id, else by its aria-label ("label" or "label: detail"). */
@@ -82,7 +82,7 @@ function useTargetRect(target: PointerTarget | null): TargetRect | null {
       const next = r && r.width > 0 ? { left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) } : null
       if (el && next && place && !revealed) {
         revealed = true
-        if (!isOnScreen(next, HUD_CLEARANCE)) el.focus({ preventScroll: true })
+        if (!isOnScreen(next, TOP_CLEARANCE)) el.focus({ preventScroll: true })
       }
       setRect((prev) => (sameRect(prev, next) ? prev : next))
       frame = requestAnimationFrame(measure)
@@ -118,9 +118,8 @@ export function TutorialGuide({ progress, assistantName, hotspots, minimized, on
   const showing = tutorial.active && !minimized && (!!current || allDone)
   const pointAt = showing && current && !done ? pointerTarget(current, hotspots) : null
   const measured = useTargetRect(pointAt)
-  const inHud = pointAt?.kind === "settings"
   // The camera can pan a building off screen: then only the bubble shows.
-  const rect = measured && isOnScreen(measured, inHud ? 0 : HUD_CLEARANCE) ? measured : null
+  const rect = measured && isOnScreen(measured, TOP_CLEARANCE) ? measured : null
 
   if (!tutorial.active || (!current && !allDone)) return null
 
@@ -131,7 +130,7 @@ export function TutorialGuide({ progress, assistantName, hotspots, minimized, on
 
   if (minimized) {
     return (
-      <button type="button" onClick={() => onMinimize(false)} className="pixel-chip game-tutorial-reopen" aria-label={`Show the tutorial, step ${step} of ${total}`}>
+      <button type="button" onClick={() => onMinimize(false)} className="pixel-btn pixel-btn--teal game-sm game-tutorial-reopen" aria-label={`Show the tutorial, step ${step} of ${total}`}>
         <NovaPortrait className="h-5 w-5" />
         <span>
           Tutorial {step}/{total}
@@ -142,112 +141,110 @@ export function TutorialGuide({ progress, assistantName, hotspots, minimized, on
 
   // The bubble sits on the side away from the building it points at, so it never covers the target.
   const targetOnLeft = rect ? rect.left + rect.width / 2 < window.innerWidth / 2 : false
-  const arrowTop = rect ? Math.max(HUD_CLEARANCE, rect.top - 6) : 0
+  const arrowTop = rect ? Math.max(TOP_CLEARANCE, rect.top - 6) : 0
 
   return (
     <>
       {rect ? (
         <>
           <div className="game-target-ring" style={{ left: rect.left - 3, top: rect.top - 3, width: rect.width + 6, height: rect.height + 6 }} aria-hidden="true" />
-          {inHud ? (
-            <div className="game-arrow game-arrow--up" style={{ left: rect.left + rect.width / 2, top: rect.top + rect.height + 8 }} aria-hidden="true" />
-          ) : (
-            <div className="game-arrow" style={{ left: rect.left + rect.width / 2, top: arrowTop }} aria-hidden="true" />
-          )}
+          <div className="game-arrow" style={{ left: rect.left + rect.width / 2, top: arrowTop }} aria-hidden="true" />
         </>
       ) : null}
 
       <section
-        className={cn("game-tutorial pixel-ui", targetOnLeft ? "right-4" : "left-4")}
+        className={cn("game-tutorial pixel-ui", targetOnLeft ? "game-tutorial--right right-4" : "left-4")}
         aria-label={`${assistantName}'s tutorial`}
         aria-live="polite"
       >
-        <div className="game-bubble pixel-notch">
-          <header className="flex items-center gap-2 border-b-2 border-(--px-border) bg-(--px-bg-3) px-2 py-1.5">
-            <span className="grid h-9 w-9 shrink-0 place-items-center border-2 border-(--px-border) bg-(--px-bg-2)">
-              <NovaPortrait className="h-7 w-7" />
-            </span>
-            <span className="pixel-label min-w-0 flex-1 truncate text-(--px-accent)">{assistantName}</span>
-            <span className="font-pixel text-[12px] tabular-nums text-(--px-muted)">
-              Tutorial {done ? Math.max(1, step - 1) : step}/{total}
-            </span>
-          </header>
+        <div className="game-bubble pixel-frame">
+          <div className="game-bubble-body">
+            <header className="game-bubble-head">
+              <span className="game-bubble-face">
+                <NovaPortrait className="h-7 w-7" />
+              </span>
+              <span className="pixel-title min-w-0 flex-1 truncate text-left! text-[15px]!">{assistantName}</span>
+              <span className="pixel-label pixel-label--off shrink-0 tabular-nums">
+                Tutorial {done ? Math.max(1, step - 1) : step}/{total}
+              </span>
+            </header>
 
-          <div className="flex flex-col gap-2 px-3 py-2.5">
-            {done ? (
-              <>
-                <p className="font-pixel text-[15px] leading-snug text-(--px-text)">
-                  Nice work! <span className="text-(--px-green)">{done.title}</span> is done.{" "}
-                  <span className="text-(--px-accent)">+{formatXp(done.xpReward)} XP</span>
-                </p>
-                {current ? <p className="font-pixel text-[13px] text-(--px-muted)">Next up: {current.title}</p> : null}
-              </>
-            ) : current ? (
-              <>
-                {step === 1 && completedCount === 0 ? (
-                  <p className="font-pixel text-[13px] leading-snug text-(--px-muted)">
-                    Welcome to Nova City! I&apos;m {assistantName}. Every building here is a part of Nova, and it grows as we work together.
+            <div className="flex flex-col gap-2 px-3 py-2.5">
+              {done ? (
+                <>
+                  <p className="font-pixel text-[15px] leading-snug text-(--px-text)">
+                    Nice work! <span className="text-(--px-green)">{done.title}</span> is done.{" "}
+                    <span className="text-(--px-accent)">+{formatXp(done.xpReward)} XP</span>
                   </p>
-                ) : null}
-                <p className="font-pixel text-[16px] leading-tight text-(--px-accent)">{current.title}</p>
-                <p className="font-pixel text-[14px] leading-snug text-(--px-text)">{current.description}</p>
-                {current.goal > 1 ? (
-                  <div className="flex items-center gap-2">
-                    <GameBar value={questRatio(current)} label={current.title} valueText={`${Math.min(current.progress, current.goal)} of ${current.goal}`} className="flex-1" />
-                    <span className="font-pixel text-[12px] tabular-nums text-(--px-muted)">
-                      {Math.min(current.progress, current.goal)}/{current.goal}
-                    </span>
-                  </div>
-                ) : null}
-                <p className="font-pixel text-[12px] text-(--px-muted)">
-                  Reward <span className="text-(--px-accent)">+{formatXp(current.xpReward)} XP</span>
+                  {current ? <p className="font-pixel text-[13px] text-(--px-muted)">Next up: {current.title}</p> : null}
+                </>
+              ) : current ? (
+                <>
+                  {step === 1 && completedCount === 0 ? (
+                    <p className="font-pixel text-[13px] leading-snug text-(--px-muted)">
+                      Welcome to Nova City! I&apos;m {assistantName}. Every building here is a part of Nova, and it grows as we work together.
+                    </p>
+                  ) : null}
+                  <p className="font-pixel text-[17px] leading-tight text-(--px-accent)">{current.title}</p>
+                  <p className="font-pixel text-[14px] leading-snug text-(--px-text)">{current.description}</p>
+                  {current.goal > 1 ? (
+                    <div className="flex items-center gap-2">
+                      <GameBar value={questRatio(current)} label={current.title} valueText={`${Math.min(current.progress, current.goal)} of ${current.goal}`} className="flex-1" />
+                      <span className="font-pixel text-[12px] tabular-nums text-(--px-muted)">
+                        {Math.min(current.progress, current.goal)}/{current.goal}
+                      </span>
+                    </div>
+                  ) : null}
+                  <p className="font-pixel text-[12px] text-(--px-muted)">
+                    Reward <span className="text-(--px-accent)">+{formatXp(current.xpReward)} XP</span>
+                  </p>
+                </>
+              ) : (
+                <p className="font-pixel text-[15px] leading-snug text-(--px-text)">
+                  That&apos;s the tour! The city keeps growing with every task, deployment and chat. Find daily quests and milestones in the Quest log.
                 </p>
-              </>
-            ) : (
-              <p className="font-pixel text-[15px] leading-snug text-(--px-text)">
-                That&apos;s the tour! The city keeps growing with every task, deployment and chat. Find daily quests and milestones in the Quest log.
-              </p>
-            )}
-          </div>
+              )}
+            </div>
 
-          <footer className="flex flex-wrap items-center justify-end gap-1.5 px-3 pb-2.5">
-            {current || done ? (
-              <button
-                type="button"
-                onClick={() => {
-                  if (!confirmSkip) {
-                    setConfirmSkip(true)
-                    return
-                  }
-                  onSkip()
-                }}
-                onBlur={() => setConfirmSkip(false)}
-                className="game-link mr-auto"
-              >
-                {confirmSkip ? "Skip? Click again" : "Skip tutorial"}
-              </button>
-            ) : null}
-            {done ? (
-              <button type="button" onClick={() => setTrack({ questId: currentId, done: null })} className="pixel-chip h-8! px-3! text-[13px]!" data-active="true">
-                Next
-              </button>
-            ) : current ? (
-              <>
-                <button type="button" onClick={() => onMinimize(true)} className="pixel-chip h-8! px-3! text-[13px]!">
-                  Hide
+            <footer className="flex flex-wrap items-center justify-end gap-2 px-3 pb-3">
+              {current || done ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!confirmSkip) {
+                      setConfirmSkip(true)
+                      return
+                    }
+                    onSkip()
+                  }}
+                  onBlur={() => setConfirmSkip(false)}
+                  className="game-link mr-auto"
+                >
+                  {confirmSkip ? "Skip? Click again" : "Skip tutorial"}
                 </button>
-                {hasQuestTarget(current) ? (
-                  <button type="button" onClick={() => onGo(current)} className="pixel-chip h-8! px-3! text-[13px]!" data-active="true">
-                    Show me
+              ) : null}
+              {done ? (
+                <button type="button" onClick={() => setTrack({ questId: currentId, done: null })} className="pixel-btn pixel-btn--teal game-sm">
+                  Next
+                </button>
+              ) : current ? (
+                <>
+                  <button type="button" onClick={() => onMinimize(true)} className="pixel-btn pixel-btn--ghost game-sm">
+                    Hide
                   </button>
-                ) : null}
-              </>
-            ) : (
-              <button type="button" onClick={onFinish} className="pixel-chip h-8! px-3! text-[13px]!" data-active="true">
-                Finish
-              </button>
-            )}
-          </footer>
+                  {hasQuestTarget(current) ? (
+                    <button type="button" onClick={() => onGo(current)} className="pixel-btn pixel-btn--teal game-sm">
+                      Show me
+                    </button>
+                  ) : null}
+                </>
+              ) : (
+                <button type="button" onClick={onFinish} className="pixel-btn pixel-btn--teal game-sm">
+                  Finish
+                </button>
+              )}
+            </footer>
+          </div>
         </div>
       </section>
     </>

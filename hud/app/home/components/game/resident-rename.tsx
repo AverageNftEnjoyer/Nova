@@ -45,8 +45,8 @@ export function ResidentRename({ residentId, defaultName, residents }: ResidentR
   }
 
   return (
-    <section className="pixel-subpanel px-3 py-2" aria-label="Rename this resident" aria-busy={busy}>
-      <h3 className="pixel-label text-(--px-muted)">Name</h3>
+    <section className="pixel-card" aria-label="Rename this resident" aria-busy={busy}>
+      <h3 className="pixel-label text-(--px-text)">Name</h3>
       <form onSubmit={(event) => void submit(event)} className="mt-2 flex flex-wrap items-center gap-2">
         <label className="sr-only" htmlFor={`resident-name-${residentId}`}>
           Resident name
@@ -58,17 +58,17 @@ export function ResidentRename({ residentId, defaultName, residents }: ResidentR
           maxLength={MAX_NAME_LENGTH}
           placeholder={defaultName}
           onChange={(event) => setDraft(event.target.value)}
-          className="h-8 min-w-0 flex-1 border-2 border-(--px-border) bg-(--px-bg) px-2 font-pixel text-[14px] text-(--px-text) outline-none focus:border-(--px-accent)"
+          className="game-input h-9 min-w-0 flex-1 px-2 font-pixel text-[15px]"
         />
-        <button type="submit" disabled={!dirty || busy} className="pixel-chip h-8! px-3! text-[13px]! disabled:cursor-not-allowed disabled:opacity-50">
+        <button type="submit" disabled={!dirty || busy} className="pixel-btn pixel-btn--teal game-sm">
           Save name
         </button>
       </form>
-      <p className="mt-1 font-pixel text-[12px] leading-snug text-(--px-muted)">
+      <p className="mt-1.5 font-pixel text-[13px] leading-snug text-(--px-muted)">
         1 to {MAX_NAME_LENGTH} characters. Leave it empty to use &quot;{defaultName}&quot;.
       </p>
       {error ? (
-        <p className="mt-2 font-pixel text-[13px] text-(--px-red)" role="alert">
+        <p className="game-error mt-2 font-pixel text-[14px]" role="alert">
           {error}
         </p>
       ) : null}

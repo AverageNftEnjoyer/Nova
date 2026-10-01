@@ -41,11 +41,11 @@ export interface ZoomLimits {
   max: number
 }
 
-/** The middle of the city, just under Nova HQ's tower: the initial framing centres here. */
-export const CITY_FOCUS = { x: 1290, y: 700 } as const
+/** The middle of the island, by the Town Hall: the initial framing centres here. */
+export const CITY_FOCUS = { x: 768, y: 500 } as const
 
 /** Upper zoom bound: at least 2 CSS px per plan pixel, and at least twice the cover zoom on very large screens. */
-const MAX_ZOOM_FLOOR = 2
+const MAX_ZOOM_FLOOR = 3
 const MAX_ZOOM_OVER_COVER = 2
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))

@@ -66,17 +66,17 @@ export function agentResidentId(taskId: string): ResidentId {
 export interface CitySceneState {
   weather: CityWeather
   presence: CityPresence
-  /** Up to five task floors on Nova HQ, lit from the top down. */
+  /** Up to five task floors on Nova HQ's gate, lit from the top down. */
   taskLights: CityTaskLight[]
-  /** Active deployment runs; each one is a bus on the roads (capped by the renderer). */
+  /** Active deployment runs; each one is a boat sailing in the harbour bay (capped by the renderer). */
   activeRuns: number
-  /** Crypto ticker on the bus shelter. */
+  /** Crypto ticker above the Bank. */
   ticker: CityTickerItem[]
-  /** Pinned papers on the noticeboard (capped by the renderer). */
+  /** Pinned papers on the noticeboard by the glasshouse (capped by the renderer). */
   notesCount: number
   /** Agents on the streets (capped by the renderer). */
   agents: CityAgent[]
-  /** Connected integrations; each one's building has its sign steadily lit. */
+  /** Connected integrations; each one's building has its status lamp lit. */
   connectedIntegrations: CityIntegration[]
   /** One worker per connected integration. */
   workers: CityWorker[]

@@ -220,7 +220,7 @@ export function ChatSidebar({
   const activeConversations = conversations.filter((c) => !c.archived)
   const archivedConversations = conversations.filter((c) => c.archived)
   const quickActionConversations = activeConversations.filter((c) => c.pinned).slice(0, 3)
-  const panelClass = embedded ? "pc-side pc-side--embedded" : "pc-side"
+  const panelClass = embedded ? "pixel-frame pc-side pc-side--embedded" : "pixel-frame pc-side"
 
   const presence = getNovaPresence({ agentConnected, novaState })
   const headerDateLabel = formatHeaderDate(headerNow)
@@ -260,7 +260,7 @@ export function ChatSidebar({
   const renderConversationRow = (convo: Conversation) => (
     <div
       key={convo.id}
-      className="pc-convo group"
+      className="pixel-card pc-convo group"
       data-active={convo.id === activeId ? "true" : undefined}
       onClick={() => onSelect(convo.id)}
     >
@@ -293,7 +293,7 @@ export function ChatSidebar({
           <DropdownMenuTrigger asChild>
             <button
               onClick={(e) => e.stopPropagation()}
-              className="pc-icon-btn pc-convo-options outline-none focus:outline-none focus-visible:outline-none"
+              className="pixel-btn pixel-btn--ghost pc-icon-btn pc-convo-options outline-none focus:outline-none focus-visible:outline-none"
               aria-label="Conversation options"
             >
               <MoreHorizontal className="w-4 h-4" />
@@ -363,11 +363,11 @@ export function ChatSidebar({
       >
         <div ref={spotlightRef} className="home-global-spotlight" />
         {showShellHeader && (
-          <div className="pc-side-head">
+          <div className="pixel-card pc-side-head">
             <div className="flex items-center gap-3">
               <button
                 onClick={() => router.push("/home")}
-                className="pc-home-btn"
+                className="pixel-card pc-home-btn"
                 aria-label="Go to home"
               >
                 {userSettings ? (
@@ -403,7 +403,7 @@ export function ChatSidebar({
 
         {showNewChatButton && (
           <div className="px-3 pt-3 pb-1">
-            <button onClick={onNew} className="pc-btn pc-btn--primary pc-btn--block group">
+            <button onClick={onNew} className="pixel-btn pixel-btn--teal pc-btn--block group">
               <Plus className="w-4 h-4" />
               New Conversation
             </button>
@@ -423,7 +423,7 @@ export function ChatSidebar({
                 <button
                   key={`quick-${convo.id}`}
                   onClick={() => onSelect(convo.id)}
-                  className="pc-convo pc-convo--quick text-left"
+                  className="pixel-card pc-convo pc-convo--quick text-left"
                   data-active={convo.id === activeId ? "true" : undefined}
                 >
                   <Pin className="h-4 w-4 shrink-0" />
@@ -439,7 +439,7 @@ export function ChatSidebar({
 
         {runningNowLabel && (
           <div className="px-3 py-2">
-            <div className="pc-card text-xs">
+            <div className="pixel-card pc-card text-xs">
               <p className="pc-card-label">Running Now</p>
               <p className="mt-1 truncate font-medium" title={runningNowLabel}>
                 {runningNowLabel}
@@ -453,7 +453,7 @@ export function ChatSidebar({
             <button
               type="button"
               onClick={() => setChatsOpen((v) => !v)}
-              className="pc-fold"
+              className="pixel-btn pixel-btn--ghost pc-fold"
               aria-expanded={chatsOpen}
             >
               <span className="inline-flex items-center gap-2">
@@ -477,7 +477,7 @@ export function ChatSidebar({
             <button
               type="button"
               onClick={() => setArchivedOpen((v) => !v)}
-              className="pc-fold"
+              className="pixel-btn pixel-btn--ghost pc-fold"
               aria-expanded={archivedOpen}
             >
               <span className="inline-flex items-center gap-2">
@@ -499,7 +499,7 @@ export function ChatSidebar({
         </div>
 
         <div className="px-3 py-3">
-          <div className="pc-profile">
+          <div className="pixel-card pc-profile">
             <div className="pc-profile-avatar">
               {profile?.avatar ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -515,7 +515,7 @@ export function ChatSidebar({
             </div>
 
             <div className="flex items-center gap-1.5 shrink-0">
-              <button onClick={() => setSettingsOpen(true)} className="pc-icon-btn group/gear" aria-label="Settings">
+              <button onClick={() => setSettingsOpen(true)} className="pixel-btn pixel-btn--ghost pc-icon-btn group/gear" aria-label="Settings">
                 <Settings className="w-4 h-4 group-hover/gear:rotate-90 transition-transform duration-200" />
               </button>
             </div>

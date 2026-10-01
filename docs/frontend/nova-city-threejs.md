@@ -14,15 +14,15 @@ It can also draw flat images. A picture becomes a texture on a plane. A pixel ch
 
 ## 2. What Home is now
 
-Home is one night painting, `hud/public/pixel-city/town/background.png` (2580×1440), mapped in `hud/components/pixel-city/district/image-plan.ts`.
+Home is one daytime painting, `hud/public/pixel-city/town/background.webp` (1536×1024), mapped in `hud/components/pixel-city/district/image-plan.ts`.
 
-`PixelCityScene` covers the screen with that image and runs at 20 fps only while the page is active. `district/image-renderer.ts` draws the painting, then paints live signs, walkers, buses, and weather on top in image pixels. Characters are flat sprite sheets under `hud/public/pixel-city/town/characters/` (8 directions by walk frames).
+`PixelCityScene` covers the screen with that image and runs at 20 fps only while the page is active. `district/image-renderer.ts` draws the painting, then paints status lamps, walkers, boats, and weather on top in image pixels. Characters are flat sprite sheets under `hud/public/pixel-city/town/characters/` (8 directions by walk frames).
 
 Each place is a focusable button over the building. It opens the existing `PixelWindow` popup. The scene only shows real Nova data: agent tasks walk to the workplace of the tools they last used, a sign stays lit when that integration is connected, and each active deployment run is a bus. The city must not invent people, traffic, or open buildings.
 
 ## 3. Pointing Three.js at the same painting
 
-A Three.js camera aimed at `background.png` produces the same picture. The painting is what you see. A new renderer does not repaint it, and it does not seat the sprites in the street. That redo is a new dependency and a new render loop for the look you already have.
+A Three.js camera aimed at `background.webp` produces the same picture. The painting is what you see. A new renderer does not repaint it, and it does not seat the sprites in the street. That redo is a new dependency and a new render loop for the look you already have.
 
 ## 4. The redo that does look better
 

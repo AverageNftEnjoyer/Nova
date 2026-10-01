@@ -82,10 +82,10 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     onClick={toggleTelegram}
                     disabled={isSavingTarget !== null}
                     className={cn(
-                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn",
                       settings.telegram.connected
-                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
-                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                        ? "pixel-btn--red"
+                        : "pixel-btn--teal",
                     )}
                   >
                     {settings.telegram.connected ? "Disable" : "Enable"}
@@ -94,7 +94,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     onClick={saveTelegramConfig}
                     disabled={isSavingTarget !== null}
                     className={cn(
-                      "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn pixel-btn--gold",
                     )}
                   >
                     <Save className="w-3.5 h-3.5" />
@@ -155,7 +155,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     <div
                       className={cn(
                         "rounded-md border p-2.5 home-spotlight-card home-border-glow",
-                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                        "ig-tile",
                       )}
                     >
                       <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Telegram Bot Token</p>
@@ -169,7 +169,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     <div
                       className={cn(
                         "rounded-md border p-2.5 home-spotlight-card home-border-glow",
-                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                        "ig-tile",
                       )}
                     >
                       <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Telegram Chat ID</p>
@@ -201,10 +201,10 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     onClick={toggleDiscord}
                     disabled={isSavingTarget !== null}
                     className={cn(
-                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn",
                       settings.discord.connected
-                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
-                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                        ? "pixel-btn--red"
+                        : "pixel-btn--teal",
                     )}
                   >
                     {settings.discord.connected ? "Disable" : "Enable"}
@@ -213,7 +213,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     onClick={saveDiscordConfig}
                     disabled={isSavingTarget !== null}
                     className={cn(
-                      "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn pixel-btn--gold",
                     )}
                   >
                     <Save className="w-3.5 h-3.5" />
@@ -252,7 +252,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                   <div
                     className={cn(
                       "rounded-md border p-2.5 home-spotlight-card home-border-glow",
-                      isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                      "ig-tile",
                     )}
                   >
                     <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Discord Webhook URL</p>
@@ -283,10 +283,10 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     onClick={toggleSlack}
                     disabled={isSavingTarget !== null}
                     className={cn(
-                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn",
                       settings.slack.connected
-                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
-                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                        ? "pixel-btn--red"
+                        : "pixel-btn--teal",
                     )}
                   >
                     {settings.slack.connected ? "Disable" : "Enable"}
@@ -295,7 +295,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     onClick={saveSlackConfig}
                     disabled={isSavingTarget !== null}
                     className={cn(
-                      "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn pixel-btn--gold",
                     )}
                   >
                     <Save className="w-3.5 h-3.5" />
@@ -325,7 +325,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     <div
                       className={cn(
                         "rounded-md border p-2.5 home-spotlight-card home-border-glow",
-                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                        "ig-tile",
                       )}
                     >
                       <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Slack Incoming Webhook</p>
@@ -358,10 +358,10 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     onClick={toggleBrave}
                     disabled={isSavingTarget !== null}
                     className={cn(
-                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn",
                       settings.brave.connected
-                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
-                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                        ? "pixel-btn--red"
+                        : "pixel-btn--teal",
                     )}
                   >
                     {settings.brave.connected ? "Disable" : "Enable"}
@@ -370,7 +370,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     onClick={saveBraveConfig}
                     disabled={isSavingTarget !== null}
                     className={cn(
-                      "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn pixel-btn--gold",
                     )}
                   >
                     <Save className="w-3.5 h-3.5" />
@@ -399,7 +399,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     <div
                       className={cn(
                         "rounded-md border p-2.5 home-spotlight-card home-border-glow",
-                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                        "ig-tile",
                       )}
                     >
                       <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Create Brave API Key</p>
@@ -413,7 +413,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     <div
                       className={cn(
                         "rounded-md border p-2.5 home-spotlight-card home-border-glow",
-                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                        "ig-tile",
                       )}
                     >
                       <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Save and Enable in Nova</p>
@@ -427,7 +427,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     <div
                       className={cn(
                         "rounded-md border p-2.5 home-spotlight-card home-border-glow",
-                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                        "ig-tile",
                       )}
                     >
                       <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Verification and Security</p>
@@ -459,10 +459,10 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     onClick={toggleNews}
                     disabled={isSavingTarget !== null}
                     className={cn(
-                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn",
                       settings.news.connected
-                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
-                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                        ? "pixel-btn--red"
+                        : "pixel-btn--teal",
                     )}
                   >
                     {settings.news.connected ? "Disable" : "Enable"}
@@ -471,7 +471,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     onClick={saveNewsConfig}
                     disabled={isSavingTarget !== null}
                     className={cn(
-                      "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn pixel-btn--gold",
                     )}
                   >
                     <Save className="w-3.5 h-3.5" />
@@ -552,7 +552,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     <div
                       className={cn(
                         "rounded-md border p-2.5 home-spotlight-card home-border-glow",
-                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                        "ig-tile",
                       )}
                     >
                       <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Create and Save Credentials</p>
@@ -566,7 +566,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     <div
                       className={cn(
                         "rounded-md border p-2.5 home-spotlight-card home-border-glow",
-                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                        "ig-tile",
                       )}
                     >
                       <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Home Feed Behavior</p>
@@ -610,10 +610,10 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     onClick={() => void probeCoinbaseConnection("Coinbase sync probe passed.")}
                     disabled={isSavingTarget !== null || coinbasePendingAction !== null || !coinbaseHasKeys}
                     className={cn(
-                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn",
                       isLight
                         ? "border-[#d5dce8] bg-white text-s-80 hover:bg-[#f4f7fd]"
-                        : "border-white/15 bg-white/5 text-slate-200 hover:bg-white/10",
+                        : "pixel-btn--ghost",
                     )}
                   >
                     {coinbasePendingAction === "sync" ? "Syncing..." : "Sync"}
@@ -622,10 +622,10 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     onClick={toggleCoinbase}
                     disabled={isSavingTarget !== null || coinbasePendingAction !== null}
                     className={cn(
-                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn",
                       settings.coinbase.connected
-                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
-                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                        ? "pixel-btn--red"
+                        : "pixel-btn--teal",
                     )}
                   >
                     {coinbasePendingAction === "toggle"
@@ -636,7 +636,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     onClick={saveCoinbaseConfig}
                     disabled={isSavingTarget !== null || coinbasePendingAction !== null}
                     className={cn(
-                      "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn pixel-btn--gold",
                     )}
                   >
                     <Save className="w-3.5 h-3.5" />
@@ -654,15 +654,15 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     </span>
                   </div>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                    <div className={cn("rounded-md border px-2 py-1.5", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}>
+                    <div className={cn("rounded-md border px-2 py-1.5", "ig-tile")}>
                       <p className={cn("text-[11px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>Last Sync</p>
                       <p className={cn("mt-1 text-sm font-medium", isLight ? "text-s-80" : "text-slate-200")}>{coinbaseLastSyncText}</p>
                     </div>
-                    <div className={cn("rounded-md border px-2 py-1.5", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}>
+                    <div className={cn("rounded-md border px-2 py-1.5", "ig-tile")}>
                       <p className={cn("text-[11px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>Freshness</p>
                       <p className={cn("mt-1 text-sm font-medium", isLight ? "text-s-80" : "text-slate-200")}>{coinbaseFreshnessText}</p>
                     </div>
-                    <div className={cn("rounded-md border px-2 py-1.5", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}>
+                    <div className={cn("rounded-md border px-2 py-1.5", "ig-tile")}>
                       <p className={cn("text-[11px] uppercase tracking-[0.12em]", isLight ? "text-s-50" : "text-slate-500")}>Scopes</p>
                       <p className={cn("mt-1 text-sm font-medium truncate", isLight ? "text-s-80" : "text-slate-200")} title={coinbaseScopeSummary}>
                         {settings.coinbase.requiredScopes.length || 0}
@@ -670,7 +670,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     </div>
                   </div>
                   {settings.coinbase.lastSyncStatus === "error" && coinbaseErrorText && (
-                    <p className={cn("mt-2 rounded-md border px-2.5 py-2 text-[11px] leading-4", isLight ? "border-rose-200 bg-rose-50 text-rose-700" : "border-rose-300/30 bg-rose-500/10 text-rose-200")}>
+                    <p className={cn("mt-2 rounded-md border px-2.5 py-2 text-[11px] leading-4", "ig-note ig-note--bad")}>
                       {coinbaseErrorText}
                     </p>
                   )}
@@ -684,7 +684,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     </span>
                   </div>
                   <div className="space-y-2">
-                    <div className={cn("rounded-md border px-2.5 py-2 flex items-start justify-between gap-3", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}>
+                    <div className={cn("rounded-md border px-2.5 py-2 flex items-start justify-between gap-3", "ig-tile")}>
                       <div>
                         <p className={cn("text-sm font-medium", isLight ? "text-s-80" : "text-slate-200")}>Require Consent</p>
                         <p className={cn("text-[11px] mt-1 leading-4", isLight ? "text-s-50" : "text-slate-400")}>
@@ -697,7 +697,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                         disabled={!coinbasePrivacyHydrated || coinbasePrivacySaving}
                       />
                     </div>
-                    <div className={cn("rounded-md border px-2.5 py-2 flex items-start justify-between gap-3", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}>
+                    <div className={cn("rounded-md border px-2.5 py-2 flex items-start justify-between gap-3", "ig-tile")}>
                       <div>
                         <p className={cn("text-sm font-medium", isLight ? "text-s-80" : "text-slate-200")}>Transaction Consent Granted</p>
                         <p className={cn("text-[11px] mt-1 leading-4", isLight ? "text-s-50" : "text-slate-400")}>
@@ -710,7 +710,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                         disabled={!coinbasePrivacyHydrated || coinbasePrivacySaving}
                       />
                     </div>
-                    <div className={cn("rounded-md border px-2.5 py-2 flex items-start justify-between gap-3", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}>
+                    <div className={cn("rounded-md border px-2.5 py-2 flex items-start justify-between gap-3", "ig-tile")}>
                       <div>
                         <p className={cn("text-sm font-medium", isLight ? "text-s-80" : "text-slate-200")}>Show Balances</p>
                         <p className={cn("text-[11px] mt-1 leading-4", isLight ? "text-s-50" : "text-slate-400")}>
@@ -723,7 +723,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                         disabled={!coinbasePrivacyHydrated || coinbasePrivacySaving}
                       />
                     </div>
-                    <div className={cn("rounded-md border px-2.5 py-2 flex items-start justify-between gap-3", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}>
+                    <div className={cn("rounded-md border px-2.5 py-2 flex items-start justify-between gap-3", "ig-tile")}>
                       <div>
                         <p className={cn("text-sm font-medium", isLight ? "text-s-80" : "text-slate-200")}>Show Transactions</p>
                         <p className={cn("text-[11px] mt-1 leading-4", isLight ? "text-s-50" : "text-slate-400")}>
@@ -738,12 +738,12 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     </div>
                   </div>
                   {coinbasePrivacy.requireTransactionConsent && !coinbasePrivacy.transactionHistoryConsentGranted && (
-                    <p className={cn("mt-2 rounded-md border px-2.5 py-2 text-[11px] leading-4", isLight ? "border-amber-200 bg-amber-50 text-amber-700" : "border-amber-300/30 bg-amber-500/10 text-amber-200")}>
+                    <p className={cn("mt-2 rounded-md border px-2.5 py-2 text-[11px] leading-4", "ig-note ig-note--warn")}>
                       Weekly PnL and transaction-history retrieval remain blocked until consent is granted.
                     </p>
                   )}
                   {coinbasePrivacyError && (
-                    <p className={cn("mt-2 rounded-md border px-2.5 py-2 text-[11px] leading-4", isLight ? "border-rose-200 bg-rose-50 text-rose-700" : "border-rose-300/30 bg-rose-500/10 text-rose-200")}>
+                    <p className={cn("mt-2 rounded-md border px-2.5 py-2 text-[11px] leading-4", "ig-note ig-note--bad")}>
                       {coinbasePrivacyError}
                     </p>
                   )}
@@ -870,7 +870,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     <div
                       className={cn(
                         "rounded-md border p-2.5 home-spotlight-card home-border-glow",
-                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                        "ig-tile",
                       )}
                     >
                       <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Create Coinbase API Credentials</p>
@@ -901,7 +901,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     <div
                       className={cn(
                         "rounded-md border p-2.5 home-spotlight-card home-border-glow",
-                        isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20",
+                        "ig-tile",
                       )}
                     >
                       <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Save and Enable in Nova</p>
@@ -937,8 +937,8 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
 	                      onClick={phantomSetup.openBrowserConnect}
                       disabled={isSavingTarget !== null}
                       className={cn(
-                        "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
-                        isLight ? "border-[#d5dce8] bg-[#f4f7fd] text-s-80 hover:bg-white" : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                        "pixel-btn",
+                        "pixel-btn--ghost",
                       )}
                     >
                       Open in Browser
@@ -949,8 +949,8 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                       onClick={phantomSetup.openPhantomInstall}
                       disabled={isSavingTarget !== null}
                       className={cn(
-                        "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
-                        isLight ? "border-[#d5dce8] bg-[#f4f7fd] text-s-80 hover:bg-white" : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                        "pixel-btn",
+                        "pixel-btn--ghost",
                       )}
 	                    >
 	                      Install Phantom
@@ -961,8 +961,8 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
 	                      onClick={() => void phantomSetup.refreshProviderState()}
 	                      disabled={isSavingTarget !== null}
 	                      className={cn(
-	                        "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
-	                        isLight ? "border-[#d5dce8] bg-[#f4f7fd] text-s-80 hover:bg-white" : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+	                        "pixel-btn",
+	                        "pixel-btn--ghost",
 	                      )}
 	                    >
 	                      Refresh Detection
@@ -972,10 +972,10 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
 	                    onClick={settings.phantom.connected ? (() => void phantomSetup.disconnectPhantom()) : (() => void phantomSetup.connectPhantom())}
                     disabled={isSavingTarget !== null}
                     className={cn(
-                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn",
                       settings.phantom.connected
-                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
-                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                        ? "pixel-btn--red"
+                        : "pixel-btn--teal",
                     )}
                   >
                     {settings.phantom.connected ? "Disconnect" : "Connect"}
@@ -984,7 +984,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
               </div>
 
               <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto no-scrollbar pr-1">
-                <div className={cn("rounded-lg border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
+                <div className={cn("rounded-lg border p-3 home-spotlight-card home-border-glow", "ig-tile")}>
                   <div className="flex items-center justify-between gap-2">
                     <p className={cn("text-xs uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Wallet and Runtime Status</p>
                     <span className={cn(
@@ -1030,10 +1030,10 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                       </p>
                     </div>
                     <div className="grid grid-cols-1 gap-3">
-                      <div className={cn("rounded-lg border p-3", isLight ? "border-[#d5dce8] bg-white/80" : "border-white/10 bg-black/20")}>
+                      <div className={cn("rounded-lg border p-3", "ig-tile")}>
                         <p className={cn("text-[11px] font-medium uppercase tracking-[0.14em]", isLight ? "text-s-80" : "text-slate-200")}>Saved Phantom Settings</p>
                         <div className="mt-2 space-y-2">
-                          <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", isLight ? "border-[#d5dce8] bg-[#f7f9fe]" : "border-white/10 bg-white/5")}>
+                          <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
                             <div>
                               <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Agent Wallet Context</p>
                               <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Let Nova runtime and tools read the verified Solana wallet label and address.</p>
@@ -1045,7 +1045,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                               onChange={(checked) => void phantomSetup.savePhantomPreferences({ allowAgentWalletContext: checked })}
                             />
                           </div>
-                          <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", isLight ? "border-[#d5dce8] bg-[#f7f9fe]" : "border-white/10 bg-white/5")}>
+                          <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
                             <div>
                               <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>EVM Readiness Context</p>
                               <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Let Nova read Phantom&apos;s EVM address and chain as safe readiness metadata.</p>
@@ -1057,7 +1057,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                               onChange={(checked) => void phantomSetup.savePhantomPreferences({ allowAgentEvmContext: checked })}
                             />
                           </div>
-                          <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", isLight ? "border-[#d5dce8] bg-[#f7f9fe]" : "border-white/10 bg-white/5")}>
+                          <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
                             <div>
                               <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Approval-Gated Polymarket Prep</p>
                               <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to prepare future Polymarket actions that still require your explicit approval.</p>
@@ -1071,7 +1071,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                           </div>
                         </div>
                       </div>
-                      <div className={cn("rounded-lg border p-3", isLight ? "border-emerald-200 bg-emerald-50" : "border-emerald-500/20 bg-emerald-500/10")}>
+                      <div className={cn("rounded-lg border p-3", "ig-note ig-note--ok")}>
                         <p className={cn("text-[11px] font-medium uppercase tracking-[0.14em]", isLight ? "text-emerald-800" : "text-emerald-200")}>Current Runtime Status</p>
                         <ul className={cn("mt-2 space-y-1 text-[11px] leading-4", isLight ? "text-emerald-900" : "text-emerald-100")}>
                           {phantomRuntimeStatus.map((item) => (
@@ -1089,7 +1089,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                 {!phantomSetup.providerSupportedContext && (
                   <div className={cn(
                     "rounded-lg border p-3 text-xs",
-                    isLight ? "border-amber-200 bg-amber-50 text-amber-800" : "border-amber-500/30 bg-amber-500/10 text-amber-200",
+                    "ig-note ig-note--warn",
                   )}>
                     {phantomSetup.providerContextReason || "Phantom wallet connect requires a top-level https or localhost page."} Click <span className="font-mono">Open in Browser</span> to continue in a standard browser window.
                   </div>
@@ -1098,7 +1098,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
 	                {phantomSetup.providerSupportedContext && !phantomSetup.providerInstalled && (
 	                  <div className={cn(
 	                    "rounded-lg border p-3 text-xs",
-	                    isLight ? "border-amber-200 bg-amber-50 text-amber-800" : "border-amber-500/30 bg-amber-500/10 text-amber-200",
+	                    "ig-note ig-note--warn",
 	                  )}>
 	                    Phantom is not detected in this browser profile. If it is already installed in Chrome, open the Phantom extension menu and allow site access on <span className="font-mono">localhost</span> or <span className="font-mono">all sites</span>, then click <span className="font-mono">Refresh Detection</span>. If it is not installed yet, click <span className="font-mono">Install Phantom</span>.
 	                  </div>
@@ -1142,8 +1142,8 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                   <button
                     onClick={polymarketSetup.openPolymarketWorkspace}
                     className={cn(
-                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5",
-                      isLight ? "border-[#d5dce8] bg-[#f4f7fd] text-s-80 hover:bg-white" : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                      "pixel-btn",
+                      "pixel-btn--ghost",
                     )}
                   >
                     Open Trading Workspace
@@ -1152,10 +1152,10 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     onClick={settings.polymarket.connected ? polymarketSetup.disconnectPolymarket : polymarketSetup.connectPolymarket}
                     disabled={isSavingTarget !== null}
                     className={cn(
-                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn",
                       settings.polymarket.connected
-                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
-                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                        ? "pixel-btn--red"
+                        : "pixel-btn--teal",
                     )}
                   >
                     {settings.polymarket.connected ? "Disconnect" : "Connect"}
@@ -1164,7 +1164,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
               </div>
 
               <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto no-scrollbar pr-1">
-                <div className={cn("rounded-lg border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
+                <div className={cn("rounded-lg border p-3 home-spotlight-card home-border-glow", "ig-tile")}>
                   <p className={cn("text-xs uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Binding Status</p>
                   <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[1.2fr,1fr]">
                     <div className="space-y-1 text-[11px] leading-4">
@@ -1188,7 +1188,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                       </p>
                     </div>
                     <div className="grid grid-cols-1 gap-3">
-                      <div className={cn("rounded-lg border p-3", isLight ? "border-[#d5dce8] bg-white/80" : "border-white/10 bg-black/20")}>
+                      <div className={cn("rounded-lg border p-3", "ig-tile")}>
                         <div className="flex items-center justify-between gap-3">
                           <div>
                             <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Live Trading</p>
@@ -1202,7 +1202,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                           />
                         </div>
                       </div>
-                      <div className={cn("rounded-lg border p-3", isLight ? "border-emerald-200 bg-emerald-50" : "border-emerald-500/20 bg-emerald-500/10")}>
+                      <div className={cn("rounded-lg border p-3", "ig-note ig-note--ok")}>
                         <p className={cn("text-[11px] font-medium uppercase tracking-[0.14em]", isLight ? "text-emerald-800" : "text-emerald-200")}>Runtime Exposure</p>
                         <ul className={cn("mt-2 space-y-1 text-[11px] leading-4", isLight ? "text-emerald-900" : "text-emerald-100")}>
                           <li>- Nova stores the Polymarket wallet binding, profile address, and live-trading toggle per user.</li>
@@ -1243,10 +1243,10 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     onClick={settings.spotify.connected ? (() => void spotifySetup.disconnectSpotify()) : spotifySetup.connectSpotify}
                     disabled={isSavingTarget !== null}
                     className={cn(
-                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn",
                       settings.spotify.connected
-                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
-                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                        ? "pixel-btn--red"
+                        : "pixel-btn--teal",
                     )}
                   >
                     {settings.spotify.connected ? "Disconnect" : "Connect"}
@@ -1322,7 +1322,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                       onClick={() => void spotifySetup.saveSpotifyConfig()}
                       disabled={isSavingTarget !== null}
                       className={cn(
-                        "h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent transition-colors hover:bg-accent-20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                        "pixel-btn pixel-btn--gold",
                       )}
                     >
                       <Save className="w-3.5 h-3.5" />
@@ -1332,7 +1332,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                       onClick={() => void spotifySetup.testSpotifyConnection()}
                       disabled={isSavingTarget !== null}
                       className={cn(
-                        "h-8 px-3 rounded-lg border border-emerald-300/40 bg-emerald-500/15 text-emerald-200 transition-colors hover:bg-emerald-500/20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                        "pixel-btn pixel-btn--teal",
                       )}
                     >
                       {isSavingTarget === "spotify-test" ? "Testing..." : "Test"}
@@ -1390,10 +1390,10 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     onClick={settings.youtube.connected ? (() => void youtubeSetup.disconnectYouTube()) : youtubeSetup.connectYouTube}
                     disabled={isSavingTarget !== null}
                     className={cn(
-                      "h-8 px-3 rounded-lg border transition-colors home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn",
                       settings.youtube.connected
-                        ? "border-rose-300/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/20"
-                        : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/20",
+                        ? "pixel-btn--red"
+                        : "pixel-btn--teal",
                     )}
                   >
                     {settings.youtube.connected ? "Disconnect" : "Connect"}
@@ -1402,7 +1402,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     onClick={() => void youtubeSetup.testYouTubeConnection()}
                     disabled={isSavingTarget !== null}
                     className={cn(
-                      "h-8 px-3 rounded-lg border border-emerald-300/40 bg-emerald-500/15 text-emerald-200 transition-colors hover:bg-emerald-500/20 home-spotlight-card home-border-glow inline-flex items-center gap-1.5 disabled:opacity-60",
+                      "pixel-btn pixel-btn--teal",
                     )}
                   >
                     {isSavingTarget === "youtube-test" ? "Testing..." : "Test"}
@@ -1414,13 +1414,13 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                 {!gmailHasCredentials && (
                   <div className={cn(
                     "rounded-lg border p-3 text-xs",
-                    isLight ? "border-amber-200 bg-amber-50 text-amber-800" : "border-amber-500/30 bg-amber-500/10 text-amber-200",
+                    "ig-note ig-note--warn",
                   )}>
                     YouTube uses your Gmail OAuth app credentials. Configure Gmail Client ID and Secret in Gmail Setup first.
                   </div>
                 )}
 
-                <div className={cn("rounded-lg border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
+                <div className={cn("rounded-lg border p-3 home-spotlight-card home-border-glow", "ig-tile")}>
                   <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>
                     Connection
                   </p>
@@ -1439,12 +1439,12 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                 </div>
 
                 {settings.youtube.connected && (
-                  <div className={cn("rounded-lg border p-3", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
+                  <div className={cn("rounded-lg border p-3", "ig-tile")}>
                     <p className={cn("text-[11px] mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>
                       YouTube Permissions
                     </p>
                     <div className="space-y-2">
-                      <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", isLight ? "border-[#d5dce8] bg-white/70" : "border-white/10 bg-black/20")}>
+                      <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
                         <div>
                           <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Home Feed</p>
                           <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to load personalized or source-weighted YouTube feed results.</p>
@@ -1456,7 +1456,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                           onChange={(checked) => void youtubeSetup.updateYouTubePermissions({ allowFeed: checked })}
                         />
                       </div>
-                      <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", isLight ? "border-[#d5dce8] bg-white/70" : "border-white/10 bg-black/20")}>
+                      <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
                         <div>
                           <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Search</p>
                           <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to search YouTube videos and channels for this user.</p>
@@ -1468,7 +1468,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                           onChange={(checked) => void youtubeSetup.updateYouTubePermissions({ allowSearch: checked })}
                         />
                       </div>
-                      <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", isLight ? "border-[#d5dce8] bg-white/70" : "border-white/10 bg-black/20")}>
+                      <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
                         <div>
                           <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Video Details</p>
                           <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to fetch metadata such as duration, views, and channel details.</p>

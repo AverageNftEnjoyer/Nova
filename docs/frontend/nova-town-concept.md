@@ -65,6 +65,8 @@ Each building evokes its integration through colour and theme, never by copying 
 | Phantom | Purple vault | Crypto prices |
 | Polymarket | Trading floor or odds parlour | Polymarket module |
 
+**Shipped map (daytime painting, `background.webp`):** the live Home maps each place onto the painting in `hud/components/pixel-city/district/image-plan.ts`: Telegraph = pipe-and-train hall, Arcade = blue spiked hall, Cowork = orange arches, Lab = garden lab with the tank, Studio = terracotta domes, Observatory = red orb tower, Gemini Tower = green terraced tower, Records = red spotted dome, Cinema = purple dome, Post Office = red hall, Clock Tower = spire, Library = statue plaza, Bank = red bridge hall, Vault = cave on the south jetty, Odds Parlour = the dome market. A connected integration's building carries a lit green lamp. Civic: Nova HQ = arched gate, Depot = harbour office, Power Plant = rocket tower, Noticeboard = glasshouse, Town Hall = silver hall, Fountain Park = round fountain. News has no building yet.
+
 **States:**
 - **Not connected:** an empty lot with a "coming soon" sign. Clicking it opens that integration's setup.
 - **Just connected:** the building goes up with a short construction animation (scaffolding, then reveal) that plays once.

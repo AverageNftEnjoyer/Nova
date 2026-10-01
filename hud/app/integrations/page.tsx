@@ -13,7 +13,7 @@ import {
 import { cn } from "@/lib/shared/utils"
 import { getRuntimeTimezone } from "@/lib/shared/timezone"
 import { LOCAL_API_UNAUTHORIZED_MESSAGE } from "@/lib/shared/local-api-auth"
-import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor, type UserProfile } from "@/lib/settings/userSettings"
+import { USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor, type UserProfile } from "@/lib/settings/userSettings"
 import { loadIntegrationsSettings, saveIntegrationsSettings, type IntegrationsSettings, type LlmProvider } from "@/lib/integrations/store/client-store"
 import { normalizePolymarketIntegrationConfig } from "@/lib/integrations/polymarket/types"
 import { connectPolymarketWallet } from "@/lib/integrations/polymarket/browser"
@@ -21,11 +21,9 @@ import { FluidSelect } from "@/components/ui/fluid-select"
 import { SettingsModal } from "@/components/settings/settings-modal"
 import { useNovaState } from "@/lib/chat/hooks/useNovaState"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
-import { usePageActive } from "@/lib/hooks/use-page-active"
 import { useTownProgress } from "@/app/home/hooks/use-town-progress"
 import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, NewsIcon, OpenAIIcon, PhantomIcon, PolymarketIcon, SlackIcon, SpotifyIcon, TelegramIcon, XAIIcon, YouTubeIcon } from "@/components/icons"
 import { NOVA_VERSION } from "@/lib/meta/version"
-import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
 import { writeShellUiCache } from "@/lib/settings/shell-ui-cache"
 import { formatCompactModelLabelFromIntegrations } from "@/lib/integrations/llm/model-label"
 
@@ -85,9 +83,9 @@ function IntegrationsPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const requestedSetup = readIntegrationSetupParam(searchParams.get("setup"))
-  const pageActive = usePageActive()
-  // The pixel city is always night (like the Home District), so the modules below always get their night face.
-  const isLight = false
+  // The setup modules are dark-surface components: they sit on the Day theme's indigo inset (--px-bg), so they always
+  // get their on-dark classes. (Day tokens do the colouring; this is not a light/dark page switch.)
+  const onDarkSurface = false
   const { progress: townProgress } = useTownProgress()
   const { state: novaState, connected: agentConnected } = useNovaState()
 
@@ -120,7 +118,7 @@ function IntegrationsPageContent() {
   )
   const [showCoinbaseApiSecret, setShowCoinbaseApiSecret] = useState(false)
   const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
-  const [orbColor, setOrbColor] = useState<OrbColor>("white")
+  const [, setOrbColor] = useState<OrbColor>("white")
   const [profile, setProfile] = useState<UserProfile>({
     name: "User",
     avatar: null,
@@ -678,8 +676,6 @@ function IntegrationsPageContent() {
     [activeSetup]
   )
 
-  const orbPalette = ORB_COLORS[orbColor]
-
   const panelClass = "ig-panel"
   const subPanelClass = "ig-sub"
   const panelStyle: CSSProperties | undefined = undefined
@@ -831,48 +827,48 @@ function IntegrationsPageContent() {
     geminiSetup,
   })
   return (
-    <div className="ig-root pixel-night">
+    <div className="ig-root">
       <div className="ig-scroll">
         <div className="ig-page">
-          <SaveStatusToast status={saveStatus} isLight={isLight} />
+          <SaveStatusToast status={saveStatus} isLight={onDarkSurface} />
 
-          <header ref={topHeaderRef} className="ig-header">
-            <button
-              onClick={() => router.push("/home")}
-              className="ig-orb"
-              aria-label="Go to home"
-            >
-              <NovaOrbIndicator
-                palette={orbPalette}
-                size={30}
-                animated={pageActive}
-              />
-            </button>
-            <div className="min-w-0">
-              <div className="flex items-baseline gap-3">
-                <h1 className="ig-wordmark">NovaAIO</h1>
-                <p className="ig-version">{NOVA_VERSION}</p>
+          <section className="ig-frame pixel-frame" aria-labelledby="ig-title">
+            <header ref={topHeaderRef} className="ig-head">
+              <div className="ig-head-side">
+                <span className="pixel-plaque pixel-plaque--frame" title={presence.label}>
+                  <span className={cn("h-2.5 w-2.5 shrink-0", presence.dotClassName)} aria-hidden="true" />
+                  {presence.label}
+                </span>
+                <span className="pixel-plaque pixel-plaque--frame ig-version">NovaAIO {NOVA_VERSION}</span>
               </div>
-              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
-                <div className="inline-flex items-center gap-1.5">
-                  <span className={cn("h-2.5 w-2.5", presence.dotClassName)} aria-hidden="true" />
-                  <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", presence.textClassName)}>
-                    {presence.label}
-                  </span>
-                </div>
-                <p className="ig-subtitle">Town Hall / Integrations Hub</p>
+              <div className="ig-head-title">
+                <h1 id="ig-title" className="pixel-title ig-title">Integrations</h1>
+                <p className="pixel-label pixel-label--off ig-title-sub">Town Hall</p>
               </div>
-            </div>
-          </header>
+              <div className="ig-head-end">
+                <button
+                  type="button"
+                  onClick={() => router.push("/home")}
+                  className="pixel-close"
+                  aria-label="Go to home"
+                  title="Back to the city"
+                />
+              </div>
+            </header>
+
+            <p className="ig-caption">
+              <span className="pixel-plaque">{connectivityItems.length} buildings</span>
+              <span className="pixel-plaque">{connectivityItems.filter((item) => item.connected).length} connected</span>
+              <span className="ig-caption-hint">One building per integration. Pick one to set it up.</span>
+            </p>
 
           <div className="ig-grid">
           <div className="space-y-4">
           <section ref={connectivitySectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
             <div className="flex items-center gap-2 text-s-80">
               <Blocks className="w-4 h-4 text-accent" />
-              <h2 className="text-sm uppercase tracking-[0.22em] font-semibold text-slate-200">Nova City Buildings</h2>
+              <h2 className="text-sm uppercase tracking-[0.22em] font-semibold">Nova City Buildings</h2>
             </div>
-            <p className="text-xs mt-1 text-slate-400">One building per integration. Pick one to set it up.</p>
 
             <div className="ig-buildings-scroll mt-3 min-h-0 flex-1 overflow-y-auto no-scrollbar">
               <ConnectivityGrid
@@ -914,7 +910,7 @@ function IntegrationsPageContent() {
             panelStyle={panelStyle}
             panelClass={panelClass}
             moduleHeightClass={moduleHeightClass}
-            isLight={isLight}
+            isLight={onDarkSurface}
             subPanelClass={subPanelClass}
             settings={settings}
             isSavingTarget={isSavingTarget}
@@ -1043,7 +1039,7 @@ function IntegrationsPageContent() {
 
             <div className="mt-4 ig-sub p-3 home-spotlight-card home-border-glow">
               <p className="text-xs mb-2 uppercase tracking-[0.14em] text-slate-400">Active LLM Provider</p>
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center">
+              <div className="grid grid-cols-1 gap-2">
                 <FluidSelect
                   value={activeLlmProvider}
                   onChange={(v) => saveActiveProvider(v as LlmProvider)}
@@ -1053,7 +1049,7 @@ function IntegrationsPageContent() {
                     { value: "grok", label: "Grok" },
                     { value: "gemini", label: "Gemini" },
                   ]}
-                  isLight={isLight}
+                  isLight={onDarkSurface}
                 />
                 <span className="text-[11px] text-slate-400">
                   {isSavingTarget === "provider" ? "Switching..." : "One provider live at a time"}
@@ -1097,6 +1093,7 @@ function IntegrationsPageContent() {
             </ul>
           </section>
         </div>
+          </section>
         </div>
       </div>
       <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />

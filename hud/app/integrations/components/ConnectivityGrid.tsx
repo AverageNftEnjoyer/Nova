@@ -43,7 +43,8 @@ export function ConnectivityGrid({ activeSetup, onSelect, townBuildings, items }
             <button
               type="button"
               onClick={() => onSelect(item.key)}
-              className="ig-building"
+              className="pixel-card ig-building"
+              data-state={activeSetup === item.key ? "active" : undefined}
               data-active={activeSetup === item.key}
               data-connected={item.connected}
               style={{ "--ig-sign": INTEGRATION_SIGN_COLORS[item.key] } as CSSProperties}
@@ -58,9 +59,8 @@ export function ConnectivityGrid({ activeSetup, onSelect, townBuildings, items }
                 </span>
               </span>
               <span className="ig-building-meta">
-                <span className="ig-building-label">{label}</span>
-                <span className="ig-building-state" data-connected={item.connected}>
-                  <span className="ig-building-light" aria-hidden="true" />
+                <span className="ig-building-label pixel-outline-sm">{label}</span>
+                <span className={item.connected ? "pixel-label pixel-label--ok" : "pixel-label pixel-label--off"}>
                   {item.connected ? "Connected" : "Not connected"}
                 </span>
                 <span className="ig-building-level">
@@ -69,7 +69,7 @@ export function ConnectivityGrid({ activeSetup, onSelect, townBuildings, items }
                       <span key={pip} className="ig-building-pip" data-on={building ? building.level >= pip : false} />
                     ))}
                   </span>
-                  <span className="ig-building-lv">{building ? `LV ${building.level}` : "LV —"}</span>
+                  <span className="ig-building-lv pixel-label">{building ? `LV ${building.level}` : "LV —"}</span>
                 </span>
                 <span className="ig-building-uses">{usesText}</span>
               </span>
