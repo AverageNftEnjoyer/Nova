@@ -150,7 +150,7 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks 
 
   if (!task) {
     return (
-      <PixelWindow place="Nova agent" role="Gone" size="sm" onClose={onClose} actions={openTasks}>
+      <PixelWindow place="Nova agent" theme="agent" role="Gone" size="sm" onClose={onClose} actions={openTasks}>
         <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center" role="status">
           <p className="font-pixel text-[14px] text-(--px-muted)">This agent&apos;s task no longer exists.</p>
           <button type="button" onClick={onOpenTasks} className="pixel-chip h-8! px-3! text-[13px]!">
@@ -219,147 +219,149 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks 
   const input = "h-8 w-24 border-2 border-(--px-border) bg-(--px-bg) px-2 font-pixel text-[13px] tabular-nums text-(--px-text) outline-none focus:border-(--px-accent)"
 
   return (
-    <PixelWindow place="Nova agent" role={where.place} size="md" onClose={onClose} actions={openTasks}>
-      <div className={cn("game-scroll flex h-full min-h-0 flex-col gap-2 overflow-y-auto pr-1", busy && "opacity-70")} aria-busy={busy}>
-        <div className="flex gap-3">
-          <AgentPortrait workplace={workplace} />
-          <div className="min-w-0 flex-1">
-            <h3 className="line-clamp-2 font-pixel text-[17px] leading-tight text-(--px-text)" title={name}>
-              {name}
-            </h3>
-            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-pixel text-[13px]">
-              <span className={cn("game-tag", STATUS_COLOR[task.status])}>{STATUS_LABEL[task.status]}</span>
-              <span className="truncate text-(--px-muted)">
-                {task.agent} · {task.model}
-              </span>
-            </p>
-            <p className="mt-1.5 font-pixel text-[13px] leading-snug text-(--px-text)">{where.why}</p>
-            <div className="mt-2 flex items-center gap-2">
-              <GameBar value={task.progress / 100} tone={task.status === "completed" ? "done" : "quest"} label="Task progress" className="flex-1" />
-              <span className="w-10 shrink-0 text-right font-pixel text-[12px] tabular-nums text-(--px-muted)">{Math.round(task.progress)}%</span>
+    <PixelWindow place="Nova agent" theme="agent" role={where.place} size="md" onClose={onClose} actions={openTasks}>
+      <div className={cn("flex h-full min-h-0 flex-col gap-2", busy && "opacity-70")} aria-busy={busy}>
+        <div className="game-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
+          <div className="flex gap-3">
+            <AgentPortrait workplace={workplace} />
+            <div className="min-w-0 flex-1">
+              <h3 className="line-clamp-2 font-pixel text-[17px] leading-tight text-(--px-text)" title={name}>
+                {name}
+              </h3>
+              <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-pixel text-[13px]">
+                <span className={cn("game-tag", STATUS_COLOR[task.status])}>{STATUS_LABEL[task.status]}</span>
+                <span className="truncate text-(--px-muted)">
+                  {task.agent} · {task.model}
+                </span>
+              </p>
+              <p className="mt-1.5 font-pixel text-[13px] leading-snug text-(--px-text)">{where.why}</p>
+              <div className="mt-2 flex items-center gap-2">
+                <GameBar value={task.progress / 100} tone={task.status === "completed" ? "done" : "quest"} label="Task progress" className="flex-1" />
+                <span className="w-10 shrink-0 text-right font-pixel text-[12px] tabular-nums text-(--px-muted)">{Math.round(task.progress)}%</span>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="grid grid-cols-3 gap-2">
-          <div className="pixel-subpanel px-2 py-1.5">
-            <p className="pixel-label text-(--px-muted)">Tokens</p>
-            <p className="font-pixel text-[15px] tabular-nums text-(--px-text)" title={`${task.tokensIn.toLocaleString("en-US")} in · ${task.tokensOut.toLocaleString("en-US")} out`}>
-              {formatTokens(task.tokensIn + task.tokensOut)}
-            </p>
-          </div>
-          <div className="pixel-subpanel px-2 py-1.5">
-            <p className="pixel-label text-(--px-muted)">Cost</p>
-            <p className="font-pixel text-[15px] tabular-nums text-(--px-text)">{formatCost(spend.spentUsd)}</p>
-          </div>
-          <div className="pixel-subpanel px-2 py-1.5">
-            <p className="pixel-label text-(--px-muted)">Budget</p>
-            <p
-              className={cn("font-pixel text-[13px] leading-tight", task.budgetState === "ok" ? "text-(--px-text)" : task.budgetState === "exhausted" ? "text-(--px-red)" : "text-(--px-accent)")}
-              title={budget.active ? `${Math.round(Math.min(1, share) * 100)}% used` : undefined}
-            >
-              {budget.active ? BUDGET_LABEL[task.budgetState] : "No limit"}
-            </p>
-            {budget.active ? (
-              <p className="font-pixel text-[11px] tabular-nums text-(--px-muted)">
-                {budget.costUsd !== null ? `${formatCost(spend.spentUsd)} / ${formatCost(budget.costUsd)}` : null}
-                {budget.costUsd !== null && budget.tokens !== null ? " · " : null}
-                {budget.tokens !== null ? `${formatTokens(spend.spentTokens)} / ${formatTokens(budget.tokens)}` : null}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="pixel-subpanel px-2 py-1.5">
+              <p className="pixel-label text-(--px-muted)">Tokens</p>
+              <p className="font-pixel text-[15px] tabular-nums text-(--px-text)" title={`${task.tokensIn.toLocaleString("en-US")} in · ${task.tokensOut.toLocaleString("en-US")} out`}>
+                {formatTokens(task.tokensIn + task.tokensOut)}
               </p>
-            ) : null}
+            </div>
+            <div className="pixel-subpanel px-2 py-1.5">
+              <p className="pixel-label text-(--px-muted)">Cost</p>
+              <p className="font-pixel text-[15px] tabular-nums text-(--px-text)">{formatCost(spend.spentUsd)}</p>
+            </div>
+            <div className="pixel-subpanel px-2 py-1.5">
+              <p className="pixel-label text-(--px-muted)">Budget</p>
+              <p
+                className={cn("font-pixel text-[13px] leading-tight", task.budgetState === "ok" ? "text-(--px-text)" : task.budgetState === "exhausted" ? "text-(--px-red)" : "text-(--px-accent)")}
+                title={budget.active ? `${Math.round(Math.min(1, share) * 100)}% used` : undefined}
+              >
+                {budget.active ? BUDGET_LABEL[task.budgetState] : "No limit"}
+              </p>
+              {budget.active ? (
+                <p className="font-pixel text-[11px] tabular-nums text-(--px-muted)">
+                  {budget.costUsd !== null ? `${formatCost(spend.spentUsd)} / ${formatCost(budget.costUsd)}` : null}
+                  {budget.costUsd !== null && budget.tokens !== null ? " · " : null}
+                  {budget.tokens !== null ? `${formatTokens(spend.spentTokens)} / ${formatTokens(budget.tokens)}` : null}
+                </p>
+              ) : null}
+            </div>
           </div>
+
+          {approval ? (
+            <Section title="Needs your approval">
+              <p className="font-pixel text-[14px] text-(--px-text)">
+                Wants to run <span className="text-(--px-accent)">{approval.toolName}</span>
+              </p>
+              {approval.reason ? <p className="mt-0.5 font-pixel text-[13px] leading-snug text-(--px-muted)">{approval.reason}</p> : null}
+            </Section>
+          ) : null}
+
+          {budgetPaused ? (
+            <Section title="Paused for budget">
+              <p className="font-pixel text-[13px] leading-snug text-(--px-muted)">
+                {headroom ? "Resume restarts the task; steps that already had side effects are not repeated." : "Its budget is spent: raise it to resume. Raising restarts the task."}
+              </p>
+              {raiseOpen ? (
+                <form onSubmit={(event) => void submitRaise(event)} className="mt-2 flex flex-wrap items-center gap-2">
+                  {budget.costUsd !== null || budget.tokens === null ? (
+                    <label className="flex items-center gap-1 font-pixel text-[13px] text-(--px-muted)">
+                      $
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min={0.01}
+                        max={MAX_COST_BUDGET_USD}
+                        step={0.01}
+                        value={raiseCost}
+                        onChange={(event) => setRaiseCost(event.target.value)}
+                        aria-label="New cost budget in USD"
+                        placeholder="Cost"
+                        className={input}
+                      />
+                    </label>
+                  ) : null}
+                  {budget.tokens !== null || budget.costUsd === null ? (
+                    <label className="flex items-center gap-1 font-pixel text-[13px] text-(--px-muted)">
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={1_000}
+                        max={MAX_TOKEN_BUDGET}
+                        step={1_000}
+                        value={raiseTokens}
+                        onChange={(event) => setRaiseTokens(event.target.value)}
+                        aria-label="New token budget"
+                        placeholder="Tokens"
+                        className={input}
+                      />
+                      tok
+                    </label>
+                  ) : null}
+                  <button type="submit" disabled={busy} className={chip}>
+                    Raise &amp; resume
+                  </button>
+                  <button type="button" disabled={busy} onClick={() => setRaiseOpen(false)} className={chip}>
+                    Cancel
+                  </button>
+                </form>
+              ) : null}
+            </Section>
+          ) : null}
+
+          <Section title={totalTools > recentTools.length ? `Recent tool calls (last ${recentTools.length} of ${totalTools})` : "Tool calls"}>
+            {recentTools.length === 0 ? (
+              <p className="font-pixel text-[13px] text-(--px-muted)">None yet.</p>
+            ) : (
+              <ol className="flex flex-wrap gap-1.5">
+                {recentTools.map((tool, index) => (
+                  <li
+                    key={`${tool}-${index}`}
+                    className={cn("border-2 border-(--px-border) bg-(--px-bg) px-1.5 py-0.5 font-pixel text-[12px]", index === 0 ? "text-(--px-accent-2)" : "text-(--px-muted)")}
+                    title={index === 0 ? "Latest" : undefined}
+                  >
+                    {tool}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </Section>
+
+          {task.error && !budgetPaused ? (
+            <Section title="Error">
+              <p className="line-clamp-4 whitespace-pre-wrap font-pixel text-[13px] leading-snug text-(--px-red)">{task.error}</p>
+            </Section>
+          ) : null}
+
+          {task.result ? (
+            <Section title="Result">
+              <p className="max-h-40 overflow-y-auto whitespace-pre-wrap font-pixel text-[13px] leading-snug text-(--px-text)">{task.result}</p>
+            </Section>
+          ) : null}
         </div>
-
-        {approval ? (
-          <Section title="Needs your approval">
-            <p className="font-pixel text-[14px] text-(--px-text)">
-              Wants to run <span className="text-(--px-accent)">{approval.toolName}</span>
-            </p>
-            {approval.reason ? <p className="mt-0.5 font-pixel text-[13px] leading-snug text-(--px-muted)">{approval.reason}</p> : null}
-          </Section>
-        ) : null}
-
-        {budgetPaused ? (
-          <Section title="Paused for budget">
-            <p className="font-pixel text-[13px] leading-snug text-(--px-muted)">
-              {headroom ? "Resume restarts the task; steps that already had side effects are not repeated." : "Its budget is spent: raise it to resume. Raising restarts the task."}
-            </p>
-            {raiseOpen ? (
-              <form onSubmit={(event) => void submitRaise(event)} className="mt-2 flex flex-wrap items-center gap-2">
-                {budget.costUsd !== null || budget.tokens === null ? (
-                  <label className="flex items-center gap-1 font-pixel text-[13px] text-(--px-muted)">
-                    $
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      min={0.01}
-                      max={MAX_COST_BUDGET_USD}
-                      step={0.01}
-                      value={raiseCost}
-                      onChange={(event) => setRaiseCost(event.target.value)}
-                      aria-label="New cost budget in USD"
-                      placeholder="Cost"
-                      className={input}
-                    />
-                  </label>
-                ) : null}
-                {budget.tokens !== null || budget.costUsd === null ? (
-                  <label className="flex items-center gap-1 font-pixel text-[13px] text-(--px-muted)">
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      min={1_000}
-                      max={MAX_TOKEN_BUDGET}
-                      step={1_000}
-                      value={raiseTokens}
-                      onChange={(event) => setRaiseTokens(event.target.value)}
-                      aria-label="New token budget"
-                      placeholder="Tokens"
-                      className={input}
-                    />
-                    tok
-                  </label>
-                ) : null}
-                <button type="submit" disabled={busy} className={chip}>
-                  Raise &amp; resume
-                </button>
-                <button type="button" disabled={busy} onClick={() => setRaiseOpen(false)} className={chip}>
-                  Cancel
-                </button>
-              </form>
-            ) : null}
-          </Section>
-        ) : null}
-
-        <Section title={totalTools > recentTools.length ? `Recent tool calls (last ${recentTools.length} of ${totalTools})` : "Tool calls"}>
-          {recentTools.length === 0 ? (
-            <p className="font-pixel text-[13px] text-(--px-muted)">None yet.</p>
-          ) : (
-            <ol className="flex flex-wrap gap-1.5">
-              {recentTools.map((tool, index) => (
-                <li
-                  key={`${tool}-${index}`}
-                  className={cn("border-2 border-(--px-border) bg-(--px-bg) px-1.5 py-0.5 font-pixel text-[12px]", index === 0 ? "text-(--px-accent-2)" : "text-(--px-muted)")}
-                  title={index === 0 ? "Latest" : undefined}
-                >
-                  {tool}
-                </li>
-              ))}
-            </ol>
-          )}
-        </Section>
-
-        {task.error && !budgetPaused ? (
-          <Section title="Error">
-            <p className="line-clamp-4 whitespace-pre-wrap font-pixel text-[13px] leading-snug text-(--px-red)">{task.error}</p>
-          </Section>
-        ) : null}
-
-        {task.result ? (
-          <Section title="Result">
-            <p className="max-h-40 overflow-y-auto whitespace-pre-wrap font-pixel text-[13px] leading-snug text-(--px-text)">{task.result}</p>
-          </Section>
-        ) : null}
 
         {error ? (
           <p className="font-pixel text-[13px] text-(--px-red)" role="alert">
@@ -367,7 +369,7 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks 
           </p>
         ) : null}
 
-        <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t-2 border-(--px-border) pt-2">
           {approval ? (
             <button type="button" disabled={busy} onClick={() => void act("play")} className={chip}>
               <ShieldCheck className="h-4 w-4" />
@@ -414,7 +416,7 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks 
           {canStop ? (
             <button type="button" disabled={busy} onClick={() => void act("stop")} className={chip}>
               <Square className="h-4 w-4" />
-              {budgetPaused ? "Abort" : "Cancel"}
+              {budgetPaused ? "Abort" : "Stop"}
             </button>
           ) : null}
           <button type="button" onClick={onOpenTasks} className={cn(chip, "ml-auto")}>

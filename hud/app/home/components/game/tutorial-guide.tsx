@@ -179,6 +179,7 @@ export function TutorialGuide({ progress, assistantName, hotspots, minimized, on
                 <p className="font-pixel text-[15px] leading-snug text-(--px-text)">
                   Nice work! <span className="text-(--px-green)">{done.title}</span> is done.{" "}
                   <span className="text-(--px-accent)">+{formatXp(done.xpReward)} XP</span>
+                  {done.townsfolkReward ? <span className="text-(--px-green)"> · +{done.townsfolkReward} townsfolk</span> : null}
                 </p>
                 {current ? <p className="font-pixel text-[13px] text-(--px-muted)">Next up: {current.title}</p> : null}
               </>
@@ -201,6 +202,7 @@ export function TutorialGuide({ progress, assistantName, hotspots, minimized, on
                 ) : null}
                 <p className="font-pixel text-[12px] text-(--px-muted)">
                   Reward <span className="text-(--px-accent)">+{formatXp(current.xpReward)} XP</span>
+                  {current.townsfolkReward ? <span className="text-(--px-green)"> · +{current.townsfolkReward} townsfolk</span> : null}
                 </p>
               </>
             ) : (
