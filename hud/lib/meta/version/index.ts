@@ -10,6 +10,12 @@
  *
  * Version History:
  *
+ * - V.83 Alpha (2026-10-01): Nova City becomes a game
+ *     - Progression: `GET /api/town` / `POST /api/town/ack` (`hud/lib/town/`) turn real Nova activity into XP, levels (Hamlet -> Village -> Town -> City -> Metropolis -> Megacity -> Skyline Capital), building levels 0-3 per integration, population, and quests: an 8-step tutorial, milestone series, per-integration quests and daily quests in the viewer's time zone. Counts never go down; what was already celebrated, quest completion times and tutorial state live in `kv_state` namespace `town-progress`. `npm run smoke:town` covers the XP math, events, tutorial and daily rollover.
+ *     - Game UI (`hud/app/home/components/game/`): level badge and XP bar beside the wordmark, a Quests chip and quest log (Tutorial / Daily / Milestones / Buildings, each quest with a Go button), a first-run tutorial where Nova points at the building to use and follows the camera, one-time level-up banners and quest toasts, and a Progress tab in the Town Hall. Quests that teach skills open Settings on Skills.
+ *     - Camera: drag or touch to pan, wheel / pinch / +- to zoom, 0 to recenter, zoom and recenter buttons above the player bar. Every building is reachable at any window size (1024x768 to 4K and ultrawide); tabbing to an off-screen building pans to it.
+ *     - People: new PixelLab townsfolk (6), role-dressed Nova agents (6) and Nova the cat, drawn at the painting's pixel density with 8 directions and a 6-frame walk. Walk routes stay on visible paving; foreground structures (arcade, arch, clock tower, viaduct, shelter, lamps...) now hide walkers behind them. Building hit areas, signs and anchors re-checked against the painting.
+ *
  * - V.82 Alpha (2026-09-28): Nova City people match the painting
  *     - Walkers are drawn on the night painting's own 2px grid (`district/people.ts`) instead of the separate character sheets. Townsfolk wear the city's coat colours. Each agent task is the same figure in a Nova suit with a cyan visor (a white coat at the Lab, a dark suit at the Bank and Odds Parlour). The floating "N" chip and white work bubble are gone; a paused, failed or queued agent keeps a small mark. Nova the cat on the park bench is drawn the same way.
  *     - The park path no longer crosses the clock tower: it comes down off the lantern deck onto the dirt path. The bus-shelter ticker is a glass strip instead of a black plate, and the painting's own signs are left as painted.
@@ -539,7 +545,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.82 Alpha"
+export const NOVA_VERSION = "V.83 Alpha"
 
 
 

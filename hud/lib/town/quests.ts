@@ -6,7 +6,14 @@
  */
 
 import { INTEGRATION_SETUP_KEYS, type IntegrationSetupKey } from "../integrations/navigation"
-import { LLM_PROVIDER_KEYS, MESSAGING_KEYS, buildingThresholds, type TownLifetimeCounts, type TownTodayCounts } from "./rules"
+import {
+  LLM_PROVIDER_KEYS,
+  MESSAGING_KEYS,
+  buildingThresholds,
+  townsfolkRewardFor,
+  type TownLifetimeCounts,
+  type TownTodayCounts,
+} from "./rules"
 import type { TownQuest, TownQuestCategory } from "./types"
 
 export interface TownQuestContext {
@@ -369,6 +376,15 @@ export function questRewardFor(id: string): number {
   return 0
 }
 
+/** Townsfolk a stored (non-daily) quest id brought to the city, or 0 when the id is not in the catalogue. */
+export function questTownsfolkFor(id: string): number {
+  if (questRewardFor(id) <= 0) return 0
+  if (TUTORIAL_BY_ID.has(id)) return townsfolkRewardFor("tutorial")
+  if (id.startsWith("milestone-")) return townsfolkRewardFor("milestone")
+  if (id.startsWith("integration-")) return townsfolkRewardFor("integration")
+  return 0
+}
+
 export interface QuestEvaluation {
   quests: TownQuest[]
   /** Quests whose goal is met now but that are not yet in `completedAt` (the caller records them). */
@@ -390,6 +406,7 @@ function evaluate(definition: QuestDefinition, ctx: TownQuestContext, completedA
     progress: done ? definition.goal : Math.min(raw, definition.goal),
     goal: definition.goal,
     xpReward: definition.xpReward,
+    townsfolkReward: townsfolkRewardFor(definition.category),
     ...(definition.target ? { target: definition.target } : {}),
     ...(done ? { completedAt: stored ?? nowIso } : {}),
   }

@@ -866,3 +866,167 @@ button.game-level-badge:focus-visible {
     display: none;
   }
 }
+
+/* ── Themed popup windows (one look per building) ─────────────────────────────
+   PixelWindow sets data-theme / data-material and the theme's tokens inline (hud/app/home/components/pixel/
+   window-themes.ts): --pw-accent (the building's sign colour), --pw-accent-2, --pw-sign (title board), --pw-line,
+   --pw-frame-base/light/dark and --pw-frame-tile (a small pixel tile of the frame material: brick, planks, stone,
+   steel, hazard, airmail, marquee bulbs, hedge). Same structure everywhere: material frame, sign board title bar,
+   plain body. Hard 2px offsets only, never a blur. */
+
+.pixel-window--themed {
+  gap: 8px;
+  padding: 10px;
+  background: var(--pw-frame-tile) 0 0 / var(--pw-frame-tile-size) repeat, var(--pw-frame-base);
+  image-rendering: pixelated;
+  border: 3px solid var(--pw-line);
+  box-shadow:
+    inset 2px 2px 0 0 color-mix(in srgb, var(--pw-frame-light) 70%, transparent),
+    inset -2px -2px 0 0 color-mix(in srgb, var(--pw-line) 70%, transparent);
+  animation: pixel-window-open 220ms steps(4) both;
+}
+
+.pixel-window--themed .pixel-window-titlebar {
+  position: relative;
+  height: 58px;
+  gap: 10px;
+  padding: 0 6px 0 4px;
+  background: var(--pw-sign);
+  border: 3px solid var(--pw-line);
+  /* The sign's tube: a 2px inner line in the neon colour, then a dark gap. */
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--pw-accent) 55%, var(--pw-sign)),
+    inset 0 0 0 4px var(--pw-sign);
+  image-rendering: auto;
+}
+
+.pixel-window--themed .pixel-window-body {
+  background: var(--px-bg);
+  border: 3px solid var(--pw-line);
+  box-shadow: inset 0 3px 0 0 color-mix(in srgb, var(--pw-line) 60%, var(--px-bg));
+  image-rendering: auto;
+}
+
+/* The building itself, cropped from the painting, in a framed picture at the left of the sign. */
+.pixel-window-vignette {
+  flex-shrink: 0;
+  outline: 2px solid var(--pw-line);
+  box-shadow: 0 0 0 4px var(--pw-frame-dark);
+  margin-left: 6px;
+}
+
+.pixel-window-sign {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pixel-window-emblem {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.pixel-window-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  font-size: 16px;
+  line-height: 1.15;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--pw-accent);
+  /* Neon tube depth: a hard darker copy under the letters. */
+  text-shadow: 2px 2px 0 color-mix(in srgb, var(--pw-accent) 30%, #000);
+  animation: pixel-window-sign-on 700ms steps(1) both;
+}
+
+.pixel-window-role {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding-left: 26px;
+  font-family: var(--font-pixel), ui-monospace, monospace;
+  font-size: 14px;
+  line-height: 1.1;
+  color: var(--px-muted);
+}
+
+/* A narrow sign (the small windows) keeps the place name whole: page buttons drop to their icon (their title says
+   where they go). */
+.pixel-window--themed .pixel-window-titlebar {
+  container-type: inline-size;
+}
+
+@container (max-width: 480px) {
+  .pixel-window-titlebar .pixel-chip > span {
+    display: none;
+  }
+}
+
+.pixel-window--themed .pixel-window-titlebar .pixel-chip {
+  border-color: color-mix(in srgb, var(--pw-accent) 45%, var(--pw-line));
+}
+
+.pixel-window--themed .pixel-window-titlebar .pixel-chip:hover,
+.pixel-window--themed .pixel-window-titlebar .pixel-chip:focus-visible {
+  border-color: var(--pw-accent);
+  color: var(--pw-accent);
+}
+
+/* Cinema: a row of marquee bulbs along the top of the sign that chase. */
+.pixel-window--themed[data-material="marquee"] .pixel-window-titlebar::after {
+  content: "";
+  position: absolute;
+  inset: 5px 8px auto;
+  height: 3px;
+  background: repeating-linear-gradient(90deg, var(--pw-accent-2) 0 3px, transparent 3px 9px);
+  animation: pixel-window-chase 900ms steps(3) infinite;
+  pointer-events: none;
+}
+
+/* Power Plant: a hazard strip under the sign. */
+.pixel-window--themed[data-material="hazard"] .pixel-window-titlebar::after {
+  content: "";
+  position: absolute;
+  inset: auto 4px 4px;
+  height: 3px;
+  background: repeating-linear-gradient(90deg, var(--pw-accent-2) 0 6px, var(--pw-line) 6px 12px);
+  pointer-events: none;
+}
+
+/* Airmail frame: the paper colour is light, so the frame gets a dark inner edge to keep the body's edge crisp. */
+.pixel-window--themed[data-material="airmail"] .pixel-window-body,
+.pixel-window--themed[data-material="airmail"] .pixel-window-titlebar {
+  outline: 2px solid var(--pw-line);
+}
+
+/* Opening: the window drops in like a shutter, in four hard steps. */
+@keyframes pixel-window-open {
+  0% { transform: scale(0.96, 0.08); }
+  50% { transform: scale(0.98, 0.6); }
+  100% { transform: none; }
+}
+
+/* The neon sign switches on with a stutter. */
+@keyframes pixel-window-sign-on {
+  0% { opacity: 0.15; }
+  30% { opacity: 1; }
+  45% { opacity: 0.3; }
+  60% { opacity: 1; }
+}
+
+@keyframes pixel-window-chase {
+  to { background-position: 9px 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pixel-window--themed,
+  .pixel-window-name,
+  .pixel-window--themed[data-material="marquee"] .pixel-window-titlebar::after {
+    animation: none;
+  }
+}

@@ -2,7 +2,8 @@ export { PixelCityScene, type CityHotspot } from "./pixel-city-scene"
 export { EMPTY_CITY_STATE } from "./types"
 export type { CityAgent, CityHotspotId, CityIntegration, CityPlaceId, CityPresence, CitySceneState, CityTaskLight, CityTickerItem, CityWeather, CityWorkplace } from "./types"
 export { workplaceForTools } from "./district/workplace"
-export { DISTRICT_PLACES } from "./district/image-plan"
+export { DISTRICT_PLACES, WORKPLACE_NAME } from "./district/image-plan"
+export { personSheetArt, agentLook } from "./district/people"
 
 import type { CityWeather } from "./types"
 

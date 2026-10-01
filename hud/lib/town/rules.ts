@@ -6,7 +6,7 @@
  */
 
 import { INTEGRATION_SETUP_KEYS, type IntegrationSetupKey } from "../integrations/navigation"
-import type { TownBuilding, TownLevel, TownXpSource } from "./types"
+import type { TownBuilding, TownLevel, TownQuestCategory, TownXpSource } from "./types"
 
 // ─── Stats snapshot ───────────────────────────────────────────────────────────
 
@@ -198,7 +198,28 @@ export function buildBuildings(
 
 export const MAX_POPULATION = 500
 
-/** Townsfolk: 2 per conversation, 1 per 5 messages sent, 3 per town level. */
-export function populationFor(counts: TownLifetimeCounts, level: number): number {
-  return Math.min(MAX_POPULATION, counts.conversations * 2 + Math.floor(counts.chatMessages / 5) + level * 3)
+/**
+ * Townsfolk who move in when a quest of each kind is completed; the quest log shows it as part of the reward.
+ * Bigger goals bring more people, a daily quest brings one.
+ */
+export const QUEST_TOWNSFOLK: Readonly<Record<TownQuestCategory, number>> = {
+  tutorial: 2,
+  daily: 1,
+  milestone: 4,
+  integration: 3,
+}
+
+export function townsfolkRewardFor(category: TownQuestCategory): number {
+  return QUEST_TOWNSFOLK[category]
+}
+
+/**
+ * Townsfolk: 2 per conversation, 1 per 5 messages sent, 3 per town level, plus everyone completed quests brought
+ * (`questTownsfolk`: QUEST_TOWNSFOLK summed over every completed quest, daily ones included).
+ */
+export function populationFor(counts: TownLifetimeCounts, level: number, questTownsfolk = 0): number {
+  return Math.min(
+    MAX_POPULATION,
+    counts.conversations * 2 + Math.floor(counts.chatMessages / 5) + level * 3 + Math.max(0, Math.floor(questTownsfolk)),
+  )
 }

@@ -8,7 +8,7 @@
 
 import { tx } from "../../../src/db/index.js"
 import { INTEGRATION_SETUP_KEYS, type IntegrationSetupKey } from "../integrations/navigation"
-import { evaluateQuests, integrationBuildingName, integrationLabel, questRewardFor, type TownQuestContext } from "./quests"
+import { evaluateQuests, integrationBuildingName, integrationLabel, questRewardFor, questTownsfolkFor, type TownQuestContext } from "./quests"
 import {
   TOWN_COUNT_KEYS,
   buildBuildings,
@@ -16,6 +16,7 @@ import {
   levelForXp,
   populationFor,
   titleForLevel,
+  townsfolkRewardFor,
   totalXp,
   type TownLifetimeCounts,
 } from "./rules"
@@ -159,11 +160,14 @@ export function buildTownProgress(userId: string, options: BuildTownProgressOpti
 
     let questsCompleted = 0
     let questXp = 0
+    // Completed quests also bring townsfolk; daily quests count by their running total.
+    let questTownsfolk = state.dailyCompleted * townsfolkRewardFor("daily")
     for (const id of Object.keys(state.quests)) {
       const reward = questRewardFor(id)
       if (reward <= 0) continue
       questsCompleted += 1
       questXp += reward
+      questTownsfolk += questTownsfolkFor(id)
     }
 
     const sources = computeXpSources(counts, connectedEver.size, {
@@ -244,7 +248,7 @@ export function buildTownProgress(userId: string, options: BuildTownProgressOpti
         currentQuestId: evaluation.currentTutorialQuestId,
         skipped: state.tutorial.skipped,
       },
-      population: populationFor(counts, level.level),
+      population: populationFor(counts, level.level, questTownsfolk),
       generatedAt: nowIso,
     }
     return result

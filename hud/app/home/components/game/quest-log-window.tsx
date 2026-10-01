@@ -39,6 +39,7 @@ export function QuestLogWindow({ town, onClose, onGo, onShowTutorial, onRestartT
   return (
     <PixelWindow
       place="Quest log"
+      theme="quest"
       role={progress ? `Level ${progress.level.level} · ${progress.level.title}` : "Quests"}
       size="md"
       onClose={onClose}
@@ -103,7 +104,14 @@ function QuestCard({ quest, onGo }: { quest: TownQuest; onGo: (quest: TownQuest)
           {QUEST_STATUS_LABEL[quest.status]}
         </span>
         <h3 className="min-w-0 flex-1 font-pixel text-[15px] leading-tight text-(--px-text)">{quest.title}</h3>
-        <span className="shrink-0 font-pixel text-[13px] tabular-nums text-(--px-accent)">+{formatXp(quest.xpReward)} XP</span>
+        <span className="flex shrink-0 flex-col items-end font-pixel text-[13px] leading-tight tabular-nums">
+          <span className="text-(--px-accent)">+{formatXp(quest.xpReward)} XP</span>
+          {quest.townsfolkReward ? (
+            <span className="text-[12px] text-(--px-accent-2)">
+              +{quest.townsfolkReward} townsfolk
+            </span>
+          ) : null}
+        </span>
       </div>
       <p className="mt-1 font-pixel text-[13px] leading-snug text-(--px-muted)">{quest.description}</p>
       <div className="mt-2 flex items-center gap-2">

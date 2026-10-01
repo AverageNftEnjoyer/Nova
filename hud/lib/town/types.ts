@@ -43,6 +43,8 @@ export interface TownQuest {
   progress: number
   goal: number
   xpReward: number
+  /** Townsfolk who move into Nova City when the quest is completed (QUEST_TOWNSFOLK in rules.ts). */
+  townsfolkReward?: number
   /** Where the quest is done: a Home place to highlight, or an app route to open. */
   target?: { place?: string; route?: string; integration?: IntegrationSetupKey }
   completedAt?: string
@@ -84,7 +86,7 @@ export interface TownProgress {
   /** Events not yet acknowledged (celebrate once, then POST /api/town/ack). */
   pendingEvents: TownEvent[]
   tutorial: TownTutorialState
-  /** Townsfolk the city can show, grown from real activity (conversations, level). */
+  /** Townsfolk the city can show, grown from real activity (conversations, level, completed quests). */
   population: number
   generatedAt: string
 }

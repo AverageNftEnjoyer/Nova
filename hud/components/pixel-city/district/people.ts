@@ -70,6 +70,14 @@ export function agentLook(workplace: CityWorkplace): PersonLook {
   return { sheet: ROLE_SHEET[workplace], agent: true }
 }
 
+/**
+ * A character sheet's URL plus its grid, for drawing one frame outside the canvas (the agent card's portrait):
+ * `cell` px cells, `columns` x `rows`, the standing south-facing frame at the top-left.
+ */
+export function personSheetArt(sheet: PersonSheet): { url: string; cell: number; columns: number; rows: number } {
+  return { url: `${SHEET_BASE}/${sheet}.png`, cell: CELL, columns: 1 + WALK_FRAMES, rows: 8 }
+}
+
 /** A stable townsperson for a walker id: the same id always gets the same person, and `folk-0`, `folk-1`, … take turns. */
 export function townsfolkLook(id: string): PersonLook {
   const index = /(\d+)$/.exec(id)

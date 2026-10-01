@@ -17,6 +17,11 @@ import { formatPct, formatUsdCompact, orderCryptoAssets } from "../components/cr
 import type { HomeCryptoAsset } from "./use-home-crypto-market"
 
 const TASK_FLOORS = 5
+/** Townsfolk on the streets: a small crowd for a new city, growing with its population, capped for the frame rate. */
+export const MIN_STREET_TOWNSFOLK = 6
+export const MAX_STREET_TOWNSFOLK = 48
+/** One walker on the street for every this many residents (on top of a base of 4). */
+const RESIDENTS_PER_WALKER = 2
 /** The city animates at most this many tasks; live and waiting work comes first, then the newest outcomes. */
 const MAX_STREET_AGENTS = 24
 /** Which tasks light the tower first: live work, then waiting work, then recent outcomes. */
@@ -62,6 +67,17 @@ export function agentsFor(tasks: readonly AgentTask[]): CityAgent[] {
     }))
 }
 
+/**
+ * How many townsfolk walk the streets for a real population (TownProgress.population). One walker per two residents
+ * on top of a base of four, between MIN_STREET_TOWNSFOLK and MAX_STREET_TOWNSFOLK, so each completed quest (one to
+ * four new residents) visibly adds people until the street is full. null while the population is unknown.
+ */
+export function townsfolkFor(population: number | null): number | null {
+  if (population === null || !Number.isFinite(population)) return null
+  const walkers = Math.round(4 + Math.max(0, population) / RESIDENTS_PER_WALKER)
+  return Math.min(MAX_STREET_TOWNSFOLK, Math.max(MIN_STREET_TOWNSFOLK, walkers))
+}
+
 export function tickerFor(assets: readonly HomeCryptoAsset[]): CityTickerItem[] {
   return orderCryptoAssets(assets)
     .filter((asset) => asset.price > 0)
@@ -81,6 +97,8 @@ interface CitySceneInput {
   cryptoAssets: readonly HomeCryptoAsset[]
   notesCount: number
   connectedIntegrations: readonly CityIntegration[]
+  /** TownProgress.population; null until the town's progress has loaded. */
+  population: number | null
 }
 
 /** Home's live data, reduced to what Nova City draws. Memoised on content so the scene only updates on change. */
@@ -94,6 +112,8 @@ export function useCitySceneState(input: CitySceneInput): CitySceneState {
   const connectedKey = input.connectedIntegrations.join(",")
   const presence = presenceFor(input.connected, input.novaState)
   const weather = cityWeatherFromCode(input.weatherCode)
+  const residents = input.population !== null && Number.isFinite(input.population) ? Math.max(0, Math.floor(input.population)) : null
+  const townsfolk = townsfolkFor(residents)
 
   return useMemo<CitySceneState>(
     () => ({
@@ -105,9 +125,11 @@ export function useCitySceneState(input: CitySceneInput): CitySceneState {
       notesCount: input.notesCount,
       agents: agentsKey ? agents : [],
       connectedIntegrations: connectedKey ? (connectedKey.split(",") as CityIntegration[]) : [],
+      townsfolk,
+      residents,
     }),
     // `ticker` and `agents` are rebuilt each render; their content is captured by tickerKey / agentsKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [weather, presence, taskKey, agentsKey, input.activeRuns, tickerKey, input.notesCount, connectedKey],
+    [weather, presence, taskKey, agentsKey, input.activeRuns, tickerKey, input.notesCount, connectedKey, townsfolk, residents],
   )
 }

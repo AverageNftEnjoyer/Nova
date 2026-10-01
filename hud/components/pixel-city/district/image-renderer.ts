@@ -44,7 +44,19 @@ import { CAT_HEIGHT, PERSON_HEIGHT, agentLook, drawCat as paintCat, drawPerson, 
  * figure per agent task).
  */
 
-const TOWNSFOLK = 14
+/** Townsfolk on the streets before the town's population is known (Home's smallest crowd). */
+const START_TOWNSFOLK = 6
+/** Hard cap on townsfolk, whatever the state asks for: every figure costs occlusion work each frame. */
+const MAX_TOWNSFOLK = 60
+/** Seconds between two new residents stepping out of their doors, so a quest's newcomers arrive one by one. */
+const ARRIVAL_GAP_SECONDS = 0.9
+/** Fade-in of a townsperson who appears (on first load) or steps out of a door. */
+const APPEAR_SECONDS = 0.8
+/** Doors townsfolk step out of when they move in, and walk back into when they leave. */
+const FOLK_DOORS: readonly WalkNodeId[] = ["stu", "arc", "cin", "odd", "lab", "cow", "tel", "bnk", "pwr", "shop", "obs", "dep"]
+/** Click boxes around a figure's feet (plan px): agents are generous, townsfolk a little tighter so buildings stay easy to hit. */
+const AGENT_HIT_HALF_WIDTH = 16
+const FOLK_HIT_HALF_WIDTH = 11
 const MAX_AGENTS = 12
 const MAX_BUSES = 3
 const WINDOW_CELL = 4
@@ -177,6 +189,13 @@ interface Walker {
   fade?: number
   /** Recent positions, newest last: the data trail behind a walking agent. */
   trail?: Point[]
+  /** When the figure started fading in (NaN: on the next frame). Unset for figures that never fade in. */
+  appear?: number
+}
+
+/** Where a walker is drawn: its path position nudged sideways by its lane, in whole plan pixels. */
+function drawnAt(w: Walker): Point {
+  return { x: Math.round(w.x + w.lane * 0.6), y: Math.round(w.y + w.lane * 0.3) }
 }
 
 function isHome(a: CityAgent): boolean {
@@ -191,9 +210,13 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
   private ready = false
   private state: CitySceneState = EMPTY_CITY_STATE
   private windows: Array<{ x: number; y: number }> = []
-  /** Each image sign with its neon switched off (bright pixels dimmed), shown when a disconnected sign flickers. */
-  private unlitSigns = new Map<SignRect, HTMLCanvasElement>()
   private walkers: Walker[] = []
+  /** Townsfolk the state asks for (null until the population is known). */
+  private townsfolkWanted: number | null = null
+  /** Next time (seconds) a new resident may step out of a door. */
+  private nextArrival = 0
+  /** Numbers new townsfolk, so each gets the next look in turn. */
+  private folkSeq = 0
   /** Structures redrawn over walkers standing behind them (see DISTRICT_OCCLUDERS). */
   private readonly occluders: OccluderClip[] = buildOccluders()
   private lastT = 0
@@ -220,7 +243,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     }
     img.src = DISTRICT_IMAGE_SRC
     loadPeopleArt()
-    for (let i = 0; i < TOWNSFOLK; i++) this.walkers.push(this.spawnTownsfolk(i))
+    for (let i = 0; i < START_TOWNSFOLK; i++) this.walkers.push(this.spawnTownsfolk())
   }
 
   /**
@@ -244,6 +267,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
   setState(next: CitySceneState): void {
     this.state = next
     this.syncAgents()
+    this.syncTownsfolk()
   }
 
   hotspots(): Partial<Record<CityPlaceId, CityRect>> {
@@ -252,12 +276,25 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     return out
   }
 
+  /**
+   * What is under plan point (x, y). People come first, front-most (lowest on screen) first: an agent always wins,
+   * even over a building's button; a townsperson only matters where no button takes the click (the scene decides).
+   */
   hitTest(x: number, y: number): CitySceneHit | null {
-    for (const w of this.walkers) {
-      if (w.kind !== "agent" || !w.agent || w.leaving) continue
-      if (Math.abs(x - w.x) <= 12 && y >= w.y - PERSON_HEIGHT && y <= w.y + 4) {
-        return { kind: "agent", id: w.agent.id, label: w.agent.name, detail: this.agentDetail(w), anchorX: w.x, anchorY: w.y - PERSON_HEIGHT - 4 }
-      }
+    const people = this.walkers
+      .filter((w) => !w.leaving && w.fade === undefined)
+      .map((w) => ({ w, at: drawnAt(w) }))
+      .sort((a, b) => b.at.y - a.at.y)
+    const over = (at: Point, halfWidth: number) => Math.abs(x - at.x) <= halfWidth && y >= at.y - PERSON_HEIGHT - 6 && y <= at.y + 6
+    for (const { w, at } of people) {
+      if (w.kind !== "agent" || !w.agent || !over(at, AGENT_HIT_HALF_WIDTH)) continue
+      return { kind: "agent", id: w.agent.id, label: w.agent.name, detail: this.agentDetail(w), anchorX: at.x, anchorY: at.y - PERSON_HEIGHT - 4 }
+    }
+    for (const { w, at } of people) {
+      if (w.kind !== "townsfolk" || !over(at, FOLK_HIT_HALF_WIDTH)) continue
+      // Still stepping out of a door: not clickable until it is mostly there.
+      if (w.appear !== undefined && !(this.lastT - w.appear >= APPEAR_SECONDS / 2)) continue
+      return { kind: "townsfolk", id: w.id, anchorX: at.x, anchorY: at.y - PERSON_HEIGHT - 4 }
     }
     for (let i = DISTRICT_PLACES.length - 1; i >= 0; i--) {
       const r = DISTRICT_PLACES[i].hit
@@ -273,8 +310,13 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     return this.seed / 2147483647
   }
 
-  private spawnTownsfolk(i: number): Walker {
-    const node = NODE_IDS[Math.floor(cellNoise(i, 3, 91) * NODE_IDS.length)]
+  /**
+   * A new townsperson. With no `door` it stands somewhere in the city already (the starting crowd; `appear` fades
+   * it in). From a door it steps out, fading in, and walks off into town.
+   */
+  private spawnTownsfolk(options: { door?: WalkNodeId; appear?: boolean } = {}): Walker {
+    const i = this.folkSeq++
+    const node = options.door ?? NODE_IDS[Math.floor(cellNoise(i, 3, 91) * NODE_IDS.length)]
     const p = pointOf(node)
     return {
       kind: "townsfolk",
@@ -290,7 +332,55 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
       lane: (cellNoise(i, 4, 91) - 0.5) * 10,
       moving: false,
       dir: 0,
+      ...(options.appear || options.door ? { appear: Number.NaN } : {}),
     }
+  }
+
+  // ── Townsfolk ───────────────────────────────────────────────────────────────
+
+  /**
+   * Matches the crowd to the population. The first known count fills the streets at once, fading in (the city has
+   * not been seen at that size yet); later growth arrives one resident at a time out of a door (admitTownsfolk), and
+   * a smaller count sends the newest residents home through the nearest door.
+   */
+  private syncTownsfolk(): void {
+    if (this.state.townsfolk === null) return
+    const wanted = Math.min(MAX_TOWNSFOLK, Math.max(0, Math.floor(this.state.townsfolk)))
+    const first = this.townsfolkWanted === null
+    this.townsfolkWanted = wanted
+    const staying = this.walkers.filter((w) => w.kind === "townsfolk" && !w.leaving)
+    if (first) for (let n = staying.length; n < wanted; n++) this.walkers.push(this.spawnTownsfolk({ appear: true }))
+    for (const w of staying.slice(wanted)) {
+      w.leaving = true
+      this.sendTo(w, this.nearestDoor(w))
+    }
+  }
+
+  private nearestDoor(w: Walker): WalkNodeId {
+    let best = FOLK_DOORS[0]
+    let bestD = Infinity
+    for (const id of FOLK_DOORS) {
+      const p = pointOf(id)
+      const d = Math.hypot(p.x - w.x, p.y - w.y)
+      if (d < bestD) {
+        best = id
+        bestD = d
+      }
+    }
+    return best
+  }
+
+  /** Lets in at most one waiting resident every ARRIVAL_GAP_SECONDS: out of a door, then off into town. */
+  private admitTownsfolk(t: number): void {
+    if (this.townsfolkWanted === null || t < this.nextArrival) return
+    let present = 0
+    for (const w of this.walkers) if (w.kind === "townsfolk" && !w.leaving) present++
+    if (present >= this.townsfolkWanted) return
+    const door = FOLK_DOORS[Math.floor(this.rand() * FOLK_DOORS.length)]
+    const w = this.spawnTownsfolk({ door })
+    w.idleUntil = t + 0.3
+    this.walkers.push(w)
+    this.nextArrival = t + ARRIVAL_GAP_SECONDS
   }
 
   /** Finds lit windows (warm, bright 4x4 cells) once, so some can switch off and on over time. */
@@ -326,29 +416,6 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
       }
     }
     this.windows = found
-    this.unlitSigns.clear()
-    for (const place of DISTRICT_PLACES) {
-      for (const r of place.signs) {
-        const c = document.createElement("canvas")
-        c.width = r.w
-        c.height = r.h
-        const cctx = c.getContext("2d")
-        if (!cctx) continue
-        const img = pctx.getImageData(r.x, r.y, r.w, r.h)
-        const px = img.data
-        for (let o = 0; o < px.length; o += 4) {
-          const lum = 0.3 * px[o] + 0.59 * px[o + 1] + 0.11 * px[o + 2]
-          if (lum < 95) continue
-          // Neon off: the tube keeps a faint tint of its colour.
-          const k = 0.32
-          px[o] = px[o] * k + 18
-          px[o + 1] = px[o + 1] * k + 14
-          px[o + 2] = px[o + 2] * k + 26
-        }
-        cctx.putImageData(img, 0, 0)
-        this.unlitSigns.set(r, c)
-      }
-    }
   }
 
   // ── Agents ──────────────────────────────────────────────────────────────────
@@ -437,7 +504,6 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     ctx.drawImage(this.image, 0, 0, DISTRICT_IMAGE_WIDTH, DISTRICT_IMAGE_HEIGHT)
     ctx.imageSmoothingEnabled = false
     this.drawWindows(t)
-    this.drawSigns(t)
     this.drawHq(t)
     this.drawNotices()
     this.drawTicker(t)
@@ -459,36 +525,6 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
       const n = cellNoise(i, bucket + (i % 7), 23)
       if (n < 0.033) ctx.fillRect(w.x, w.y, WINDOW_CELL, WINDOW_CELL)
     })
-  }
-
-  private isLit(place: (typeof DISTRICT_PLACES)[number]): boolean {
-    return !place.integration || this.state.connectedIntegrations.includes(place.integration)
-  }
-
-  private drawSigns(t: number): void {
-    const ctx = this.ctx
-    for (const place of DISTRICT_PLACES) {
-      const lit = this.isLit(place)
-      for (const r of place.signs) {
-        const unlit = this.unlitSigns.get(r)
-        if (unlit && this.flickersOff(lit, t, r.x)) {
-          // Cut from the painting, so it is scaled the same smooth way.
-          ctx.imageSmoothingEnabled = true
-          ctx.drawImage(unlit, r.x, r.y)
-          ctx.imageSmoothingEnabled = false
-        }
-      }
-    }
-  }
-
-  /**
-   * Signs look like the painting: lit. A connected integration's sign only blinks off very rarely; a disconnected
-   * one stutters like a faulty neon tube, a half-second burst every nine seconds.
-   */
-  private flickersOff(lit: boolean, t: number, salt: number): boolean {
-    if (lit) return cellNoise(Math.floor(t * 9), salt, 5) < 0.012
-    const cycle = (t + cellNoise(salt, 1, 9) * 9) % 9
-    return cycle < 0.5 && Math.floor(t * 12) % 3 !== 0
   }
 
   private taskColor(light: CityTaskLight, t: number, i: number): string {
@@ -670,7 +706,11 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
   // ── People ──────────────────────────────────────────────────────────────────
 
   private stepWalkers(t: number, dt: number): void {
+    this.admitTownsfolk(t)
     for (const w of this.walkers) {
+      if (w.appear !== undefined && Number.isNaN(w.appear)) w.appear = t
+      // Someone leaving who is already at the door just goes in.
+      if (w.leaving && !w.moving && w.fade === undefined) w.fade = t
       if (w.moving && w.path.length > 1) {
         let remaining = w.speed * dt
         while (remaining > 0 && w.seg < w.path.length - 1) {
@@ -705,7 +745,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
         }
         continue
       }
-      if (w.kind === "townsfolk" && t >= w.idleUntil) {
+      if (w.kind === "townsfolk" && !w.leaving && t >= w.idleUntil) {
         const target = NODE_IDS[Math.floor(this.rand() * NODE_IDS.length)]
         if (target !== w.node) this.sendTo(w, target)
       } else if (w.kind === "agent" && w.agent && !w.leaving && w.agent.status === "running" && t >= w.idleUntil) {
@@ -724,9 +764,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
    * painting. Nova the cat takes its place in the same order. Badges go last so a waiting agent's mark stays visible.
    */
   private drawWalkers(t: number): void {
-    const list = this.walkers
-      .map((w) => ({ w, x: Math.round(w.x + w.lane * 0.6), y: Math.round(w.y + w.lane * 0.3) }))
-      .sort((a, b) => a.y - b.y)
+    const list = this.walkers.map((w) => ({ w, ...drawnAt(w) })).sort((a, b) => a.y - b.y)
     let catDrawn = false
     const badges: Array<{ w: Walker; x: number; y: number }> = []
     for (const { w, x, y } of list) {
@@ -734,7 +772,9 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
         this.drawCat(t)
         catDrawn = true
       }
-      const alpha = w.fade !== undefined ? Math.max(0, 1 - (t - w.fade) / 2) : 1
+      const fadeOut = w.fade !== undefined ? Math.max(0, 1 - (t - w.fade) / 2) : 1
+      const fadeIn = w.appear === undefined ? 1 : Number.isNaN(w.appear) ? 0 : Math.min(1, Math.max(0, (t - w.appear) / APPEAR_SECONDS))
+      const alpha = Math.min(fadeOut, fadeIn)
       this.ctx.globalAlpha = alpha
       if (w.kind === "agent") this.drawAgentAura(x, y, w, t)
       this.paintWalker(x, y, w, t)

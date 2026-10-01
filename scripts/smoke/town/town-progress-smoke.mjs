@@ -270,8 +270,12 @@ await run("TW-3 XP math on seeded activity", () => {
   assert.equal(quest(p, "milestone-tasks-10"), undefined, "only the next milestone tier is listed");
   assert.deepEqual(p.tutorial, { active: false, currentQuestId: null, skipped: false });
   assert.ok(p.quests.filter((q) => q.category === "tutorial").every((q) => q.status === "completed" && q.completedAt));
-  // Population: 1 conversation × 2 + floor(3 / 5) + level 5 × 3.
-  assert.equal(p.population, 17);
+  // Population: 1 conversation × 2 + floor(3 / 5) + level 5 × 3, plus the townsfolk completed quests brought:
+  // 8 tutorial × 2 + 2 building quests × 3 + 2 daily quests × 1.
+  assert.equal(p.population, 17 + 16 + 6 + 2);
+  // Every quest shows its townsfolk reward by category.
+  assert.deepEqual(rules.QUEST_TOWNSFOLK, { tutorial: 2, daily: 1, milestone: 4, integration: 3 });
+  for (const q of p.quests) assert.equal(q.townsfolkReward, rules.QUEST_TOWNSFOLK[q.category], `townsfolk reward of ${q.id}`);
   // The baseline is not replayed as events.
   assert.deepEqual(eventIds(p), ["founded"]);
 });
@@ -323,6 +327,9 @@ await run("TW-5 new progress fires each event once; ack clears it for good", () 
   assert.equal(p.level.xp, 1200 + 120 + 4 + 15 + 40 + 100 + 60 + 100 + 100 + 50 + 120 + 150 + 30);
   assert.equal(p.level.level, 6);
   assert.equal(p.level.title, "Town");
+  // Population grows with the quests: 2 conversations × 2 + floor(5 / 5) + level 6 × 3, plus quest townsfolk
+  // (8 tutorial × 2 + building quests telegram-1, claude-1, claude-2, gmail-1 × 3 + 3 milestones × 4 + 3 daily × 1).
+  assert.equal(p.population, 4 + 1 + 18 + 16 + 12 + 12 + 3);
   const levelUp = p.pendingEvents.find((event) => event.id === "level-6");
   assert.equal(levelUp.kind, "level-up");
   assert.equal(levelUp.title, "Level 6: Town");

@@ -38,6 +38,7 @@ import { useHomeAnalyticsSummary } from "../hooks/use-home-analytics-summary"
 import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
 import { useHomeNotes } from "../hooks/use-home-notes"
 import { useTownProgress } from "../hooks/use-town-progress"
+import { AgentCard } from "./game/agent-card"
 import { TownGameLayer } from "./game/town-game-layer"
 import { TownHallBody } from "./game/town-hall-panel"
 import { QuestsChip, TownLevelBadge, useQuestNews } from "./game/town-hud"
@@ -127,7 +128,11 @@ export function HomeMainScreen() {
   const connectedCount = integrationNodes.filter((node) => node.connected).length
   const activeConversations = home.conversations.filter((conversation) => !conversation.archived).length
 
+  // Nova City progression: level, quests, tutorial and celebrations (components/game). Its population fills the streets.
+  const town = useTownProgress()
+
   const sceneState = useCitySceneState({
+    population: town.progress?.population ?? null,
     weatherCode: home.homeWeather?.weatherCode ?? null,
     connected: home.connected,
     novaState: home.novaState,
@@ -182,8 +187,14 @@ export function HomeMainScreen() {
   )
   const closePlace = useCallback(() => setOpenPlace(null), [])
 
-  // Nova City progression: level, quests, tutorial and celebrations (components/game).
-  const town = useTownProgress()
+  // Clicking a Nova agent in the city opens its agent card (game/agent-card.tsx), built from the live task row.
+  const [agentCardId, setAgentCardId] = useState<string | null>(null)
+  const closeAgentCard = useCallback(() => setAgentCardId(null), [])
+  const openAgentTasks = useCallback(() => {
+    setAgentCardId(null)
+    setOpenPlace("tasks")
+  }, [])
+
   const [questLogOpen, setQuestLogOpen] = useState(false)
   const closeQuestLog = useCallback(() => setQuestLogOpen(false), [])
   const questNews = useQuestNews(town.progress, questLogOpen)
@@ -207,7 +218,7 @@ export function HomeMainScreen() {
     switch (openPlace) {
       case "tasks":
         return (
-          <PixelWindow place={names.tasks} role="Agent tasks" size="lg" onClose={closePlace} actions={pageAction("Deployments", home.openMissions)}>
+          <PixelWindow place={names.tasks} theme="tasks" role="Agent tasks" size="lg" onClose={closePlace} actions={pageAction("Deployments", home.openMissions)}>
             <AgentTasksHomeModule
               isLight={isLight}
               panelClass={PIXEL_PANEL}
@@ -226,19 +237,19 @@ export function HomeMainScreen() {
         )
       case "schedule":
         return (
-          <PixelWindow place={names.schedule} role="Schedule" size="md" onClose={closePlace} actions={pageAction("Calendar", home.openCalendar)}>
+          <PixelWindow place={names.schedule} theme="schedule" role="Schedule" size="md" onClose={closePlace} actions={pageAction("Calendar", home.openCalendar)}>
             <ScheduleBriefing isLight={isLight} panelClass={PIXEL_PANEL} subPanelClass={PIXEL_SUBPANEL} panelStyle={NO_PANEL_STYLE} onOpenCalendar={home.openCalendar} />
           </PixelWindow>
         )
       case "crypto":
         return (
-          <PixelWindow place={names.crypto} role="Crypto prices" size="md" onClose={closePlace}>
+          <PixelWindow place={names.crypto} theme="crypto" role="Crypto prices" size="md" onClose={closePlace}>
             <CryptoPricesModule isLight={isLight} subPanelClass={PIXEL_SUBPANEL} assets={home.cryptoAssets} range={home.cryptoRange} onRangeChange={home.setCryptoRange} />
           </PixelWindow>
         )
       case "polymarket":
         return (
-          <PixelWindow place={names.polymarket} role="Polymarket" size="md" onClose={closePlace} actions={pageAction("Polymarket", () => router.push("/polymarket"))}>
+          <PixelWindow place={names.polymarket} theme="polymarket" role="Polymarket" size="md" onClose={closePlace} actions={pageAction("Polymarket", () => router.push("/polymarket"))}>
             <PolymarketLiveLinesModule
               isLight={isLight}
               panelClass={PIXEL_PANEL}
@@ -252,7 +263,7 @@ export function HomeMainScreen() {
         )
       case "youtube":
         return (
-          <PixelWindow place={names.youtube} role="YouTube" size="lg" onClose={closePlace}>
+          <PixelWindow place={names.youtube} theme="youtube" role="YouTube" size="lg" onClose={closePlace}>
             <YouTubeHomeModule
               isLight={isLight}
               panelClass={PIXEL_PANEL}
@@ -266,7 +277,7 @@ export function HomeMainScreen() {
         )
       case "analytics":
         return (
-          <PixelWindow place={names.analytics} role="Analytics" size="sm" onClose={closePlace} actions={pageAction("Dashboard", home.openAnalytics)}>
+          <PixelWindow place={names.analytics} theme="analytics" role="Analytics" size="sm" onClose={closePlace} actions={pageAction("Dashboard", home.openAnalytics)}>
             <AnalyticsHomeModule
               isLight={isLight}
               subPanelClass={PIXEL_SUBPANEL}
@@ -279,13 +290,13 @@ export function HomeMainScreen() {
         )
       case "notes":
         return (
-          <PixelWindow place={names.notes} role="Notes" size="md" onClose={closePlace}>
+          <PixelWindow place={names.notes} theme="notes" role="Notes" size="md" onClose={closePlace}>
             <NotesHomeModule isLight={isLight} panelClass={PIXEL_PANEL} subPanelClass={PIXEL_SUBPANEL} panelStyle={NO_PANEL_STYLE} className="h-full" notesState={notesState} />
           </PixelWindow>
         )
       case "integrations":
         return (
-          <PixelWindow place={names.integrations} role="Town progress" size="md" onClose={closePlace} actions={pageAction("Integrations", home.openIntegrations)}>
+          <PixelWindow place={names.integrations} theme="integrations" role="Town progress" size="md" onClose={closePlace} actions={pageAction("Integrations", home.openIntegrations)}>
             <TownHallBody
               town={town}
               integrations={integrationNodes}
@@ -296,7 +307,7 @@ export function HomeMainScreen() {
         )
       case "chat":
         return (
-          <PixelWindow place={assistantName} role="Chats" size="sm" onClose={closePlace} actions={pageAction("Chat", home.openChat)}>
+          <PixelWindow place={assistantName} theme="chat" role="Chats" size="sm" onClose={closePlace} actions={pageAction("Chat", home.openChat)}>
             <ChatHistoryModule
               isLight={isLight}
               subPanelClass={PIXEL_SUBPANEL}
@@ -323,7 +334,7 @@ export function HomeMainScreen() {
   const weather = home.homeWeather
   return (
     <div className="pixel-night relative h-dvh overflow-hidden bg-[#0a0c24]">
-      <PixelCityScene state={sceneState} hotspots={hotspots} active={pageActive} onHotspot={openHotspot} />
+      <PixelCityScene state={sceneState} hotspots={hotspots} active={pageActive} onHotspot={openHotspot} onAgent={setAgentCardId} />
 
       {/* HUD: wordmark top-left, everything about the user top-right. The bar doubles as the window drag area. */}
       <header className="absolute inset-x-0 top-0 z-10 flex h-16 items-start justify-between gap-4 px-4 pt-3" style={DRAG}>
@@ -396,6 +407,15 @@ export function HomeMainScreen() {
       </footer>
 
       {windowContent}
+      {agentCardId ? (
+        <AgentCard
+          task={tasks.find((task) => task.id === agentCardId) ?? null}
+          onClose={closeAgentCard}
+          onAction={agentTasks.runAction}
+          onRaiseBudget={agentTasks.raiseBudget}
+          onOpenTasks={openAgentTasks}
+        />
+      ) : null}
       <TownGameLayer town={town} assistantName={assistantName} hotspots={hotspots} questLogOpen={questLogOpen} onCloseQuestLog={closeQuestLog} onGo={goToQuest} />
 
       {weatherPopupOpen ? (
