@@ -23,7 +23,7 @@ import {
 import { DISTRICT_PLACES, PixelCityScene, type CityHotspot, type CityHotspotId, type CityIntegration, type CityPlaceId } from "@/components/pixel-city"
 import { SettingsModal } from "@/components/settings/settings-modal"
 import type { SettingsSectionId } from "@/components/settings/settings-nav"
-import type { ResidentId } from "@/lib/town/wardrobe-types"
+import type { ResidentId } from "@/lib/town/residents"
 import { isRunActive, useDeploymentsData } from "@/app/deployments/hooks/use-deployments-data"
 import { LazyNewDeploymentModal, preloadNewDeploymentModal } from "@/app/deployments/components/new-deployment-modal-lazy"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
@@ -35,7 +35,7 @@ import { useHomeAnalyticsSummary } from "../hooks/use-home-analytics-summary"
 import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
 import { useHomeNotes } from "../hooks/use-home-notes"
 import { useTownProgress } from "../hooks/use-town-progress"
-import { useTownWardrobe } from "../hooks/use-town-wardrobe"
+import { useTownResidents } from "../hooks/use-town-residents"
 import { ResidentCard } from "./game/resident-card"
 import { TownGameLayer } from "./game/town-game-layer"
 import { TownHallBody } from "./game/town-hall-panel"
@@ -133,14 +133,14 @@ export function HomeMainScreen() {
   const activeConversations = home.conversations.filter((conversation) => !conversation.archived).length
 
   // Nova City progression: level, quests, tutorial and celebrations (components/game). The streets hold only real residents:
-  // one per agent task and one per connected integration, named and dressed from the wardrobe.
+  // one per agent task and one per connected integration, named by the user.
   const town = useTownProgress()
-  const wardrobe = useTownWardrobe()
+  const residents = useTownResidents()
 
   const connectedSet = new Set<CityIntegration>(integrationNodes.filter((node) => node.connected).map((node) => node.setup as CityIntegration))
 
   const sceneState = useCitySceneState({
-    wardrobe: wardrobe.wardrobe,
+    residentNames: residents.names,
     weatherCode: home.homeWeather?.weatherCode ?? null,
     connected: home.connected,
     novaState: home.novaState,
@@ -405,7 +405,7 @@ export function HomeMainScreen() {
           tasks={tasks}
           buildings={town.progress?.buildings ?? []}
           connected={connectedSet}
-          wardrobe={wardrobe}
+          residents={residents}
           onClose={closeResidentCard}
           onAction={agentTasks.runAction}
           onRaiseBudget={agentTasks.raiseBudget}

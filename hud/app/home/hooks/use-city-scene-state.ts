@@ -8,7 +8,6 @@ import {
   workplaceForTools,
   type CityAgent,
   type CityIntegration,
-  type CityLook,
   type CityPresence,
   type CitySceneState,
   type CityTaskLight,
@@ -17,7 +16,7 @@ import {
 } from "@/components/pixel-city"
 import type { AgentTask, AgentTaskStatus } from "@/lib/agents/types"
 import { integrationLabel } from "@/lib/town/quests"
-import type { ResidentLook, TownWardrobe } from "@/lib/town/wardrobe-types"
+import type { ResidentNames } from "@/lib/town/residents"
 import type { NovaState } from "@/lib/chat/hooks/useNovaState"
 import { formatPct, formatUsdCompact, orderCryptoAssets } from "../components/crypto-prices-module"
 import type { HomeCryptoAsset } from "./use-home-crypto-market"
@@ -65,20 +64,18 @@ export function defaultWorkerName(integration: CityIntegration): string {
   return `${integrationLabel(integration)} worker`
 }
 
-type ResidentLooks = Readonly<Record<string, ResidentLook>>
-
-function chosenName(looks: ResidentLooks | undefined, id: string): string | null {
-  const name = looks?.[id]?.name?.trim()
+function chosenName(names: Readonly<ResidentNames> | undefined, id: string): string | null {
+  const name = names?.[id]?.trim()
   return name ? name : null
 }
 
 /** One character per task: name (the user's, else the task's), status and the workplace matching the tools it last used. */
-export function agentsFor(tasks: readonly AgentTask[], looks?: ResidentLooks): CityAgent[] {
+export function agentsFor(tasks: readonly AgentTask[], names?: Readonly<ResidentNames>): CityAgent[] {
   return sortTasks(tasks)
     .slice(0, MAX_STREET_AGENTS)
     .map((task) => ({
       id: task.id,
-      name: chosenName(looks, agentResidentId(task.id)) ?? defaultAgentName(task),
+      name: chosenName(names, agentResidentId(task.id)) ?? defaultAgentName(task),
       status: task.status as CityTaskLight,
       workplace: workplaceForTools(task.toolCalls),
     }))
@@ -88,23 +85,11 @@ export function agentsFor(tasks: readonly AgentTask[], looks?: ResidentLooks): C
  * One worker per connected integration (and only those): nothing connected means none. Order follows the integration
  * list Home already uses, so the same set always produces the same workers.
  */
-export function workersFor(connected: readonly CityIntegration[], looks?: ResidentLooks): CityWorker[] {
+export function workersFor(connected: readonly CityIntegration[], names?: Readonly<ResidentNames>): CityWorker[] {
   return Array.from(new Set(connected)).map((integration) => {
     const id = `integration:${integration}` as const
-    return { id, integration, name: chosenName(looks, id) ?? defaultWorkerName(integration), workplace: integrationWorkplace(integration) }
+    return { id, integration, name: chosenName(names, id) ?? defaultWorkerName(integration), workplace: integrationWorkplace(integration) }
   })
-}
-
-/** Equipped cosmetics of the residents that wear any. */
-export function looksFor(wardrobe: TownWardrobe | null): Record<string, CityLook> {
-  const out: Record<string, CityLook> = {}
-  if (!wardrobe) return out
-  for (const [id, look] of Object.entries(wardrobe.residents)) {
-    const outfit = look.equipped.outfit
-    const hat = look.equipped.hat
-    if (outfit || hat) out[id] = { ...(outfit ? { outfit } : {}), ...(hat ? { hat } : {}) }
-  }
-  return out
 }
 
 export function tickerFor(assets: readonly HomeCryptoAsset[]): CityTickerItem[] {
@@ -126,17 +111,15 @@ interface CitySceneInput {
   cryptoAssets: readonly HomeCryptoAsset[]
   notesCount: number
   connectedIntegrations: readonly CityIntegration[]
-  /** The wardrobe (resident names and what they wear); null until it has loaded: everyone keeps the default look. */
-  wardrobe: TownWardrobe | null
+  /** Resident names the user chose (resident id -> name); empty until loaded: everyone keeps the default name. */
+  residentNames: Readonly<ResidentNames>
 }
 
 /** Home's live data, reduced to what Nova City draws. Memoised on content so the scene only updates on change. */
 export function useCitySceneState(input: CitySceneInput): CitySceneState {
   const taskLights = taskLightsFor(input.tasks)
-  const residentLooks = input.wardrobe?.residents
-  const agents = agentsFor(input.tasks, residentLooks)
-  const workers = workersFor(input.connectedIntegrations, residentLooks)
-  const looks = looksFor(input.wardrobe)
+  const agents = agentsFor(input.tasks, input.residentNames)
+  const workers = workersFor(input.connectedIntegrations, input.residentNames)
   const ticker = tickerFor(input.cryptoAssets)
   const taskKey = taskLights.join(",")
   const agentsKey = agents.map((agent) => `${agent.id}:${agent.status}:${agent.workplace}:${agent.name}`).join("|")
@@ -145,7 +128,6 @@ export function useCitySceneState(input: CitySceneInput): CitySceneState {
   const presence = presenceFor(input.connected, input.novaState)
   const weather = cityWeatherFromCode(input.weatherCode)
   const workersKey = workers.map((worker) => `${worker.id}:${worker.name}`).join("|")
-  const looksKey = JSON.stringify(looks)
 
   return useMemo<CitySceneState>(
     () => ({
@@ -158,10 +140,9 @@ export function useCitySceneState(input: CitySceneInput): CitySceneState {
       agents: agentsKey ? agents : [],
       connectedIntegrations: connectedKey ? (connectedKey.split(",") as CityIntegration[]) : [],
       workers: workersKey ? workers : [],
-      looks,
     }),
-    // `ticker`, `agents`, `workers` and `looks` are rebuilt each render; their content is captured by the keys.
+    // `ticker`, `agents`, and `workers` are rebuilt each render; their content is captured by the keys.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [weather, presence, taskKey, agentsKey, input.activeRuns, tickerKey, input.notesCount, connectedKey, workersKey, looksKey],
+    [weather, presence, taskKey, agentsKey, input.activeRuns, tickerKey, input.notesCount, connectedKey, workersKey],
   )
 }

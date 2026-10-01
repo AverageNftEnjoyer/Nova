@@ -2,33 +2,38 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ACTIVE_USER_CHANGED_EVENT } from "@/lib/auth/active-user"
-import type { TownWardrobe, WardrobeUpdateRequest } from "@/lib/town/wardrobe-types"
+import type { ResidentNames, ResidentRenameRequest } from "@/lib/town/residents"
 
-export type WardrobeUpdateResult = { ok: true } | { ok: false; error: string }
+export type ResidentRenameResult = { ok: true } | { ok: false; error: string }
 
-export interface TownWardrobeState {
-  wardrobe: TownWardrobe | null
+const NO_NAMES: Readonly<ResidentNames> = Object.freeze({})
+
+export interface TownResidentsState {
+  /** Resident id -> the name the user chose; residents without an entry use their default name. */
+  names: Readonly<ResidentNames>
   /** True until the first request settles (success or failure). */
   loading: boolean
-  /** Last refresh error; `wardrobe` keeps the last good data when this is set. */
+  /** Last refresh error; `names` keeps the last good data when this is set. */
   error: string | null
   /** Refetch now (also restarts the poll countdown). */
   refresh: () => void
   /**
-   * POST /api/town/wardrobe. What the server answers (the whole updated wardrobe) replaces the local copy; nothing is
-   * applied before it does, so the city and the resident card always show what is saved.
+   * POST /api/town/residents. What the server answers (all names) replaces the local copy; nothing is applied before it
+   * does, so the city and the resident card always show what is saved. `name: null` restores the default name.
    */
-  update: (request: WardrobeUpdateRequest) => Promise<WardrobeUpdateResult>
+  rename: (request: ResidentRenameRequest) => Promise<ResidentRenameResult>
 }
 
-const WARDROBE_ENDPOINT = "/api/town/wardrobe"
-/** Slower than the town's own poll: unlocks also reach Home as `item-unlock` events through that poll. */
+const RESIDENTS_ENDPOINT = "/api/town/residents"
 const POLL_INTERVAL_MS = 30_000
 
-function isTownWardrobe(value: unknown): value is TownWardrobe {
-  if (!value || typeof value !== "object") return false
-  const candidate = value as Partial<TownWardrobe>
-  return Array.isArray(candidate.items) && !!candidate.residents && typeof candidate.residents === "object" && !Array.isArray(candidate.residents)
+function readNames(value: unknown): ResidentNames | null {
+  if (!value || typeof value !== "object" || !("names" in value)) return null
+  const names = (value as { names: unknown }).names
+  if (!names || typeof names !== "object" || Array.isArray(names)) return null
+  const out: ResidentNames = {}
+  for (const [id, name] of Object.entries(names)) if (typeof name === "string") out[id] = name
+  return out
 }
 
 function readError(body: unknown): string | null {
@@ -40,14 +45,14 @@ function readError(body: unknown): string | null {
 }
 
 /**
- * Nova City's wardrobe (every cosmetic with its unlock state, and each resident's name and outfit) from
- * GET /api/town/wardrobe. Call it once per screen and hand the result down, so the scene and the resident card share
- * one copy. Polls every 30 s while the page is visible, refetches on focus / visibility, and resets on a user switch.
+ * The names the user gave Nova City's residents, from GET /api/town/residents. Call it once per screen and hand the
+ * result down, so the scene and the resident card share one copy. Polls every 30 s while the page is visible,
+ * refetches on focus / visibility, and resets on a user switch.
  */
-export function useTownWardrobe(): TownWardrobeState {
-  const [state, setState] = useState<Omit<TownWardrobeState, "refresh" | "update">>({ wardrobe: null, loading: true, error: null })
+export function useTownResidents(): TownResidentsState {
+  const [state, setState] = useState<Omit<TownResidentsState, "refresh" | "rename">>({ names: NO_NAMES, loading: true, error: null })
   const refreshRef = useRef<() => void>(() => {})
-  /** Bumped by every saved update: a GET that started before it is stale and must not overwrite the saved copy. */
+  /** Bumped by every saved rename: a GET that started before it is stale and must not overwrite the saved copy. */
   const savedRef = useRef(0)
 
   useEffect(() => {
@@ -61,15 +66,16 @@ export function useTownWardrobe(): TownWardrobeState {
       inFlight = controller
       const savedAtStart = savedRef.current
       try {
-        const res = await fetch(WARDROBE_ENDPOINT, { method: "GET", cache: "no-store", credentials: "include", signal: controller.signal })
+        const res = await fetch(RESIDENTS_ENDPOINT, { method: "GET", cache: "no-store", credentials: "include", signal: controller.signal })
         const body: unknown = await res.json().catch(() => null)
         if (disposed || controller.signal.aborted || savedRef.current !== savedAtStart) return
-        if (!res.ok || !isTownWardrobe(body)) throw new Error(readError(body) || `Wardrobe request failed (${res.status}).`)
-        setState({ wardrobe: body, loading: false, error: null })
+        const names = readNames(body)
+        if (!res.ok || !names) throw new Error(readError(body) || `Resident names request failed (${res.status}).`)
+        setState({ names, loading: false, error: null })
       } catch (err) {
         if (disposed || controller.signal.aborted) return
-        const message = err instanceof Error ? err.message : "Wardrobe unavailable."
-        setState((prev) => ({ wardrobe: prev.wardrobe, loading: false, error: message }))
+        const message = err instanceof Error ? err.message : "Resident names unavailable."
+        setState((prev) => ({ names: prev.names, loading: false, error: message }))
       } finally {
         if (inFlight === controller) inFlight = null
       }
@@ -95,7 +101,7 @@ export function useTownWardrobe(): TownWardrobeState {
       if (document.visibilityState === "visible") refreshNow()
     }
     const onActiveUserChanged = () => {
-      setState({ wardrobe: null, loading: true, error: null })
+      setState({ names: NO_NAMES, loading: true, error: null })
       refreshNow()
     }
 
@@ -116,9 +122,9 @@ export function useTownWardrobe(): TownWardrobeState {
 
   const refresh = useCallback(() => refreshRef.current(), [])
 
-  const update = useCallback(async (request: WardrobeUpdateRequest): Promise<WardrobeUpdateResult> => {
+  const rename = useCallback(async (request: ResidentRenameRequest): Promise<ResidentRenameResult> => {
     try {
-      const res = await fetch(WARDROBE_ENDPOINT, {
+      const res = await fetch(RESIDENTS_ENDPOINT, {
         method: "POST",
         cache: "no-store",
         credentials: "include",
@@ -126,14 +132,15 @@ export function useTownWardrobe(): TownWardrobeState {
         body: JSON.stringify(request),
       })
       const body: unknown = await res.json().catch(() => null)
-      if (!res.ok || !isTownWardrobe(body)) return { ok: false, error: readError(body) || `Could not save (${res.status}).` }
+      const names = readNames(body)
+      if (!res.ok || !names) return { ok: false, error: readError(body) || `Could not save (${res.status}).` }
       savedRef.current++
-      setState({ wardrobe: body, loading: false, error: null })
+      setState({ names, loading: false, error: null })
       return { ok: true }
     } catch {
       return { ok: false, error: "Could not reach Nova to save. Try again." }
     }
   }, [])
 
-  return useMemo(() => ({ ...state, refresh, update }), [state, refresh, update])
+  return useMemo(() => ({ ...state, refresh, rename }), [state, refresh, rename])
 }

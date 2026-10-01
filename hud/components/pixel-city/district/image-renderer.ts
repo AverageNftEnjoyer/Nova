@@ -1,4 +1,4 @@
-import type { ResidentId } from "@/lib/town/wardrobe-types"
+import type { ResidentId } from "@/lib/town/residents"
 import { drawWeatherOverlay } from "../effects"
 import { draw5, measure5 } from "../font5x7"
 import { cellNoise } from "../random"
@@ -813,9 +813,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
   }
 
   private paintWalker(x: number, y: number, w: Walker, t: number): void {
-    const base = w.worker ? agentLook(w.worker.workplace) : agentLook(w.agent?.workplace ?? "hq")
-    const worn = this.state.looks[w.id]
-    const look: PersonLook = worn ? { ...base, outfit: worn.outfit, hat: worn.hat } : base
+    const look: PersonLook = w.worker ? agentLook(w.worker.workplace) : agentLook(w.agent?.workplace ?? "hq")
     drawPerson(this.ctx, x, y, w.dir, w.moving, t, look)
   }
 

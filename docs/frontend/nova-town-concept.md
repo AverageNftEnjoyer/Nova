@@ -105,7 +105,7 @@ Every Home module and popup that exists today stays reachable from the town.
 
 ### 4.3 Expansion and unlocks
 - **Expansion:** the town grows outward in rings or districts as the town level rises. Early game shows the core and empty lots; late game fills in streets, shophouse rows and parks.
-- **Wardrobe:** outfits and hats for residents are earned by completing quests (rarer items behind harder quests); nothing is revoked.
+- **Residents:** agents and integration workers can be renamed (1 to 24 characters) from their resident card.
 - **Milestone unlocks** (examples):
 
 | Milestone | Unlock |

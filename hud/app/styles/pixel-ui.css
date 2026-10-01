@@ -1634,7 +1634,7 @@ button.game-player:focus-visible {
 }
 /* ===== end Integrations page ===== */
 
-/* ===== Residents & wardrobe ===== */
+/* ===== Residents ===== */
 /* One focusable button per resident, kept on its figure by the scene each frame. Mouse clicks go through the canvas
    hit test (pointer-events: none), so the button only matters for keyboard and assistive tech. */
 .pixel-resident {
@@ -1656,92 +1656,7 @@ button.game-player:focus-visible {
   border: 2px dashed var(--px-accent-2);
   animation: pixel-march 0.8s steps(2) infinite;
 }
-
-/* Wardrobe grid: equipped / owned / locked items per slot. */
-.wardrobe-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.wardrobe-tile {
-  --wardrobe-rarity: var(--px-border-hi);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  width: 100%;
-  min-height: 72px;
-  padding: 6px 6px 7px;
-  text-align: center;
-  cursor: pointer;
-  background: var(--px-bg);
-  border: 2px solid var(--wardrobe-rarity);
-  color: var(--px-text);
-}
-
-.wardrobe-tile[data-rarity="starter"] { --wardrobe-rarity: var(--px-border-hi); }
-.wardrobe-tile[data-rarity="common"] { --wardrobe-rarity: var(--px-green); }
-.wardrobe-tile[data-rarity="rare"] { --wardrobe-rarity: var(--px-accent-2); }
-.wardrobe-tile[data-rarity="epic"] { --wardrobe-rarity: var(--px-pink); }
-
-.wardrobe-tile:hover:not([data-state="locked"]),
-.wardrobe-tile:focus-visible {
-  background: var(--px-bg-3);
-  outline: 2px solid var(--px-accent);
-  outline-offset: 1px;
-}
-
-.wardrobe-tile[data-state="equipped"] {
-  background: var(--px-bg-3);
-  box-shadow: inset 0 0 0 2px var(--wardrobe-rarity);
-}
-
-.wardrobe-tile[data-state="locked"] {
-  cursor: default;
-  opacity: 0.72;
-}
-
-.wardrobe-tile:disabled { cursor: progress; }
-
-.wardrobe-tile-art {
-  display: grid;
-  place-items: end center;
-  overflow: hidden;
-}
-
-.wardrobe-tile-name {
-  font-size: 14px;
-  line-height: 1.1;
-  color: var(--px-text);
-}
-
-.wardrobe-tile-meta {
-  font-size: 11px;
-  line-height: 1.1;
-  color: var(--wardrobe-rarity);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.wardrobe-tile-lock {
-  display: flex;
-  align-items: flex-start;
-  gap: 3px;
-  font-size: 11px;
-  line-height: 1.15;
-  color: var(--px-muted);
-}
-
-.game-toast[data-kind="item-unlock"] { --game-kind: var(--px-accent); }
-.game-toast[data-kind="item-unlock"][data-rarity="common"] { --game-kind: var(--px-green); }
-.game-toast[data-kind="item-unlock"][data-rarity="rare"] { --game-kind: var(--px-accent-2); }
-.game-toast[data-kind="item-unlock"][data-rarity="epic"] { --game-kind: var(--px-pink); }
-/* ===== end Residents & wardrobe ===== */
+/* ===== end Residents ===== */
 
 /* ===== Chat page ===== */
 /*

@@ -18,7 +18,7 @@ import {
   type CameraView,
   type CameraViewport,
 } from "./scene-camera"
-import type { ResidentId } from "@/lib/town/wardrobe-types"
+import type { ResidentId } from "@/lib/town/residents"
 import { agentResidentId, type CityPlaceId, type CityRect, type CitySceneHit, type CitySceneRenderer, type CitySceneState } from "./types"
 
 const FRAME_INTERVAL_MS = 1000 / 20

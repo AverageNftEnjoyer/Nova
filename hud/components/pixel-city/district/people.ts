@@ -1,5 +1,4 @@
 import type { CityIntegration, CityWorkplace } from "../types"
-import { cosmeticImage } from "./cosmetic-art"
 
 /**
  * The people of Nova City: PixelLab character sheets drawn at the painting's own pixel density, so the
@@ -45,10 +44,6 @@ export type PersonSheet = (typeof AGENT_SHEETS)[number]
 
 export interface PersonLook {
   sheet: PersonSheet
-  /** Equipped outfit (cosmetic id): its sheet replaces the body sheet while its art exists. */
-  outfit?: string
-  /** Equipped hat (cosmetic id): its sheet is drawn over the body, cell for cell, while its art exists. */
-  hat?: string
 }
 
 /**
@@ -108,8 +103,6 @@ export function personSheetArt(sheet: PersonSheet): { url: string; cell: number;
 type Art = HTMLCanvasElement
 
 const sheets = new Map<string, Art>()
-/** Prescaled cosmetic sheets by item id; an item whose art is missing never gets an entry (the default look is drawn). */
-const cosmeticSheets = new Map<string, Art>()
 let catAwake: Art | null = null
 let catAsleep: Art | null = null
 let loading = false
@@ -157,18 +150,6 @@ function closeEyes(image: HTMLImageElement): Art | null {
   ictx.imageSmoothingEnabled = false
   ictx.drawImage(c, 0, 0, img.width, img.height)
   return img
-}
-
-/** The cosmetic's prescaled sheet, once its art has loaded; null while loading or when the art does not exist. */
-function cosmeticArt(id: string | undefined): Art | null {
-  if (!id) return null
-  const have = cosmeticSheets.get(id)
-  if (have) return have
-  const image = cosmeticImage(id)
-  if (!image) return null
-  const art = prescale(image)
-  if (art) cosmeticSheets.set(id, art)
-  return art
 }
 
 function load(name: string, done: (image: HTMLImageElement) => void): void {
@@ -220,14 +201,12 @@ function drawShadow(ctx: CanvasRenderingContext2D, x: number, y: number, rx: num
  * its walk cycle, phase-shifted by x so a crowd doesn't march in step.
  */
 export function drawPerson(ctx: CanvasRenderingContext2D, x: number, y: number, dir: number, moving: boolean, time: number, look: PersonLook): void {
-  const art = cosmeticArt(look.outfit) ?? sheets.get(look.sheet)
+  const art = sheets.get(look.sheet)
   if (!art) return
   const row = ((Math.round(dir) % 8) + 8) % 8
   const col = moving ? 1 + (Math.floor(time * WALK_FPS + x * 0.37) % WALK_FRAMES) : 0
   drawShadow(ctx, x, y, 9)
   drawCell(ctx, art, col, row, CELL, FOOT_Y, PERSON_PX, x, y)
-  const hat = cosmeticArt(look.hat)
-  if (hat) drawCell(ctx, hat, col, row, CELL, FOOT_Y, PERSON_PX, x, y)
 }
 
 /** Nova on the park bench, facing the viewer. `blink` shuts the eyes (asleep while Nova is offline). */

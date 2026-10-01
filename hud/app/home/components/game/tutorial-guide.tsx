@@ -6,7 +6,7 @@ import type { TownProgress, TownQuest } from "@/lib/town/types"
 import { cn } from "@/lib/shared/utils"
 import { GameBar } from "./game-bar"
 import { NovaPortrait } from "./nova-portrait"
-import { formatXp, hasQuestTarget, itemRewardLabel, questPlace, questRatio, SKILLS_TARGET } from "./town-ui"
+import { formatXp, hasQuestTarget, questPlace, questRatio, SKILLS_TARGET } from "./town-ui"
 
 interface TutorialGuideProps {
   progress: TownProgress
@@ -179,7 +179,6 @@ export function TutorialGuide({ progress, assistantName, hotspots, minimized, on
                 <p className="font-pixel text-[15px] leading-snug text-(--px-text)">
                   Nice work! <span className="text-(--px-green)">{done.title}</span> is done.{" "}
                   <span className="text-(--px-accent)">+{formatXp(done.xpReward)} XP</span>
-                  {done.itemReward ? <span className="text-(--px-green)"> · {itemRewardLabel(done.itemReward)}</span> : null}
                 </p>
                 {current ? <p className="font-pixel text-[13px] text-(--px-muted)">Next up: {current.title}</p> : null}
               </>
@@ -202,7 +201,6 @@ export function TutorialGuide({ progress, assistantName, hotspots, minimized, on
                 ) : null}
                 <p className="font-pixel text-[12px] text-(--px-muted)">
                   Reward <span className="text-(--px-accent)">+{formatXp(current.xpReward)} XP</span>
-                  {current.itemReward ? <span className="text-(--px-green)"> · {itemRewardLabel(current.itemReward)}</span> : null}
                 </p>
               </>
             ) : (

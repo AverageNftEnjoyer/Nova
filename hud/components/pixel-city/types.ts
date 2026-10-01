@@ -1,4 +1,4 @@
-import type { ResidentId } from "@/lib/town/wardrobe-types"
+import type { ResidentId } from "@/lib/town/residents"
 
 /** Live data the Nova City scene draws. An empty state renders a calm, idle city: nobody walks unless real work or a real connection puts them there. */
 
@@ -59,12 +59,6 @@ export interface CityWorker {
   workplace: CityWorkplace
 }
 
-/** The cosmetics a resident wears (item ids from the wardrobe catalogue); nothing equipped = the default look. */
-export interface CityLook {
-  outfit?: string
-  hat?: string
-}
-
 export function agentResidentId(taskId: string): ResidentId {
   return `agent:${taskId}`
 }
@@ -86,8 +80,6 @@ export interface CitySceneState {
   connectedIntegrations: CityIntegration[]
   /** One worker per connected integration. */
   workers: CityWorker[]
-  /** Equipped cosmetics by resident id (only residents that wear something). */
-  looks: Record<string, CityLook>
 }
 
 export type CityHotspotId =
@@ -126,7 +118,6 @@ export const EMPTY_CITY_STATE: CitySceneState = {
   agents: [],
   connectedIntegrations: [],
   workers: [],
-  looks: {},
 }
 
 /** What the pointer is over: a place (opens its popup) or a resident (an agent or an integration's worker). Anchor is the plan point for a tag. */

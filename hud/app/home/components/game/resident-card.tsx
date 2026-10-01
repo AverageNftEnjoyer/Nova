@@ -1,19 +1,18 @@
 "use client"
 
 import { Settings2 } from "lucide-react"
-import { WORKPLACE_NAME, agentLook, integrationWorkplace, workplaceForTools, type CityIntegration } from "@/components/pixel-city"
+import { WORKPLACE_NAME, agentLook, integrationWorkplace, personSheetArt, type CityIntegration } from "@/components/pixel-city"
 import type { AgentTask, AgentTaskUiAction, RaiseAgentTaskBudgetInput } from "@/lib/agents/types"
 import { isIntegrationSetupKey, type IntegrationSetupKey } from "@/lib/integrations/navigation"
 import { integrationLabel } from "@/lib/town/quests"
 import type { TownBuilding } from "@/lib/town/types"
-import type { ResidentId } from "@/lib/town/wardrobe-types"
+import type { ResidentId } from "@/lib/town/residents"
 import { cn } from "@/lib/shared/utils"
 import { defaultAgentName, defaultWorkerName } from "../../hooks/use-city-scene-state"
-import type { TownWardrobeState } from "../../hooks/use-town-wardrobe"
+import type { TownResidentsState } from "../../hooks/use-town-residents"
 import { PixelWindow } from "../pixel/pixel-window"
 import { AgentCard } from "./agent-card"
-import { CosmeticPreview } from "./cosmetic-preview"
-import { ResidentCustomizer } from "./resident-customizer"
+import { ResidentRename } from "./resident-rename"
 import { integrationBuildingName } from "./town-ui"
 
 type ActionResult = { ok: true } | { ok: false; error: string }
@@ -25,7 +24,7 @@ interface ResidentCardProps {
   buildings: readonly TownBuilding[]
   /** Integrations that are connected right now (Home's live flags). */
   connected: ReadonlySet<CityIntegration>
-  wardrobe: TownWardrobeState
+  residents: TownResidentsState
   onClose: () => void
   onAction: (id: string, action: AgentTaskUiAction) => Promise<ActionResult>
   onRaiseBudget: (id: string, input: RaiseAgentTaskBudgetInput) => Promise<ActionResult>
@@ -37,16 +36,13 @@ interface ResidentCardProps {
 
 /**
  * The card a click on a resident opens. An agent gets its task card (what it is doing, spend, controls); an
- * integration's worker gets that integration's status, building level and a way to its setup. Both can be renamed and
- * dressed from the wardrobe.
+ * integration's worker gets that integration's status, building level and a way to its setup. Both can be renamed.
  */
 export function ResidentCard(props: ResidentCardProps) {
-  const { residentId, tasks, wardrobe, onClose, onAction, onRaiseBudget, onOpenTasks } = props
+  const { residentId, tasks, residents, onClose, onAction, onRaiseBudget, onOpenTasks } = props
   if (residentId.startsWith("agent:")) {
     const taskId = residentId.slice("agent:".length)
     const task = tasks.find((candidate) => candidate.id === taskId) ?? null
-    const look = wardrobe.wardrobe?.residents[residentId]
-    const sheet = agentLook(task ? workplaceForTools(task.toolCalls) : "hq").sheet
     return (
       <AgentCard
         task={task}
@@ -54,11 +50,8 @@ export function ResidentCard(props: ResidentCardProps) {
         onAction={onAction}
         onRaiseBudget={onRaiseBudget}
         onOpenTasks={onOpenTasks}
-        displayName={look?.name?.trim() || undefined}
-        look={look?.equipped}
-        customizer={
-          task ? <ResidentCustomizer residentId={residentId} defaultName={defaultAgentName(task)} sheet={sheet} wardrobe={wardrobe} /> : null
-        }
+        displayName={residents.names[residentId]?.trim() || undefined}
+        customizer={task ? <ResidentRename residentId={residentId} defaultName={defaultAgentName(task)} residents={residents} /> : null}
       />
     )
   }
@@ -72,7 +65,7 @@ function IntegrationWorkerCard({
   integration,
   buildings,
   connected,
-  wardrobe,
+  residents,
   onClose,
   onSetup,
 }: ResidentCardProps & { integration: IntegrationSetupKey }) {
@@ -82,8 +75,9 @@ function IntegrationWorkerCard({
   const buildingName = integrationBuildingName(integration)
   const workplace = integrationWorkplace(integration as CityIntegration)
   const sheet = agentLook(workplace).sheet
-  const look = wardrobe.wardrobe?.residents[residentId]
-  const name = look?.name?.trim() || defaultWorkerName(integration as CityIntegration)
+  const art = personSheetArt(sheet)
+  const spriteSize = art.cell * 3
+  const name = residents.names[residentId]?.trim() || defaultWorkerName(integration as CityIntegration)
   const level = building?.level ?? 0
   const uses = building?.uses ?? 0
   const next = building?.nextLevelUses ?? null
@@ -94,7 +88,19 @@ function IntegrationWorkerCard({
         <div className="game-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
           <div className="flex gap-3">
             <div className="pixel-subpanel grid shrink-0 place-items-end justify-center overflow-hidden" style={{ width: 108, height: 104 }}>
-              <CosmeticPreview sheet={sheet} outfit={look?.equipped.outfit} hat={look?.equipped.hat} scale={3} label={`${name}, ${label} worker`} />
+              <div
+                role="img"
+                aria-label={`${name}, ${label} worker`}
+                style={{
+                  width: spriteSize,
+                  height: spriteSize,
+                  backgroundImage: `url(${art.url})`,
+                  backgroundRepeat: "no-repeat",
+                  backgroundPosition: "0 0",
+                  backgroundSize: `${art.columns * spriteSize}px ${art.rows * spriteSize}px`,
+                  imageRendering: "pixelated",
+                }}
+              />
             </div>
             <div className="min-w-0 flex-1">
               <h3 className="line-clamp-2 font-pixel text-[17px] leading-tight text-(--px-text)" title={name}>
@@ -128,7 +134,7 @@ function IntegrationWorkerCard({
             </div>
           </div>
 
-          <ResidentCustomizer residentId={residentId} defaultName={defaultWorkerName(integration as CityIntegration)} sheet={sheet} wardrobe={wardrobe} />
+          <ResidentRename residentId={residentId} defaultName={defaultWorkerName(integration as CityIntegration)} residents={residents} />
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-t-2 border-(--px-border) pt-2">

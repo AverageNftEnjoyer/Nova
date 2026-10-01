@@ -1,5 +1,5 @@
 /**
- * Nova City progression engine: turns real activity (stats.ts) into XP, a level, quests, buildings, cosmetic unlocks and
+ * Nova City progression engine: turns real activity (stats.ts) into XP, a level, quests, buildings and
  * once-only celebration events, persisting what must survive reloads in kv_state (state.ts).
  *
  * Free of `server-only` and `@/` runtime imports so scripts/smoke/town can run it in plain Node; server.ts adds the
@@ -18,12 +18,9 @@ import {
   totalXp,
   type TownLifetimeCounts,
 } from "./rules"
-import { itemRewardFor } from "./cosmetics"
 import { readTownActivity, type TownActivity } from "./stats"
 import { MAX_PENDING_EVENTS, readTownState, writeTownState, type TownPersistedState } from "./state"
-import { readWardrobeState, recordItemUnlocks, writeWardrobeState } from "./wardrobe"
 import type { TownAckRequest, TownEvent, TownProgress, TownQuest } from "./types"
-import type { CosmeticItem } from "./wardrobe-types"
 
 export interface BuildTownProgressOptions {
   /** IANA zone that decides "today" for daily quests. */
@@ -53,11 +50,6 @@ function cache(): Map<string, CacheEntry> {
 export function invalidateTownProgressCache(userId: string): void {
   const prefix = `${userId}\u0000`
   for (const key of cache().keys()) if (key.startsWith(prefix)) cache().delete(key)
-}
-
-function withItemReward(quest: TownQuest): TownQuest {
-  const item = itemRewardFor(quest.id)
-  return item ? { ...quest, itemReward: { id: item.id, name: item.name, slot: item.slot, rarity: item.rarity } } : quest
 }
 
 function pushEvent(state: TownPersistedState, event: TownEvent): boolean {
@@ -99,17 +91,6 @@ function questCompleteEvent(quest: TownQuest, at: string): TownEvent {
     title: `Quest complete: ${quest.title}`,
     detail: quest.description,
     xp: quest.xpReward,
-    at,
-  }
-}
-
-function itemUnlockEvent(item: CosmeticItem, at: string): TownEvent {
-  const source = item.source.kind === "quest" ? ` Earned by completing "${item.source.questTitle}".` : ""
-  return {
-    id: `item-${item.id}`,
-    kind: "item-unlock",
-    title: `New ${item.rarity} ${item.slot}: ${item.name}`,
-    detail: `${item.description}${source}`,
     at,
   }
 }
@@ -173,15 +154,6 @@ export function buildTownProgress(userId: string, options: BuildTownProgressOpti
       }
       changed = true
       if (!firstRun) newEvents.push(questCompleteEvent(quest, nowIso))
-    }
-
-    // Cosmetic unlocks derive from persisted quest completion (never revoked). The first run only records the
-    // baseline; later, each item unlocks (and is announced) exactly once, even if its quest was completed earlier.
-    const wardrobe = readWardrobeState(userId)
-    const unlocks = recordItemUnlocks(wardrobe, state.quests)
-    if (unlocks.length > 0) {
-      writeWardrobeState(userId, wardrobe)
-      if (!firstRun) for (const { item } of unlocks) newEvents.push(itemUnlockEvent(item, nowIso))
     }
 
     let questsCompleted = 0
@@ -263,7 +235,7 @@ export function buildTownProgress(userId: string, options: BuildTownProgressOpti
     const result: TownProgress = {
       level,
       sources,
-      quests: evaluation.quests.map(withItemReward),
+      quests: evaluation.quests,
       buildings,
       pendingEvents: [...state.pending],
       tutorial: {

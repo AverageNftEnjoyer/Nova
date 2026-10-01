@@ -49,11 +49,6 @@ export function questRatio(quest: TownQuest): number {
   return Math.min(1, Math.max(0, quest.progress / quest.goal))
 }
 
-/** "Beanie · common hat": the cosmetic a quest unlocks, for Reward lines. */
-export function itemRewardLabel(reward: NonNullable<TownQuest["itemReward"]>): string {
-  return `${reward.name} · ${reward.rarity} ${reward.slot}`
-}
-
 export function formatXp(value: number): string {
   return Math.round(value).toLocaleString("en-US")
 }

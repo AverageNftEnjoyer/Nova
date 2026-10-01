@@ -5,7 +5,6 @@
  */
 
 import type { IntegrationSetupKey } from "@/lib/integrations/navigation"
-import type { CosmeticRarity, CosmeticSlot } from "./wardrobe-types"
 
 /** A source of XP, with how much it earned so far. Shown on the Town Hall progress screen. */
 export interface TownXpSource {
@@ -44,8 +43,6 @@ export interface TownQuest {
   progress: number
   goal: number
   xpReward: number
-  /** Cosmetic item unlocked by completing this quest (QUEST_ITEM_REWARDS in cosmetics.ts). */
-  itemReward?: { id: string; name: string; slot: CosmeticSlot; rarity: CosmeticRarity }
   /** Where the quest is done: a Home place to highlight, or an app route to open. */
   target?: { place?: string; route?: string; integration?: IntegrationSetupKey }
   completedAt?: string
@@ -64,7 +61,7 @@ export interface TownBuilding {
 /** Something that happened since the user last acknowledged: level-ups, finished quests, new buildings. */
 export interface TownEvent {
   id: string
-  kind: "level-up" | "quest-complete" | "building-up" | "achievement" | "item-unlock"
+  kind: "level-up" | "quest-complete" | "building-up" | "achievement"
   title: string
   detail: string
   xp?: number
