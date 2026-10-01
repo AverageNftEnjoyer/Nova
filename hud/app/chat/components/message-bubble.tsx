@@ -4,8 +4,8 @@ import { cn } from "@/lib/shared/utils"
 import type { Message } from "./chat-types"
 import { MarkdownRenderer } from "@/components/chat/markdown-renderer"
 import Image from "next/image"
-import { useTheme } from "@/lib/context/theme-context"
-import { NovaOrbIndicator, type OrbPalette } from "@/components/chat/nova-orb-indicator"
+import type { OrbPalette } from "@/components/chat/nova-orb-indicator"
+import { NovaCatPortrait } from "@/components/chat/nova-cat-portrait"
 import { Check, RotateCcw, Sparkles, User } from "lucide-react"
 import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -66,8 +66,6 @@ export function MessageBubble({
   latestUserMessage = "",
   onUseSuggestedWording,
 }: MessageBubbleProps) {
-  const { theme } = useTheme()
-  const isLight = theme === "light"
   const isUser = message.role === "user"
   const [avatar, setAvatar] = useState<string | null>(null)
   const [showNlpEditHints, setShowNlpEditHints] = useState(() => loadUserSettings().notifications.nlpEditHintsEnabled)
@@ -225,13 +223,18 @@ export function MessageBubble({
   if (!isUser) {
     if (isPreContent) {
       return (
-        <div className="flex w-full min-w-0 items-start gap-2.5" role="status" aria-label="Assistant is typing" aria-live="polite" aria-atomic="true">
-          <NovaOrbIndicator palette={orbPalette} size={28} animated className="mt-1.5 shrink-0" />
-          <div className="thinking-wrap">
+        <div className="pc-row" role="status" aria-label="Assistant is typing" aria-live="polite" aria-atomic="true">
+          <NovaCatPortrait state="thinking" scale={2} accent={orbPalette.circle1} className="pc-avatar" />
+          <div className="thinking-wrap pc-bubble pc-bubble--nova pc-bubble--thinking">
             <span className="thinking-text">
               <span className="thinking-word-slot">
                 <span className="thinking-word">{activeThinkingState}</span>
               </span>
+            </span>
+            <span className="pc-typing" aria-hidden="true">
+              <i />
+              <i />
+              <i />
             </span>
           </div>
         </div>
@@ -239,59 +242,29 @@ export function MessageBubble({
     }
 
     return (
-      <div className="flex w-full min-w-0 items-start gap-2">
-        <NovaOrbIndicator palette={orbPalette} size={28} animated={orbAnimated} className="mt-1.5 shrink-0" />
-        <div className={cn("flex min-w-0 flex-col items-start", compactMode ? "max-w-[82%] sm:max-w-[78%]" : "max-w-[96%]")}>
-          <div
-            className={cn(
-              "home-spotlight-card home-border-glow min-w-0 rounded-lg border",
-              isLight
-                ? "border-[#d5dce8] bg-[#f4f7fd] text-s-90"
-                : "border-white/10 bg-black/25 backdrop-blur-md text-slate-100",
-            )}
-            style={{
-              boxShadow: "none",
-              willChange: isStreaming ? "height" : "auto",
-            }}
-          >
-            <div
-              className={cn(
-                compactMode
-                  ? "px-4 py-2"
-                  : "px-4 py-3"
-              )}
-            >
+      <div className="pc-row">
+        <NovaCatPortrait state={orbAnimated ? "speaking" : "idle"} scale={2} accent={orbPalette.circle1} className="pc-avatar" />
+        <div className={cn("pc-col", compactMode ? "pc-col--compact" : "pc-col--wide")}>
+          <div className="pc-bubble pc-bubble--nova" style={{ willChange: isStreaming ? "height" : "auto" }}>
+            <div className={compactMode ? "pc-bubble-body pc-bubble-body--compact" : "pc-bubble-body"}>
               <MarkdownRenderer content={assistantContent || " "} isStreaming={isStreaming} className="leading-7 text-sm" />
             </div>
           </div>
-          <span className={cn("text-xs text-s-20", compactMode ? "mt-0.5" : "mt-1")}>{formatTime(message.createdAt)}</span>
+          <span className={cn("pc-time", compactMode && "pc-time--compact")}>{formatTime(message.createdAt)}</span>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex w-full min-w-0 justify-end items-start gap-2">
-      <div className={cn("flex min-w-0 flex-col items-end", compactMode ? "max-w-[82%] sm:max-w-[78%]" : "max-w-[96%]")}>
+    <div className="pc-row pc-row--user">
+      <div className={cn("pc-col pc-col--user", compactMode ? "pc-col--compact" : "pc-col--wide")}>
         {/* Bubble */}
-        <div
-          className={cn(
-            "home-spotlight-card home-border-glow min-w-0",
-            isLight
-              ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd] text-s-90"
-              : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md text-slate-100",
-          )}
-          style={{
-            boxShadow: "none",
-            willChange: isStreaming ? "height" : "auto",
-          }}
-        >
-          <div
-            className={cn(isUser ? (compactMode ? "px-4 py-2" : "px-4 py-3") : compactMode ? "py-1" : "py-1.5")}
-          >
+        <div className="pc-bubble pc-bubble--user" style={{ willChange: isStreaming ? "height" : "auto" }}>
+          <div className={compactMode ? "pc-bubble-body pc-bubble-body--compact" : "pc-bubble-body"}>
             <div className="flex flex-col gap-2">
               {message.imageData && (
-                <div className="w-20 h-20 rounded-lg overflow-hidden border border-s-10">
+                <div className="pc-attachment">
                   <Image
                     src={message.imageData || "/placeholder.svg"}
                     alt="Uploaded image"
@@ -307,16 +280,11 @@ export function MessageBubble({
         </div>
 
         {shouldShowNlpHint && (
-          <div className={cn("mt-1.5 w-full min-w-0", compactMode ? "max-w-[82%] sm:max-w-[78%]" : "max-w-[96%]")}>
+          <div className={cn("pc-nlp", compactMode ? "pc-col--compact" : "pc-col--wide")}>
             <button
               type="button"
               onClick={() => setNlpHintOpen((prev) => !prev)}
-              className={cn(
-                "home-spotlight-card home-border-glow inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors",
-                isLight
-                  ? "border-[#d5dce8] bg-[#f4f7fd] text-s-70 hover:bg-[#eef3fb]"
-                  : "border-white/12 bg-black/25 backdrop-blur-md text-slate-300 hover:bg-white/8",
-              )}
+              className="pc-chip-btn"
               aria-expanded={nlpHintOpen}
               aria-label="Toggle edited input details"
             >
@@ -324,17 +292,10 @@ export function MessageBubble({
               Edited
             </button>
             {nlpHintOpen && (
-              <div
-                className={cn(
-                  "home-spotlight-card home-border-glow mt-2 rounded-lg border p-3 text-left",
-                  isLight
-                    ? "border-[#d5dce8] bg-[#f4f7fd] text-s-80"
-                    : "border-white/15 bg-black/35 backdrop-blur-xl text-slate-200",
-                )}
-              >
-                <p className={cn("text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>Interpreted as</p>
+              <div className="pc-card">
+                <p className="pc-card-label">Interpreted as</p>
                 <p className="mt-1 text-xs whitespace-pre-wrap break-words">{message.nlpCleanText}</p>
-                <div className="mt-2 flex items-center gap-2">
+                <div className="mt-2 flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     disabled={nlpSuggestedUsed || nlpSuggestedSending}
@@ -349,26 +310,12 @@ export function MessageBubble({
                         setNlpSuggestedSending(false)
                       }
                     }}
-                    className={cn(
-                      "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-70",
-                      isLight
-                        ? "border-[#d5dce8] bg-white text-s-70 hover:bg-[#eef3fb]"
-                        : "border-white/15 bg-black/30 text-slate-200 hover:bg-white/10",
-                    )}
+                    className="pc-chip-btn"
                   >
                     <RotateCcw className="h-3 w-3" />
                     {nlpSuggestedUsed ? "Suggested sent" : nlpSuggestedSending ? "Sending..." : "Use suggested"}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setNlpHintOpen(false)}
-                    className={cn(
-                      "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors",
-                      isLight
-                        ? "border-[#d5dce8] bg-white text-s-60 hover:bg-[#eef3fb]"
-                        : "border-white/15 bg-black/30 text-slate-300 hover:bg-white/10",
-                    )}
-                  >
+                  <button type="button" onClick={() => setNlpHintOpen(false)} className="pc-chip-btn">
                     <Check className="h-3 w-3" />
                     Keep interpreted
                   </button>
@@ -379,20 +326,15 @@ export function MessageBubble({
         )}
 
         {/* Timestamp */}
-        <span className={cn("text-xs text-s-20", compactMode ? "mt-0.5" : "mt-1")}>{formatTime(message.createdAt)}</span>
+        <span className={cn("pc-time", compactMode && "pc-time--compact")}>{formatTime(message.createdAt)}</span>
       </div>
-      <div
-        className={cn(
-          "mt-1.5 h-7 w-7 shrink-0 overflow-hidden rounded-full",
-          isLight ? "border border-[#d5dce8] bg-white" : "border border-white/15 bg-white/5",
-        )}
-      >
+      <div className="pc-avatar pc-avatar--user">
         {avatar ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={avatar} alt="Profile" className="h-full w-full object-cover" />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
-            <User className="h-3.5 w-3.5 text-s-50" />
+            <User className="h-4 w-4" />
           </div>
         )}
       </div>

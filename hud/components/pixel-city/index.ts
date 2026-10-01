@@ -1,9 +1,11 @@
 export { PixelCityScene, type CityHotspot } from "./pixel-city-scene"
 export { EMPTY_CITY_STATE } from "./types"
-export type { CityAgent, CityHotspotId, CityIntegration, CityPlaceId, CityPresence, CitySceneState, CityTaskLight, CityTickerItem, CityWeather, CityWorkplace } from "./types"
+export { agentResidentId } from "./types"
+export type { CityAgent, CityLook, CityResidentAnchor, CityWorker, CityHotspotId, CityIntegration, CityPlaceId, CityPresence, CitySceneState, CityTaskLight, CityTickerItem, CityWeather, CityWorkplace } from "./types"
 export { workplaceForTools } from "./district/workplace"
 export { DISTRICT_PLACES, WORKPLACE_NAME } from "./district/image-plan"
-export { personSheetArt, agentLook } from "./district/people"
+export { personSheetArt, agentLook, integrationWorkplace, type PersonSheet as PersonSheetId } from "./district/people"
+export { cosmeticUrl, cosmeticStatus, ensureCosmetic, useCosmeticStatus, type CosmeticStatus } from "./district/cosmetic-art"
 
 import type { CityWeather } from "./types"
 

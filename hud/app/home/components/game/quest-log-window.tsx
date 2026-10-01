@@ -7,7 +7,7 @@ import { cn } from "@/lib/shared/utils"
 import type { TownProgressState } from "../../hooks/use-town-progress"
 import { PixelWindow } from "../pixel/pixel-window"
 import { GameBar } from "./game-bar"
-import { formatXp, hasQuestTarget, QUEST_STATUS_LABEL, QUEST_TABS, questRatio, sortQuests } from "./town-ui"
+import { formatXp, hasQuestTarget, itemRewardLabel, QUEST_STATUS_LABEL, QUEST_TABS, questRatio, sortQuests } from "./town-ui"
 
 interface QuestLogWindowProps {
   town: TownProgressState
@@ -106,9 +106,9 @@ function QuestCard({ quest, onGo }: { quest: TownQuest; onGo: (quest: TownQuest)
         <h3 className="min-w-0 flex-1 font-pixel text-[15px] leading-tight text-(--px-text)">{quest.title}</h3>
         <span className="flex shrink-0 flex-col items-end font-pixel text-[13px] leading-tight tabular-nums">
           <span className="text-(--px-accent)">+{formatXp(quest.xpReward)} XP</span>
-          {quest.townsfolkReward ? (
-            <span className="text-[12px] text-(--px-accent-2)">
-              +{quest.townsfolkReward} townsfolk
+          {quest.itemReward ? (
+            <span className="text-[12px] text-(--px-accent-2)" data-rarity={quest.itemReward.rarity}>
+              {itemRewardLabel(quest.itemReward)}
             </span>
           ) : null}
         </span>

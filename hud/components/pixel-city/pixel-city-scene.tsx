@@ -18,12 +18,16 @@ import {
   type CameraView,
   type CameraViewport,
 } from "./scene-camera"
-import type { CityPlaceId, CityRect, CitySceneHit, CitySceneRenderer, CitySceneState } from "./types"
+import type { ResidentId } from "@/lib/town/wardrobe-types"
+import { agentResidentId, type CityPlaceId, type CityRect, type CitySceneHit, type CitySceneRenderer, type CitySceneState } from "./types"
 
 const FRAME_INTERVAL_MS = 1000 / 20
 const REDUCED_MOTION_INTERVAL_MS = 1000
 /** Camera easing time constant: the camera covers ~63% of the way to its target every this many ms. */
 const EASE_TAU_MS = 90
+/** Plan-pixel box of a resident's focusable button around its feet (a figure is ~63 px tall). */
+const RESIDENT_BOX_W = 34
+const RESIDENT_BOX_H = 70
 /** A press that moves further than this (CSS px) is a drag, not a click. */
 const DRAG_THRESHOLD_PX = 6
 const KEY_ZOOM_STEP = 1.25
@@ -46,18 +50,15 @@ interface PixelCitySceneProps {
   hotspots: readonly CityHotspot[]
   active: boolean
   onHotspot: (id: CityPlaceId) => void
-  /** A Nova agent was clicked (its agent task id). Without it, clicking an agent opens the "tasks" place. */
-  onAgent?: (taskId: string) => void
+  /** A resident was clicked or activated (an agent, or an integration's worker): open its card. Without it, clicking one opens the "tasks" place. */
+  onResident?: (id: ResidentId) => void
   className?: string
   /** CSS pixels hidden under the HUD bar / footer; the camera lets the city be panned out from under them. */
   safeTop?: number
   safeBottom?: number
 }
 
-type AgentHit = Extract<CitySceneHit, { kind: "agent" }>
-type FolkHit = Extract<CitySceneHit, { kind: "townsfolk" }>
-/** How long a townsperson's tag stays up after a click. */
-const FOLK_TAG_MS = 4500
+type ResidentHit = Extract<CitySceneHit, { kind: "resident" }>
 
 /** Imperative camera controls the buttons call into; set up by the scene's mount effect. */
 interface CameraApi {
@@ -103,14 +104,15 @@ function sameView(a: CameraView | null, b: CameraView): boolean {
  *
  * A game-like camera frames it: drag (mouse or touch) to pan, wheel / pinch to zoom, arrows and +/- when focused.
  * The canvas is the viewport (device resolution); the renderer draws the plan through the camera transform, and the
- * buttons and agent tag are placed with the same transform.
+ * buttons and resident tag are placed with the same transform. Every resident is also a focusable button that
+ * follows its figure (placed imperatively each frame, so React does not re-render 20 times a second).
  */
 export function PixelCityScene({
   state,
   hotspots,
   active,
   onHotspot,
-  onAgent,
+  onResident,
   className,
   safeTop = DEFAULT_SAFE_TOP,
   safeBottom = DEFAULT_SAFE_BOTTOM,
@@ -120,9 +122,8 @@ export function PixelCityScene({
   const rendererRef = useRef<CitySceneRenderer | null>(null)
   const [view, setView] = useState<CameraView | null>(null)
   const [rects, setRects] = useState<Partial<Record<CityPlaceId, CityRect>>>({})
-  const [agentHover, setAgentHover] = useState<AgentHit | null>(null)
-  const [folkHover, setFolkHover] = useState(false)
-  const [folkTag, setFolkTag] = useState<FolkHit | null>(null)
+  const [agentHover, setAgentHover] = useState<ResidentHit | null>(null)
+  const residentButtons = useRef(new Map<string, HTMLButtonElement>())
   const [dragging, setDragging] = useState(false)
   const apiRef = useRef<CameraApi | null>(null)
   const invalidateRef = useRef<() => void>(() => {})
@@ -131,19 +132,12 @@ export function PixelCityScene({
   const stateRef = useRef(state)
   const activeRef = useRef(active)
   const onHotspotRef = useRef(onHotspot)
-  const onAgentRef = useRef(onAgent)
+  const onResidentRef = useRef(onResident)
   const safeRef = useRef({ top: safeTop, bottom: safeBottom })
   useEffect(() => {
     onHotspotRef.current = onHotspot
-    onAgentRef.current = onAgent
-  }, [onHotspot, onAgent])
-
-  // A townsperson's tag is a passing note: it clears itself.
-  useEffect(() => {
-    if (!folkTag) return
-    const timer = window.setTimeout(() => setFolkTag(null), FOLK_TAG_MS)
-    return () => window.clearTimeout(timer)
-  }, [folkTag])
+    onResidentRef.current = onResident
+  }, [onHotspot, onResident])
 
   useEffect(() => {
     const host = hostRef.current
@@ -185,6 +179,22 @@ export function PixelCityScene({
       safeBottom: safeRef.current.bottom,
     })
 
+    /** Moves each resident's focusable button onto its figure (imperatively: figures move every frame). */
+    const placeResidents = () => {
+      if (!lastView) return
+      const v = lastView
+      for (const anchor of renderer.residents()) {
+        const el = residentButtons.current.get(anchor.id)
+        if (!el) continue
+        el.style.display = anchor.visible ? "block" : "none"
+        if (!anchor.visible) continue
+        el.style.left = `${v.offsetX + (anchor.x - RESIDENT_BOX_W / 2) * v.zoom}px`
+        el.style.top = `${v.offsetY + (anchor.y - RESIDENT_BOX_H) * v.zoom}px`
+        el.style.width = `${RESIDENT_BOX_W * v.zoom}px`
+        el.style.height = `${RESIDENT_BOX_H * v.zoom}px`
+      }
+    }
+
     const frame = (now: number) => {
       raf = 0
       if (!vp || !cam || !target) return
@@ -201,12 +211,14 @@ export function PixelCityScene({
       if (dirty) {
         applyCamera()
         renderer.render(now / 1000)
+        placeResidents()
         lastAnim = now
         dirty = false
       } else if (activeRef.current) {
         const interval = reducedMotion.matches ? REDUCED_MOTION_INTERVAL_MS : FRAME_INTERVAL_MS
         if (now - lastAnim >= interval) {
           renderer.render(now / 1000)
+          placeResidents()
           lastAnim = now
         }
       }
@@ -279,29 +291,25 @@ export function PixelCityScene({
       return { x: event.clientX - bounds.left, y: event.clientY - bounds.top }
     }
 
-    // People are drawn on the canvas; the host tracks the pointer. Hovering an agent shows its tag and clicking it opens
-    // its agent card (even when the agent stands over a building's button). A townsperson answers a click only where
-    // no building button takes it, so the crowd never gets in the way of the places.
-    const personAt = (event: { clientX: number; clientY: number }): AgentHit | FolkHit | null => {
+    // Residents are drawn on the canvas; the host tracks the pointer. Hovering one shows its tag and clicking it opens
+    // its card (even when it stands over a building's button).
+    const personAt = (event: { clientX: number; clientY: number }): ResidentHit | null => {
       if (!vp || !cam) return null
       const p = local(event)
       const v = lastView ?? toView(cam, vp)
       const hit = renderer.hitTest((p.x - v.offsetX) / v.zoom, (p.y - v.offsetY) / v.zoom)
-      return hit && hit.kind !== "hotspot" ? hit : null
+      return hit && hit.kind === "resident" ? hit : null
     }
-    const isPlace = (target: EventTarget | null) => target instanceof Element && !!target.closest("[data-place]")
+    const openResident = (id: ResidentId) => {
+      if (onResidentRef.current) onResidentRef.current(id)
+      else onHotspotRef.current("tasks")
+    }
 
-    let hover: AgentHit | null = null
-    let folkHovered = false
-    const setHover = (hit: AgentHit | null) => {
+    let hover: ResidentHit | null = null
+    const setHover = (hit: ResidentHit | null) => {
       if ((hit?.id ?? null) === (hover?.id ?? null) && hit?.anchorX === hover?.anchorX && hit?.anchorY === hover?.anchorY) return
       hover = hit
       setAgentHover(hit)
-    }
-    const setFolkHovered = (on: boolean) => {
-      if (on === folkHovered) return
-      folkHovered = on
-      setFolkHover(on)
     }
 
     const isControl = (target: EventTarget | null) => target instanceof Element && !!target.closest("[data-camera-controls]")
@@ -355,7 +363,6 @@ export function PixelCityScene({
           pointer.dragged = true
           setDragging(true)
           setHover(null)
-          setFolkHovered(false)
           try {
             host.setPointerCapture(event.pointerId)
           } catch {
@@ -370,9 +377,7 @@ export function PixelCityScene({
         }
       }
       if (event.pointerType === "mouse") {
-        const hit = personAt(event)
-        setHover(hit && hit.kind === "agent" ? hit : null)
-        setFolkHovered(hit?.kind === "townsfolk" && !isPlace(event.target))
+        setHover(personAt(event))
       }
     }
 
@@ -405,7 +410,6 @@ export function PixelCityScene({
     const onPointerLeave = () => {
       if (pointer.down) return
       setHover(null)
-      setFolkHovered(false)
     }
 
     const onClickCapture = (event: MouseEvent) => {
@@ -416,22 +420,14 @@ export function PixelCityScene({
         event.preventDefault()
         return
       }
+      // A keyboard activation of a resident's own button is handled by that button.
+      if (event.target instanceof Element && event.target.closest("[data-resident]")) return
       const hit = personAt(event)
-      if (hit?.kind === "agent") {
+      if (hit) {
         event.stopPropagation()
         event.preventDefault()
-        setFolkTag(null)
-        if (onAgentRef.current) onAgentRef.current(hit.id)
-        else onHotspotRef.current("tasks")
-        return
+        openResident(hit.id)
       }
-      if (hit?.kind === "townsfolk" && !isPlace(event.target)) {
-        event.stopPropagation()
-        event.preventDefault()
-        setFolkTag(hit)
-        return
-      }
-      setFolkTag(null)
     }
 
     // ── Wheel / trackpad ────────────────────────────────────────────────────────
@@ -507,6 +503,12 @@ export function PixelCityScene({
       if (!(el instanceof HTMLElement)) return
       resetAncestorScroll()
       window.requestAnimationFrame(resetAncestorScroll)
+      if (el.dataset.resident && vp && target && el.matches(":focus-visible")) {
+        const anchor = renderer.residents().find((candidate) => candidate.id === el.dataset.resident)
+        const next = anchor ? revealRect(target, { x: anchor.x - RESIDENT_BOX_W, y: anchor.y - RESIDENT_BOX_H, w: RESIDENT_BOX_W * 2, h: RESIDENT_BOX_H + 6 }, vp) : null
+        if (next) moveTo(next, false)
+        return
+      }
       const id = el.dataset.place as CityPlaceId | undefined
       if (!id || !vp || !target || !el.matches(":focus-visible")) return
       const rect = placeRects[id]
@@ -576,7 +578,10 @@ export function PixelCityScene({
     safeRef.current = { top: safeTop, bottom: safeBottom }
   }, [safeTop, safeBottom])
 
-  const residents = state.residents
+  const residentList: Array<{ id: ResidentId; label: string }> = [
+    ...state.agents.map((agent) => ({ id: agentResidentId(agent.id), label: `${agent.name}, agent` })),
+    ...state.workers.map((worker) => ({ id: worker.id, label: `${worker.name}, integration worker` })),
+  ]
   const zoom = view?.zoom ?? 1
   const offsetX = view?.offsetX ?? 0
   const offsetY = view?.offsetY ?? 0
@@ -603,7 +608,6 @@ export function PixelCityScene({
       data-scene="city"
       data-agent-hover={agentHover ? "true" : undefined}
       data-dragging={dragging ? "true" : undefined}
-      style={folkHover && !agentHover && !dragging ? { cursor: "pointer" } : undefined}
     >
       <canvas ref={canvasRef} aria-hidden="true" className="absolute inset-0 h-full w-full" />
       {placedHotspots.map(({ spot, r }) => (
@@ -639,25 +643,23 @@ export function PixelCityScene({
         >
           <span className="pixel-hotspot-tag-label">{agentHover.label}</span>
           <span className="pixel-hotspot-tag-detail">{agentHover.detail}</span>
-          <span className="pixel-hotspot-tag-detail">Click to see what it&apos;s doing</span>
+          <span className="pixel-hotspot-tag-detail">Click to open its card</span>
         </div>
       ) : null}
-      {folkTag && !agentHover && !dragging ? (
-        <div
-          className="pixel-agent-tag"
-          role="status"
-          data-folk-tag=""
-          style={{ left: offsetX + folkTag.anchorX * zoom, top: offsetY + folkTag.anchorY * zoom - 8 }}
-        >
-          <span className="pixel-hotspot-tag-label">Townsperson</span>
-          <span className="pixel-hotspot-tag-detail">
-            {residents !== null
-              ? `Nova City has ${residents.toLocaleString("en-US")} resident${residents === 1 ? "" : "s"}`
-              : "One of Nova City's residents"}
-          </span>
-          <span className="pixel-hotspot-tag-detail">More move in as you complete quests</span>
-        </div>
-      ) : null}
+      {residentList.map((resident) => (
+        <button
+          key={resident.id}
+          type="button"
+          data-resident={resident.id}
+          ref={(el) => {
+            if (el) residentButtons.current.set(resident.id, el)
+            else residentButtons.current.delete(resident.id)
+          }}
+          onClick={() => (onResident ? onResident(resident.id) : onHotspot("tasks"))}
+          className="pixel-resident"
+          aria-label={resident.label}
+        />
+      ))}
       <div className="pixel-camera-controls" data-camera-controls="" style={{ bottom: safeBottom + 10 }}>
         <button type="button" className="pixel-chip pixel-chip--icon" onClick={() => apiRef.current?.zoomBy(1 / KEY_ZOOM_STEP)} aria-label="Zoom out" title="Zoom out (-)">
           <Minus className="h-4 w-4" />

@@ -1,8 +1,9 @@
-import type { CityWorkplace } from "../types"
+import type { CityIntegration, CityWorkplace } from "../types"
+import { cosmeticImage } from "./cosmetic-art"
 
 /**
- * The people of Nova City: PixelLab character sheets drawn at the painting's own pixel density, so townsfolk,
- * agents and Nova the cat look painted into the city rather than pasted on top.
+ * The people of Nova City: PixelLab character sheets drawn at the painting's own pixel density, so the
+ * residents (one agent per task, one worker per connected integration) and Nova the cat look painted into the city rather than pasted on top.
  *
  * The night painting is pixel art enlarged 2.5x (a 1032x576 picture on a 2580x1440 plan), and it reaches the
  * screen smoothly scaled. The sheets are drawn the same way: each sheet pixel covers PERSON_PX plan pixels, a sheet
@@ -39,14 +40,15 @@ export const CAT_HEIGHT = Math.round(20 * CAT_PX)
 const PRESCALE = 3
 const SHEET_BASE = "/pixel-city/town/characters"
 
-export const TOWNSFOLK_SHEETS = ["folk-red", "folk-blue", "folk-office", "folk-coat", "folk-yellow", "folk-teen"] as const
 export const AGENT_SHEETS = ["agent", "agent-lab", "agent-courier", "agent-trader", "agent-media", "agent-research"] as const
-export type PersonSheet = (typeof TOWNSFOLK_SHEETS)[number] | (typeof AGENT_SHEETS)[number]
+export type PersonSheet = (typeof AGENT_SHEETS)[number]
 
 export interface PersonLook {
   sheet: PersonSheet
-  /** A Nova agent (teal suit, cyan visor); everyone else is townsfolk. */
-  agent: boolean
+  /** Equipped outfit (cosmetic id): its sheet replaces the body sheet while its art exists. */
+  outfit?: string
+  /** Equipped hat (cosmetic id): its sheet is drawn over the body, cell for cell, while its art exists. */
+  hat?: string
 }
 
 /**
@@ -67,7 +69,30 @@ const ROLE_SHEET: Readonly<Record<CityWorkplace, PersonSheet>> = {
 }
 
 export function agentLook(workplace: CityWorkplace): PersonLook {
-  return { sheet: ROLE_SHEET[workplace], agent: true }
+  return { sheet: ROLE_SHEET[workplace] }
+}
+
+/** The building each integration's worker works at: the same workplaces agents use (see `workplaceForTools`). */
+const INTEGRATION_WORKPLACE: Readonly<Record<CityIntegration, CityWorkplace>> = {
+  telegram: "comms",
+  discord: "comms",
+  slack: "comms",
+  openai: "lab",
+  claude: "lab",
+  grok: "lab",
+  gemini: "lab",
+  spotify: "cinema",
+  youtube: "cinema",
+  gmail: "post",
+  "gmail-calendar": "post",
+  brave: "library",
+  coinbase: "bank",
+  phantom: "bank",
+  polymarket: "parlour",
+}
+
+export function integrationWorkplace(integration: CityIntegration): CityWorkplace {
+  return INTEGRATION_WORKPLACE[integration]
 }
 
 /**
@@ -78,20 +103,13 @@ export function personSheetArt(sheet: PersonSheet): { url: string; cell: number;
   return { url: `${SHEET_BASE}/${sheet}.png`, cell: CELL, columns: 1 + WALK_FRAMES, rows: 8 }
 }
 
-/** A stable townsperson for a walker id: the same id always gets the same person, and `folk-0`, `folk-1`, … take turns. */
-export function townsfolkLook(id: string): PersonLook {
-  const index = /(\d+)$/.exec(id)
-  if (index) return { sheet: TOWNSFOLK_SHEETS[Number(index[1]) % TOWNSFOLK_SHEETS.length], agent: false }
-  let h = 2166136261
-  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619)
-  return { sheet: TOWNSFOLK_SHEETS[(h >>> 0) % TOWNSFOLK_SHEETS.length], agent: false }
-}
-
 // ── Sheet loading ─────────────────────────────────────────────────────────────
 
 type Art = HTMLCanvasElement
 
 const sheets = new Map<string, Art>()
+/** Prescaled cosmetic sheets by item id; an item whose art is missing never gets an entry (the default look is drawn). */
+const cosmeticSheets = new Map<string, Art>()
 let catAwake: Art | null = null
 let catAsleep: Art | null = null
 let loading = false
@@ -141,6 +159,18 @@ function closeEyes(image: HTMLImageElement): Art | null {
   return img
 }
 
+/** The cosmetic's prescaled sheet, once its art has loaded; null while loading or when the art does not exist. */
+function cosmeticArt(id: string | undefined): Art | null {
+  if (!id) return null
+  const have = cosmeticSheets.get(id)
+  if (have) return have
+  const image = cosmeticImage(id)
+  if (!image) return null
+  const art = prescale(image)
+  if (art) cosmeticSheets.set(id, art)
+  return art
+}
+
 function load(name: string, done: (image: HTMLImageElement) => void): void {
   const image = new Image()
   image.decoding = "async"
@@ -153,7 +183,7 @@ function load(name: string, done: (image: HTMLImageElement) => void): void {
 export function loadPeopleArt(): void {
   if (loading || typeof document === "undefined") return
   loading = true
-  for (const name of [...TOWNSFOLK_SHEETS, ...AGENT_SHEETS]) {
+  for (const name of AGENT_SHEETS) {
     load(name, (image) => {
       const art = prescale(image)
       if (art) sheets.set(name, art)
@@ -190,12 +220,14 @@ function drawShadow(ctx: CanvasRenderingContext2D, x: number, y: number, rx: num
  * its walk cycle, phase-shifted by x so a crowd doesn't march in step.
  */
 export function drawPerson(ctx: CanvasRenderingContext2D, x: number, y: number, dir: number, moving: boolean, time: number, look: PersonLook): void {
-  const art = sheets.get(look.sheet)
+  const art = cosmeticArt(look.outfit) ?? sheets.get(look.sheet)
   if (!art) return
   const row = ((Math.round(dir) % 8) + 8) % 8
   const col = moving ? 1 + (Math.floor(time * WALK_FPS + x * 0.37) % WALK_FRAMES) : 0
   drawShadow(ctx, x, y, 9)
   drawCell(ctx, art, col, row, CELL, FOOT_Y, PERSON_PX, x, y)
+  const hat = cosmeticArt(look.hat)
+  if (hat) drawCell(ctx, hat, col, row, CELL, FOOT_Y, PERSON_PX, x, y)
 }
 
 /** Nova on the park bench, facing the viewer. `blink` shuts the eyes (asleep while Nova is offline). */

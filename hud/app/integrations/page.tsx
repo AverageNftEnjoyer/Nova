@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation"
 import Image from "next/image"
 import { Blocks, Settings, User } from "lucide-react"
 
-import { useTheme } from "@/lib/context/theme-context"
 import {
   buildIntegrationsHref,
   readIntegrationSetupParam,
@@ -23,6 +22,7 @@ import { SettingsModal } from "@/components/settings/settings-modal"
 import { useNovaState } from "@/lib/chat/hooks/useNovaState"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { usePageActive } from "@/lib/hooks/use-page-active"
+import { useTownProgress } from "@/app/home/hooks/use-town-progress"
 import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, NewsIcon, OpenAIIcon, PhantomIcon, PolymarketIcon, SlackIcon, SpotifyIcon, TelegramIcon, XAIIcon, YouTubeIcon } from "@/components/icons"
 import { NOVA_VERSION } from "@/lib/meta/version"
 import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
@@ -42,7 +42,6 @@ import {
   GMAIL_DEFAULT_REDIRECT_URI,
   SPOTIFY_DEFAULT_REDIRECT_URI,
   YOUTUBE_DEFAULT_REDIRECT_URI,
-  hexToRgba,
 } from "./constants"
 
 // Hooks and utilities
@@ -83,22 +82,13 @@ import { useProviderDefinitions } from "./modules/hooks/use-provider-definitions
 import { IntegrationsMainPanel } from "./modules/components/integrations-main-panel"
 
 function IntegrationsPageContent() {
-  const hexToRgbTriplet = (hex: string): string => {
-    const clean = hex.replace("#", "")
-    const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean
-    const num = Number.parseInt(full, 16)
-    const r = (num >> 16) & 255
-    const g = (num >> 8) & 255
-    const b = num & 255
-    return `${r}, ${g}, ${b}`
-  }
   const router = useRouter()
   const searchParams = useSearchParams()
   const requestedSetup = readIntegrationSetupParam(searchParams.get("setup"))
-  const [orbHovered, setOrbHovered] = useState(false)
-  const { theme } = useTheme()
   const pageActive = usePageActive()
-  const isLight = theme === "light"
+  // The pixel city is always night (like the Home District), so the modules below always get their night face.
+  const isLight = false
+  const { progress: townProgress } = useTownProgress()
   const { state: novaState, connected: agentConnected } = useNovaState()
 
   const [settings, setSettings] = useState<IntegrationsSettings>(() => loadIntegrationsSettings())
@@ -690,30 +680,11 @@ function IntegrationsPageContent() {
 
   const orbPalette = ORB_COLORS[orbColor]
 
-  const panelClass =
-    isLight
-      ? "rounded-2xl border border-[#d9e0ea] bg-white shadow-none"
-      : "home-module-surface rounded-2xl border backdrop-blur-xl"
-  const subPanelClass = isLight
-    ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd]"
-    : "home-subpanel-surface rounded-lg border backdrop-blur-md"
-  const panelStyle = isLight
-    ? undefined
-    : {
-      boxShadow: "0 20px 60px -35px rgba(var(--accent-rgb), 0.35)",
-      "--home-orb-rgb-primary": hexToRgbTriplet(orbPalette.circle1),
-      "--home-orb-rgb-secondary": hexToRgbTriplet(orbPalette.circle2),
-      "--home-orb-rgb-bg": hexToRgbTriplet(orbPalette.bg),
-    } as CSSProperties
-  const moduleHeightClass = "h-[clamp(620px,88vh,1240px)]"
+  const panelClass = "ig-panel"
+  const subPanelClass = "ig-sub"
+  const panelStyle: CSSProperties | undefined = undefined
+  const moduleHeightClass = "ig-module"
   const presence = getNovaPresence({ agentConnected, novaState })
-  const orbHoverFilter = `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`
-  const integrationBadgeClass = (connected: boolean) =>
-    !integrationsHydrated
-      ? "border-white/15 bg-white/10 text-slate-200"
-      : connected
-        ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
-        : "border-rose-300/50 bg-rose-500/35 text-rose-100"
   const integrationDotClass = (connected: boolean) =>
     !integrationsHydrated ? "bg-slate-400" : connected ? "bg-emerald-400" : "bg-rose-400"
   const compactModelLabel = useMemo(() => formatCompactModelLabelFromIntegrations(settings), [settings])
@@ -860,70 +831,61 @@ function IntegrationsPageContent() {
     geminiSetup,
   })
   return (
-    <div style={panelStyle} className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}>
-
-      <div className="relative z-10 flex-1 h-dvh overflow-hidden transition-all duration-200">
-      <div className="flex h-full w-full items-start justify-start px-3 py-4 sm:px-4 lg:px-6">
-        <div className="w-full">
+    <div className="ig-root pixel-night">
+      <div className="ig-scroll">
+        <div className="ig-page">
           <SaveStatusToast status={saveStatus} isLight={isLight} />
 
-          <div ref={topHeaderRef} className="mb-4 flex items-center gap-3">
+          <header ref={topHeaderRef} className="ig-header">
             <button
               onClick={() => router.push("/home")}
-              onMouseEnter={() => setOrbHovered(true)}
-              onMouseLeave={() => setOrbHovered(false)}
-              className="group relative h-11 w-11 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110"
+              className="ig-orb"
               aria-label="Go to home"
             >
               <NovaOrbIndicator
                 palette={orbPalette}
                 size={30}
                 animated={pageActive}
-                className="transition-all duration-200"
-                style={{ filter: orbHovered ? orbHoverFilter : "none" }}
               />
             </button>
             <div className="min-w-0">
-              <div className="flex flex-col leading-tight">
-                <div className="flex items-baseline gap-3">
-                  <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaAIO</h1>
-                  <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
+              <div className="flex items-baseline gap-3">
+                <h1 className="ig-wordmark">NovaAIO</h1>
+                <p className="ig-version">{NOVA_VERSION}</p>
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
+                <div className="inline-flex items-center gap-1.5">
+                  <span className={cn("h-2.5 w-2.5", presence.dotClassName)} aria-hidden="true" />
+                  <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", presence.textClassName)}>
+                    {presence.label}
+                  </span>
                 </div>
-                <div className="mt-0.5 flex items-center gap-3">
-                  <div className="inline-flex items-center gap-1.5">
-                    <span className={cn("h-2.5 w-2.5 rounded-full animate-pulse", presence.dotClassName)} aria-hidden="true" />
-                    <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", presence.textClassName)}>
-                      {presence.label}
-                    </span>
-                  </div>
-                  <p className={cn("text-[13px] whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>Integrations Hub</p>
-                </div>
+                <p className="ig-subtitle">Town Hall / Integrations Hub</p>
               </div>
             </div>
-          </div>
+          </header>
 
-          <div className="grid w-full grid-cols-1 gap-4 xl:grid-cols-[minmax(340px,24vw)_minmax(0,1fr)_minmax(340px,24vw)]">
+          <div className="ig-grid">
           <div className="space-y-4">
-          <section ref={connectivitySectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass}`}>
+          <section ref={connectivitySectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
             <div className="flex items-center gap-2 text-s-80">
               <Blocks className="w-4 h-4 text-accent" />
-              <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Nova Integrations</h2>
+              <h2 className="text-sm uppercase tracking-[0.22em] font-semibold text-slate-200">Nova City Buildings</h2>
             </div>
-            <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>Node connectivity</p>
+            <p className="text-xs mt-1 text-slate-400">One building per integration. Pick one to set it up.</p>
 
-            <div className={cn("mt-3 p-2 rounded-lg", subPanelClass)}>
+            <div className="ig-buildings-scroll mt-3 min-h-0 flex-1 overflow-y-auto no-scrollbar">
               <ConnectivityGrid
-                isLight={isLight}
                 activeSetup={activeSetup}
-                integrationBadgeClass={integrationBadgeClass}
                 onSelect={handleSelectSetup}
+                townBuildings={townProgress ? townProgress.buildings : null}
                 items={connectivityItems}
               />
             </div>
-            <div className={cn("mt-3 rounded-lg border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "home-subpanel-surface")}>
-              <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Profile & Settings</p>
+            <div className="mt-3 ig-sub p-3 home-spotlight-card home-border-glow">
+              <p className="text-xs mb-2 uppercase tracking-[0.14em] text-slate-400">Profile & Settings</p>
               <div className="flex items-center gap-3">
-                <div className={cn("w-10 h-10 rounded-full flex items-center justify-center shrink-0 overflow-hidden border", isLight ? "border-[#d5dce8] bg-white" : "border-white/15 bg-white/5")}>
+                <div className="w-10 h-10 flex items-center justify-center shrink-0 overflow-hidden border border-white/15 bg-white/5">
                   {profile.avatar ? (
                     <Image src={profile.avatar} alt="Profile" width={40} height={40} className="w-full h-full object-cover" />
                   ) : (
@@ -931,19 +893,16 @@ function IntegrationsPageContent() {
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className={cn("text-sm font-medium truncate", isLight ? "text-s-90" : "text-slate-100")}>{profile.name || "User"}</p>
+                  <p className="text-sm font-medium truncate text-slate-100">{profile.name || "User"}</p>
                   <p className="text-[11px] text-accent font-mono truncate">{compactModelLabel}</p>
                 </div>
                 <button
                   onClick={() => setSettingsOpen(true)}
-                  className={cn(
-                    "h-8 w-8 rounded-lg border inline-flex items-center justify-center transition-colors group/gear home-spotlight-card home-border-glow home-spotlight-card--hover",
-                    isLight ? "border-[#d5dce8] bg-white text-s-80" : "home-subpanel-surface text-slate-300",
-                  )}
+                  className="h-8 w-8 border inline-flex items-center justify-center transition-colors group/gear ig-sub text-slate-300"
                   aria-label="Open settings"
                   title="Settings"
                 >
-                  <Settings className="w-4 h-4 transition-transform duration-200 group-hover/gear:rotate-90" />
+                  <Settings className="w-4 h-4" />
                 </button>
               </div>
             </div>
@@ -1074,16 +1033,16 @@ function IntegrationsPageContent() {
 
           <section ref={activeStatusSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
             <div>
-              <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
+              <h2 className="text-sm uppercase tracking-[0.22em] font-semibold text-slate-200">
                 Active
               </h2>
-              <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
-                Live provider and integration status.
+              <p className="text-xs mt-1 text-slate-400">
+                Live provider and building status.
               </p>
             </div>
 
-            <div className={cn("mt-4 rounded-lg border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "home-subpanel-surface")}>
-              <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Active LLM Provider</p>
+            <div className="mt-4 ig-sub p-3 home-spotlight-card home-border-glow">
+              <p className="text-xs mb-2 uppercase tracking-[0.14em] text-slate-400">Active LLM Provider</p>
               <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center">
                 <FluidSelect
                   value={activeLlmProvider}
@@ -1096,13 +1055,13 @@ function IntegrationsPageContent() {
                   ]}
                   isLight={isLight}
                 />
-                <span className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>
+                <span className="text-[11px] text-slate-400">
                   {isSavingTarget === "provider" ? "Switching..." : "One provider live at a time"}
                 </span>
               </div>
             </div>
 
-            <div className={cn("mt-3 min-h-0 flex-1 rounded-lg border overflow-hidden", isLight ? "border-[#d5dce8]" : "border-white/10")}>
+            <ul className="ig-active-list mt-3 min-h-0 flex-1 overflow-y-auto no-scrollbar">
               {[
                 { name: "Telegram", active: settings.telegram.connected },
                 { name: "Discord", active: settings.discord.connected },
@@ -1121,31 +1080,24 @@ function IntegrationsPageContent() {
                 { name: "Phantom", active: settings.phantom.connected },
                 { name: "Polymarket", active: settings.polymarket.connected },
               ].map((item) => (
-                <div
+                <li
                   key={item.name}
-                  className={cn(
-                    "home-spotlight-card home-border-glow grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2 text-xs",
-                    isLight ? "bg-[#f4f7fd] text-s-70 border-b border-[#dfe5ef] last:border-b-0" : "bg-black/20 text-slate-300 border-b border-white/8 last:border-b-0",
-                  )}
+                  className="ig-active-row home-spotlight-card home-border-glow grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2 text-xs"
                 >
-                  <span className={cn("font-medium", isLight ? "text-s-90" : "text-slate-100")}>{item.name}</span>
+                  <span className="font-medium text-slate-100">{item.name}</span>
                   <span
-                    className={cn(
-                      "h-2 w-2 rounded-full",
-                      integrationDotClass(item.active),
-                    )}
+                    className={cn("h-2 w-2", integrationDotClass(item.active))}
                     aria-hidden="true"
                   />
                   <span className={cn(integrationTextClass(item.active))}>
                     {item.active ? "Active" : "Inactive"}
                   </span>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           </section>
         </div>
         </div>
-      </div>
       </div>
       <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>

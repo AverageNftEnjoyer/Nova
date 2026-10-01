@@ -103,9 +103,9 @@ Every Home module and popup that exists today stays reachable from the town.
   - LLM calls per provider for the AI labs
 - Example tiers: level 1 is a small shopfront, level 2 a mid-rise with more lights and props, level 3 a landmark tower.
 
-### 4.3 Expansion, population and unlocks
+### 4.3 Expansion and unlocks
 - **Expansion:** the town grows outward in rings or districts as the town level rises. Early game shows the core and empty lots; late game fills in streets, shophouse rows and parks.
-- **Population:** townsfolk on the sidewalks come from conversations and messages.
+- **Wardrobe:** outfits and hats for residents are earned by completing quests (rarer items behind harder quests); nothing is revoked.
 - **Milestone unlocks** (examples):
 
 | Milestone | Unlock |
@@ -139,7 +139,7 @@ To confirm during implementation. Candidates already persisted today:
 | `deployments`, `deployment_runs` | `nova.db` | Buses, Bus Depot, deployment XP |
 | missions | `nova.db` | XP |
 | notes | `nova.db` | Archive, XP |
-| chat threads and messages | `nova.db` | Population, XP |
+| chat threads and messages | `nova.db` | XP |
 | `kv_state` | `nova.db` | Celebrations already shown, view setting |
 | Integration configs | `nova.db` | Which lots are built |
 | Workspace docs (`SKILL.md`, MEMORY, SOUL, USER, AGENTS) | user-context root (`src/db/paths.js`) | Archive wings, houses |

@@ -10,7 +10,6 @@ import {
   LLM_PROVIDER_KEYS,
   MESSAGING_KEYS,
   buildingThresholds,
-  townsfolkRewardFor,
   type TownLifetimeCounts,
   type TownTodayCounts,
 } from "./rules"
@@ -376,13 +375,22 @@ export function questRewardFor(id: string): number {
   return 0
 }
 
-/** Townsfolk a stored (non-daily) quest id brought to the city, or 0 when the id is not in the catalogue. */
-export function questTownsfolkFor(id: string): number {
-  if (questRewardFor(id) <= 0) return 0
-  if (TUTORIAL_BY_ID.has(id)) return townsfolkRewardFor("tutorial")
-  if (id.startsWith("milestone-")) return townsfolkRewardFor("milestone")
-  if (id.startsWith("integration-")) return townsfolkRewardFor("integration")
-  return 0
+/** Title of a stored (non-daily) quest id, or null when the id is not in the catalogue. */
+export function questTitleFor(id: string): string | null {
+  const tutorial = TUTORIAL_BY_ID.get(id)
+  if (tutorial) return tutorial.title
+  const milestone = /^milestone-(.+)-(\d+)$/.exec(id)
+  if (milestone) {
+    const series = MILESTONE_SERIES.find((candidate) => candidate.id === milestone[1])
+    const tierIndex = series ? series.tiers.indexOf(Number(milestone[2])) : -1
+    return series && tierIndex >= 0 ? milestoneDefinition(series, tierIndex).title : null
+  }
+  const integration = /^integration-(.+)-([123])$/.exec(id)
+  if (integration) {
+    const key = INTEGRATION_SETUP_KEYS.find((candidate) => candidate === integration[1])
+    return key ? integrationDefinition(key, Number(integration[2]) as 1 | 2 | 3).title : null
+  }
+  return null
 }
 
 export interface QuestEvaluation {
@@ -406,7 +414,6 @@ function evaluate(definition: QuestDefinition, ctx: TownQuestContext, completedA
     progress: done ? definition.goal : Math.min(raw, definition.goal),
     goal: definition.goal,
     xpReward: definition.xpReward,
-    townsfolkReward: townsfolkRewardFor(definition.category),
     ...(definition.target ? { target: definition.target } : {}),
     ...(done ? { completedAt: stored ?? nowIso } : {}),
   }

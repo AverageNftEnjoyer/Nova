@@ -87,7 +87,7 @@ function integrationMap<T>(value: unknown, read: (entry: unknown) => T | null): 
   return out
 }
 
-const EVENT_KINDS: readonly TownEvent["kind"][] = ["level-up", "quest-complete", "building-up", "achievement"]
+const EVENT_KINDS: readonly TownEvent["kind"][] = ["level-up", "quest-complete", "building-up", "achievement", "item-unlock"]
 
 function readEvent(value: unknown): TownEvent | null {
   if (!isRecord(value)) return null

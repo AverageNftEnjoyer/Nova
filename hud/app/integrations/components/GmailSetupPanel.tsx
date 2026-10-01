@@ -70,7 +70,7 @@ export function GmailSetupPanel({
             Connect one or more Gmail accounts for Nova workflows and chat-triggered inbox automations.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-2 w-full lg:w-auto">
+        <div className="grid grid-cols-[repeat(2,max-content)] gap-2 w-full lg:w-auto">
           <button
             onClick={onSaveGmailConfig}
             disabled={isSavingAny}

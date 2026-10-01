@@ -2,11 +2,12 @@
 
 import { useState, type FormEvent, type ReactNode } from "react"
 import { ExternalLink, Pause, Play, ShieldCheck, Square } from "lucide-react"
-import { WORKPLACE_NAME, agentLook, personSheetArt, workplaceForTools, type CityWorkplace } from "@/components/pixel-city"
+import { WORKPLACE_NAME, agentLook, workplaceForTools, type CityLook, type CityWorkplace } from "@/components/pixel-city"
 import { budgetFraction, hasBudgetHeadroom, taskBudgetSpend } from "@/lib/agents/task-budget"
 import type { AgentTask, AgentTaskBudgetState, AgentTaskStatus, AgentTaskUiAction, RaiseAgentTaskBudgetInput } from "@/lib/agents/types"
 import { cn } from "@/lib/shared/utils"
 import { PixelWindow } from "../pixel/pixel-window"
+import { CosmeticPreview } from "./cosmetic-preview"
 import { GameBar } from "./game-bar"
 
 type ActionResult = { ok: true } | { ok: false; error: string }
@@ -19,6 +20,12 @@ interface AgentCardProps {
   onRaiseBudget: (id: string, input: RaiseAgentTaskBudgetInput) => Promise<ActionResult>
   /** Opens the full Agent Tasks popup. */
   onOpenTasks: () => void
+  /** The name the user gave this resident; shown instead of the task's own name. */
+  displayName?: string
+  /** What the resident wears (wardrobe), drawn on its portrait. */
+  look?: CityLook
+  /** Rename and wardrobe controls (ResidentCustomizer), shown with the task's details. */
+  customizer?: ReactNode
 }
 
 const STATUS_LABEL: Record<AgentTaskStatus, string> = {
@@ -98,24 +105,18 @@ function suggestedTokens(current: number | null, spent: number): string {
   return String(Math.min(MAX_TOKEN_BUDGET, Math.ceil((Math.max(current, spent) * 2) / 1_000) * 1_000))
 }
 
-/** The agent's own sprite: the standing, south-facing frame of its outfit's sheet, scaled with hard edges. */
-function AgentPortrait({ workplace }: { workplace: CityWorkplace }) {
-  const art = personSheetArt(agentLook(workplace).sheet)
-  const size = art.cell * PORTRAIT_SCALE
+/** The agent's own sprite: the standing, south-facing frame of its outfit's sheet (and any worn cosmetics), scaled with hard edges. */
+function AgentPortrait({ workplace, look }: { workplace: CityWorkplace; look?: CityLook }) {
+  const size = 32 * PORTRAIT_SCALE
+  const worn = look?.outfit || look?.hat
   return (
     <div className="pixel-subpanel grid shrink-0 place-items-end justify-center overflow-hidden" style={{ width: size + 12, height: size + 8 }}>
-      <div
-        role="img"
-        aria-label={`Nova agent in its ${WORKPLACE_NAME[workplace]} outfit`}
-        style={{
-          width: size,
-          height: size,
-          backgroundImage: `url(${art.url})`,
-          backgroundRepeat: "no-repeat",
-          backgroundPosition: "0 0",
-          backgroundSize: `${art.columns * size}px ${art.rows * size}px`,
-          imageRendering: "pixelated",
-        }}
+      <CosmeticPreview
+        sheet={agentLook(workplace).sheet}
+        outfit={look?.outfit}
+        hat={look?.hat}
+        scale={PORTRAIT_SCALE}
+        label={worn ? "Nova agent in its chosen look" : `Nova agent in its ${WORKPLACE_NAME[workplace]} outfit`}
       />
     </div>
   )
@@ -134,7 +135,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
  * The agent card: what one Nova agent (one agent task) is doing, where in the city and why, what it has spent and
  * what it needs from you, with the task's own controls. Everything shown is the task's real row from useAgentTasks.
  */
-export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks }: AgentCardProps) {
+export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks, displayName, look, customizer }: AgentCardProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [raiseOpen, setRaiseOpen] = useState(false)
@@ -175,7 +176,7 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks 
   const canResume = task.status === "paused" && !budgetPaused && !approval
   const canRetry = task.status === "failed" || task.status === "cancelled"
   const canStop = task.status === "running" || task.status === "queued" || task.status === "paused"
-  const name = task.name || task.prompt.slice(0, 60) || "Agent task"
+  const name = displayName || task.name || task.prompt.slice(0, 60) || "Agent task"
 
   const act = async (action: AgentTaskUiAction) => {
     setBusy(true)
@@ -223,7 +224,7 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks 
       <div className={cn("flex h-full min-h-0 flex-col gap-2", busy && "opacity-70")} aria-busy={busy}>
         <div className="game-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
           <div className="flex gap-3">
-            <AgentPortrait workplace={workplace} />
+            <AgentPortrait workplace={workplace} look={look} />
             <div className="min-w-0 flex-1">
               <h3 className="line-clamp-2 font-pixel text-[17px] leading-tight text-(--px-text)" title={name}>
                 {name}
@@ -349,6 +350,8 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks 
               </ol>
             )}
           </Section>
+
+          {customizer}
 
           {task.error && !budgetPaused ? (
             <Section title="Error">

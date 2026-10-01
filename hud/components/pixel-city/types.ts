@@ -1,4 +1,6 @@
-/** Live data the Nova City scene draws. An empty state renders a calm, idle city. */
+import type { ResidentId } from "@/lib/town/wardrobe-types"
+
+/** Live data the Nova City scene draws. An empty state renders a calm, idle city: nobody walks unless real work or a real connection puts them there. */
 
 /** Weather overlay, derived from the Home weather snapshot's WMO code. */
 export type CityWeather = "clear" | "cloudy" | "fog" | "rain" | "storm" | "snow"
@@ -37,11 +39,34 @@ export type CityWorkplace = "hq" | "lab" | "comms" | "post" | "bank" | "parlour"
 
 /** A deployed agent (an agent task) walking the city. */
 export interface CityAgent {
+  /** The agent task's id. Its resident id is `agent:<id>` (see `agentResidentId`). */
   id: string
+  /** The resident's name: the user's chosen name, else the task's name. */
   name: string
   status: CityTaskLight
   /** Where its current work happens, from the tools it last used. */
   workplace: CityWorkplace
+}
+
+/** A worker standing for one connected integration, working near that integration's building. */
+export interface CityWorker {
+  /** `integration:<key>`. */
+  id: ResidentId
+  integration: CityIntegration
+  /** The resident's name: the user's chosen name, else "<Integration> worker". */
+  name: string
+  /** The building where the worker works, from the integration's place. */
+  workplace: CityWorkplace
+}
+
+/** The cosmetics a resident wears (item ids from the wardrobe catalogue); nothing equipped = the default look. */
+export interface CityLook {
+  outfit?: string
+  hat?: string
+}
+
+export function agentResidentId(taskId: string): ResidentId {
+  return `agent:${taskId}`
 }
 
 export interface CitySceneState {
@@ -59,13 +84,10 @@ export interface CitySceneState {
   agents: CityAgent[]
   /** Connected integrations; each one's building has its sign steadily lit. */
   connectedIntegrations: CityIntegration[]
-  /**
-   * Townsfolk walking the streets, scaled from the town's real population (see `townsfolkFor` in Home's scene
-   * state). null while the population is still loading: the renderer keeps a small starting crowd until it is known.
-   */
-  townsfolk: number | null
-  /** Nova City's real population (TownProgress.population), told on a townsperson's tag. null while loading. */
-  residents: number | null
+  /** One worker per connected integration. */
+  workers: CityWorker[]
+  /** Equipped cosmetics by resident id (only residents that wear something). */
+  looks: Record<string, CityLook>
 }
 
 export type CityHotspotId =
@@ -103,15 +125,25 @@ export const EMPTY_CITY_STATE: CitySceneState = {
   notesCount: 0,
   agents: [],
   connectedIntegrations: [],
-  townsfolk: null,
-  residents: null,
+  workers: [],
+  looks: {},
 }
 
-/** What the pointer is over: a place (opens its popup), an agent or a townsperson. Anchor is the plan point for a tag. */
+/** What the pointer is over: a place (opens its popup) or a resident (an agent or an integration's worker). Anchor is the plan point for a tag. */
 export type CitySceneHit =
   | { kind: "hotspot"; id: CityPlaceId }
-  | { kind: "agent"; id: string; label: string; detail: string; anchorX: number; anchorY: number }
-  | { kind: "townsfolk"; id: string; anchorX: number; anchorY: number }
+  | { kind: "resident"; id: ResidentId; label: string; detail: string; anchorX: number; anchorY: number }
+
+/** Where a resident stands right now (plan pixels, feet), for the scene's keyboard-focusable buttons. */
+export interface CityResidentAnchor {
+  id: ResidentId
+  /** The accessible name, "<name>, <kind>". */
+  label: string
+  x: number
+  y: number
+  /** False while the figure is fading in or out. */
+  visible: boolean
+}
 
 /** What the scene component needs from the city renderer. */
 export interface CitySceneRenderer {
@@ -123,4 +155,6 @@ export interface CitySceneRenderer {
   render(timeSeconds: number): void
   hotspots(): Partial<Record<CityPlaceId, CityRect>>
   hitTest(x: number, y: number): CitySceneHit | null
+  /** Every resident on the streets, with where they stand this frame. */
+  residents(): CityResidentAnchor[]
 }

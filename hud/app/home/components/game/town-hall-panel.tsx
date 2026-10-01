@@ -100,8 +100,7 @@ function TownProgressPanel({ progress, error, integrations, onSetup }: TownProgr
         </div>
       </section>
 
-      <dl className="grid grid-cols-3 gap-2">
-        <Stat label="Townsfolk" value={formatXp(progress.population)} />
+      <dl className="grid grid-cols-2 gap-2">
         <Stat label="Buildings" value={`${builtCount}/${progress.buildings.length}`} />
         <Stat label="Quests done" value={`${progress.quests.filter((quest) => quest.status === "completed").length}/${progress.quests.length}`} />
       </dl>

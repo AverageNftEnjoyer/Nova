@@ -1,9 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react"
-import Image from "next/image"
 import { useRouter } from "next/navigation"
-import { CloudSun, ExternalLink, Settings } from "lucide-react"
+import { ExternalLink } from "lucide-react"
 import {
   BraveIcon,
   ClaudeIcon,
@@ -24,24 +23,25 @@ import {
 import { DISTRICT_PLACES, PixelCityScene, type CityHotspot, type CityHotspotId, type CityIntegration, type CityPlaceId } from "@/components/pixel-city"
 import { SettingsModal } from "@/components/settings/settings-modal"
 import type { SettingsSectionId } from "@/components/settings/settings-nav"
-import { WindowControls } from "@/components/window/window-controls"
+import type { ResidentId } from "@/lib/town/wardrobe-types"
 import { isRunActive, useDeploymentsData } from "@/app/deployments/hooks/use-deployments-data"
 import { LazyNewDeploymentModal, preloadNewDeploymentModal } from "@/app/deployments/components/new-deployment-modal-lazy"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { usePageActive } from "@/lib/hooks/use-page-active"
-import { NOVA_VERSION } from "@/lib/meta/version"
 import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
-import { cn } from "@/lib/shared/utils"
 import { useAgentTasks } from "../hooks/use-agent-tasks"
 import { useCitySceneState } from "../hooks/use-city-scene-state"
 import { useHomeAnalyticsSummary } from "../hooks/use-home-analytics-summary"
 import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
 import { useHomeNotes } from "../hooks/use-home-notes"
 import { useTownProgress } from "../hooks/use-town-progress"
-import { AgentCard } from "./game/agent-card"
+import { useTownWardrobe } from "../hooks/use-town-wardrobe"
+import { ResidentCard } from "./game/resident-card"
 import { TownGameLayer } from "./game/town-game-layer"
 import { TownHallBody } from "./game/town-hall-panel"
-import { QuestsChip, TownLevelBadge, useQuestNews } from "./game/town-hud"
+import { GameHud } from "./game/game-hud"
+import { MusicWindow } from "./game/music-window"
+import { useQuestNews } from "./game/town-hud"
 import { useQuestNavigator } from "./game/use-quest-navigator"
 import { AgentTasksHomeModule } from "./agent-tasks-home-module"
 import { AnalyticsHomeModule } from "./analytics-home-module"
@@ -53,15 +53,17 @@ import { PolymarketLiveLinesModule } from "./polymarket-live-lines-module"
 import { ScheduleBriefing } from "./schedule-briefing"
 import { WeatherLocationPopup } from "./weather-location-popup"
 import { YouTubeHomeModule } from "./youtube-home-module"
-import { PixelSpotifyBar } from "./pixel/pixel-spotify-bar"
 import { PixelWindow } from "./pixel/pixel-window"
 
 /** Modules inside pixel windows get these instead of Home's old glass panels. */
 const PIXEL_PANEL = "pixel-panel h-full"
 const PIXEL_SUBPANEL = "pixel-subpanel"
 const NO_PANEL_STYLE: CSSProperties | undefined = undefined
-const DRAG: CSSProperties = { WebkitAppRegion: "drag" } as CSSProperties
-const NO_DRAG: CSSProperties = { WebkitAppRegion: "no-drag" } as CSSProperties
+/** The camera keeps this much of the screen clear below the city (no footer any more: only the zoom buttons sit there). */
+const SAFE_BOTTOM = 12
+/** Gap between the HUD's bottom edge and where the camera frames the city. */
+const HUD_GAP = 8
+const FALLBACK_HUD_HEIGHT = 72
 /** What each place is called: its painted building in Nova City (components/pixel-city/district/image-plan.ts). */
 const PLACE_NAMES = Object.fromEntries(
   DISTRICT_PLACES.filter((place) => !place.id.startsWith("integration-")).map((place) => [place.id, place.name]),
@@ -85,6 +87,8 @@ export function HomeMainScreen() {
   const [openPlace, setOpenPlace] = useState<CityHotspotId | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [weatherPopupOpen, setWeatherPopupOpen] = useState(false)
+  const [musicOpen, setMusicOpen] = useState(false)
+  const [hudHeight, setHudHeight] = useState(FALLBACK_HUD_HEIGHT)
   const [profileName, setProfileName] = useState("User")
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null)
   // Nova City is a night scene: Home and its popups use night colours whatever the app theme says.
@@ -128,11 +132,15 @@ export function HomeMainScreen() {
   const connectedCount = integrationNodes.filter((node) => node.connected).length
   const activeConversations = home.conversations.filter((conversation) => !conversation.archived).length
 
-  // Nova City progression: level, quests, tutorial and celebrations (components/game). Its population fills the streets.
+  // Nova City progression: level, quests, tutorial and celebrations (components/game). The streets hold only real residents:
+  // one per agent task and one per connected integration, named and dressed from the wardrobe.
   const town = useTownProgress()
+  const wardrobe = useTownWardrobe()
+
+  const connectedSet = new Set<CityIntegration>(integrationNodes.filter((node) => node.connected).map((node) => node.setup as CityIntegration))
 
   const sceneState = useCitySceneState({
-    population: town.progress?.population ?? null,
+    wardrobe: wardrobe.wardrobe,
     weatherCode: home.homeWeather?.weatherCode ?? null,
     connected: home.connected,
     novaState: home.novaState,
@@ -187,11 +195,11 @@ export function HomeMainScreen() {
   )
   const closePlace = useCallback(() => setOpenPlace(null), [])
 
-  // Clicking a Nova agent in the city opens its agent card (game/agent-card.tsx), built from the live task row.
-  const [agentCardId, setAgentCardId] = useState<string | null>(null)
-  const closeAgentCard = useCallback(() => setAgentCardId(null), [])
+  // Clicking a resident in the city (an agent, or an integration's worker) opens its card (game/resident-card.tsx), built from live data.
+  const [residentCardId, setResidentCardId] = useState<ResidentId | null>(null)
+  const closeResidentCard = useCallback(() => setResidentCardId(null), [])
   const openAgentTasks = useCallback(() => {
-    setAgentCardId(null)
+    setResidentCardId(null)
     setOpenPlace("tasks")
   }, [])
 
@@ -333,62 +341,45 @@ export function HomeMainScreen() {
 
   const weather = home.homeWeather
   return (
-    <div className="pixel-night relative h-dvh overflow-hidden bg-[#0a0c24]">
-      <PixelCityScene state={sceneState} hotspots={hotspots} active={pageActive} onHotspot={openHotspot} onAgent={setAgentCardId} />
+    <div className="pixel-night relative h-dvh overflow-hidden bg-[#0a0c24]" style={{ "--game-hud-h": `${hudHeight}px` } as CSSProperties}>
+      <PixelCityScene state={sceneState} safeTop={hudHeight + HUD_GAP} safeBottom={SAFE_BOTTOM} hotspots={hotspots} active={pageActive} onHotspot={openHotspot} onResident={setResidentCardId} />
 
-      {/* HUD: wordmark top-left, everything about the user top-right. The bar doubles as the window drag area. */}
-      <header className="absolute inset-x-0 top-0 z-10 flex h-16 items-start justify-between gap-4 px-4 pt-3" style={DRAG}>
-        <div className="flex min-w-0 select-none items-start gap-4" style={NO_DRAG}>
-          <div className="min-w-0">
-            <button type="button" onClick={() => router.push("/home")} className="pixel-wordmark flex items-baseline gap-2" aria-label="Home">
-              <span className="font-pixel-display text-[28px] leading-none text-(--px-text)">NovaAIO</span>
-              <span className="font-pixel text-[13px] text-(--px-accent)">{NOVA_VERSION}</span>
-            </button>
-            <p className="pixel-wordmark mt-1 flex items-center gap-2 font-pixel text-[14px] text-(--px-muted)">
-              <span className={cn("h-2 w-2 shrink-0", presence.dotClassName)} aria-hidden="true" />
-              <span className={presence.textClassName}>{presence.label}</span>
-            </p>
-          </div>
-          <TownLevelBadge town={town} onOpen={() => setOpenPlace("integrations")} />
-        </div>
+      <GameHud
+        town={town}
+        profileName={profileName}
+        profileAvatar={profileAvatar}
+        presence={presence}
+        questLogOpen={questLogOpen}
+        questNews={questNews}
+        musicOpen={musicOpen}
+        musicPlaying={Boolean(home.spotifyConnected && home.spotifyNowPlaying?.playing)}
+        weatherValue={
+          weather?.temperatureF !== null && weather?.temperatureF !== undefined
+            ? `${Math.round(weather.temperatureF)}°`
+            : home.homeWeatherLoading
+              ? "—"
+              : "Set city"
+        }
+        weatherTitle={home.homeWeatherError || (home.preferredWeatherCity ? weather?.conditionLabel || "Loading weather" : "Set your city")}
+        weatherAriaLabel={home.preferredWeatherCity ? `Change city from ${home.preferredWeatherCity}` : "Set your city"}
+        onHome={() => router.push("/home")}
+        onOpenTownHall={() => setOpenPlace("integrations")}
+        onOpenQuests={() => setQuestLogOpen(true)}
+        onOpenMusic={() => setMusicOpen(true)}
+        onOpenWeather={() => setWeatherPopupOpen(true)}
+        onOpenProfile={() => {
+          setSettingsSection("profile")
+          setSettingsOpen(true)
+        }}
+        onOpenSettings={() => {
+          setSettingsSection("appearance")
+          setSettingsOpen(true)
+        }}
+        onHeight={setHudHeight}
+      />
 
-        <div className="flex shrink-0 items-center gap-2" style={NO_DRAG}>
-          <QuestsChip town={town} open={questLogOpen} news={questNews} onClick={() => setQuestLogOpen(true)} />
-          <button
-            type="button"
-            onClick={() => setWeatherPopupOpen(true)}
-            className="pixel-chip"
-            title={home.homeWeatherError || (home.preferredWeatherCity ? weather?.conditionLabel || "Loading weather" : "Set your city")}
-            aria-label={home.preferredWeatherCity ? `Change city from ${home.preferredWeatherCity}` : "Set your city"}
-          >
-            <CloudSun className="h-4 w-4 text-(--px-accent)" />
-            <span className="tabular-nums">
-              {weather?.temperatureF !== null && weather?.temperatureF !== undefined
-                ? `${Math.round(weather.temperatureF)}°`
-                : home.homeWeatherLoading
-                  ? "—"
-                  : "Set city"}
-            </span>
-          </button>
-          <div className="pixel-chip pl-1.5!">
-            <span className="grid h-6 w-6 place-items-center overflow-hidden border-2 border-(--px-border) bg-(--px-bg-2) text-[12px]">
-              {profileAvatar ? (
-                <Image src={profileAvatar} alt="Profile" width={24} height={24} className="h-full w-full object-cover [image-rendering:pixelated]" unoptimized />
-              ) : (
-                profileName.charAt(0).toUpperCase()
-              )}
-            </span>
-            <span className="max-w-36 truncate">{profileName}</span>
-          </div>
-          <button type="button" onClick={() => { setSettingsSection("profile"); setSettingsOpen(true) }} className="pixel-chip pixel-chip--icon group" aria-label="Open settings" title="Settings">
-            <Settings className="h-4 w-4 transition-transform duration-200 group-hover:rotate-90" />
-          </button>
-          <WindowControls />
-        </div>
-      </header>
-
-      <footer className="absolute inset-x-0 bottom-0 z-10 px-4 pb-3">
-        <PixelSpotifyBar
+      {musicOpen ? (
+        <MusicWindow
           connected={home.spotifyConnected}
           connecting={home.spotifyConnecting}
           nowPlaying={home.spotifyNowPlaying}
@@ -403,17 +394,23 @@ export function HomeMainScreen() {
           onPrevious={home.spotifyPreviousTrack}
           onPlaySmart={home.spotifyPlaySmart}
           onSeek={home.seekSpotify}
+          onClose={() => setMusicOpen(false)}
         />
-      </footer>
+      ) : null}
 
       {windowContent}
-      {agentCardId ? (
-        <AgentCard
-          task={tasks.find((task) => task.id === agentCardId) ?? null}
-          onClose={closeAgentCard}
+      {residentCardId ? (
+        <ResidentCard
+          residentId={residentCardId}
+          tasks={tasks}
+          buildings={town.progress?.buildings ?? []}
+          connected={connectedSet}
+          wardrobe={wardrobe}
+          onClose={closeResidentCard}
           onAction={agentTasks.runAction}
           onRaiseBudget={agentTasks.raiseBudget}
           onOpenTasks={openAgentTasks}
+          onSetup={home.goToIntegrations}
         />
       ) : null}
       <TownGameLayer town={town} assistantName={assistantName} hotspots={hotspots} questLogOpen={questLogOpen} onCloseQuestLog={closeQuestLog} onGo={goToQuest} />

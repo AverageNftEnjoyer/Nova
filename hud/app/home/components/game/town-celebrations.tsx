@@ -15,6 +15,14 @@ interface Celebration {
   title: string
   detail: string
   xp?: number
+  /** item-unlock only: the cosmetic's rarity (read from the event's title, "New <rarity> <slot>: <name>"). */
+  rarity?: string
+}
+
+/** The rarity an item-unlock event names in its title; undefined for any other event. */
+function rarityOf(event: TownEvent): string | undefined {
+  if (event.kind !== "item-unlock") return undefined
+  return /^New (starter|common|rare|epic) /.exec(event.title)?.[1]
 }
 
 /** A first launch for a busy user can hold dozens of events: show this many one by one, fold the rest into one. */
@@ -28,6 +36,7 @@ const KIND_LABEL: Record<TownEvent["kind"], string> = {
   "quest-complete": "Quest complete",
   "building-up": "New building",
   achievement: "Achievement",
+  "item-unlock": "New cosmetic",
 }
 
 /**
@@ -57,7 +66,7 @@ export function TownCelebrations({ events, ack }: TownCelebrationsProps) {
       } else {
         const event = pending[0]
         batch = [event]
-        next = { key: event.id, kind: event.kind, title: event.title, detail: event.detail, xp: event.xp }
+        next = { key: event.id, kind: event.kind, title: event.title, detail: event.detail, xp: event.xp, rarity: rarityOf(event) }
       }
       const ids = batch.map((event) => event.id)
       setShownIds((prev) => new Set([...prev, ...ids]))
@@ -101,7 +110,14 @@ export function TownCelebrations({ events, ack }: TownCelebrationsProps) {
 
   return (
     <div className="game-toast-stage pixel-ui" role="status" aria-live="polite">
-      <button type="button" onClick={dismiss} className="game-toast pixel-notch" data-kind={current.kind} key={current.key} aria-label={`${KIND_LABEL[current.kind]}: ${current.title}. Dismiss`}>
+      {current.kind === "item-unlock" && (current.rarity === "rare" || current.rarity === "epic") ? (
+        <span className="game-sparks" aria-hidden="true">
+          {Array.from({ length: 6 }, (_, index) => (
+            <span key={index} className="game-spark" style={{ "--i": index } as CSSProperties} />
+          ))}
+        </span>
+      ) : null}
+      <button type="button" onClick={dismiss} className="game-toast pixel-notch" data-kind={current.kind} data-rarity={current.rarity} key={current.key} aria-label={`${KIND_LABEL[current.kind]}: ${current.title}. Dismiss`}>
         <span className="game-toast-icon" aria-hidden="true" />
         <span className="flex min-w-0 flex-col items-start gap-1 text-left">
           <span className="pixel-label text-(--px-accent-2)">{KIND_LABEL[current.kind]}</span>

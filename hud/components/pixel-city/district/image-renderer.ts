@@ -1,11 +1,15 @@
+import type { ResidentId } from "@/lib/town/wardrobe-types"
 import { drawWeatherOverlay } from "../effects"
 import { draw5, measure5 } from "../font5x7"
 import { cellNoise } from "../random"
 import {
   EMPTY_CITY_STATE,
+  agentResidentId,
   type CityAgent,
   type CityPlaceId,
   type CityRect,
+  type CityResidentAnchor,
+  type CityWorker,
   type CitySceneHit,
   type CitySceneRenderer,
   type CitySceneState,
@@ -22,6 +26,7 @@ import {
   HQ_FLOORS,
   HQ_FLOORS_RIGHT,
   HQ_SIGN,
+  INTEGRATION_DOOR,
   LAMPS,
   NOTICE_FACE,
   ROADS,
@@ -34,30 +39,23 @@ import {
   type SignRect,
   type WalkNodeId,
 } from "./image-plan"
-import { CAT_HEIGHT, PERSON_HEIGHT, agentLook, drawCat as paintCat, drawPerson, loadPeopleArt, townsfolkLook, type PersonLook } from "./people"
+import { CAT_HEIGHT, PERSON_HEIGHT, agentLook, drawCat as paintCat, drawPerson, loadPeopleArt, type PersonLook } from "./people"
 
 /**
  * The District view: the painted night city, brought to life. The image is drawn at its native size and every live
  * element is painted on top in image pixels (the scene component scales the canvas to cover the screen):
  * signs lit or dark by integration status, twinkling windows, task floors on Nova HQ, the noticeboard's notes, the
- * crypto ticker, the power meter, the fountain, cars and buses, and the people from `people.ts` (townsfolk, and one
- * figure per agent task).
+ * crypto ticker, the power meter, the fountain, cars and buses, and the people from `people.ts`: only real residents
+ * (one figure per agent task, one worker per connected integration), so a city with nothing deployed or connected
+ * has empty streets.
  */
 
-/** Townsfolk on the streets before the town's population is known (Home's smallest crowd). */
-const START_TOWNSFOLK = 6
-/** Hard cap on townsfolk, whatever the state asks for: every figure costs occlusion work each frame. */
-const MAX_TOWNSFOLK = 60
-/** Seconds between two new residents stepping out of their doors, so a quest's newcomers arrive one by one. */
-const ARRIVAL_GAP_SECONDS = 0.9
-/** Fade-in of a townsperson who appears (on first load) or steps out of a door. */
+/** Fade-in of a resident who appears (a new task, a newly connected integration). */
 const APPEAR_SECONDS = 0.8
-/** Doors townsfolk step out of when they move in, and walk back into when they leave. */
-const FOLK_DOORS: readonly WalkNodeId[] = ["stu", "arc", "cin", "odd", "lab", "cow", "tel", "bnk", "pwr", "shop", "obs", "dep"]
-/** Click boxes around a figure's feet (plan px): agents are generous, townsfolk a little tighter so buildings stay easy to hit. */
+/** Click box around a figure's feet (plan px), generous so a resident is easy to hit. */
 const AGENT_HIT_HALF_WIDTH = 16
-const FOLK_HIT_HALF_WIDTH = 11
 const MAX_AGENTS = 12
+const MAX_WORKERS = 16
 const MAX_BUSES = 3
 const WINDOW_CELL = 4
 const WINDOW_BUCKET_SECONDS = 4
@@ -85,7 +83,6 @@ const ADJ: Map<WalkNodeId, WalkNodeId[]> = (() => {
   }
   return adj
 })()
-const NODE_IDS = Object.keys(WALK_NODES)
 
 function route(from: WalkNodeId, to: WalkNodeId): Point[] {
   const prev = new Map<WalkNodeId, WalkNodeId | null>([[from, null]])
@@ -167,8 +164,9 @@ const FIGURE_FOOTROOM = 8
 // ── Walkers ───────────────────────────────────────────────────────────────────
 
 interface Walker {
-  kind: "townsfolk" | "agent"
-  id: string
+  kind: "worker" | "agent"
+  /** The resident id: `agent:<task id>` or `integration:<key>`. */
+  id: ResidentId
   node: WalkNodeId
   path: Point[]
   seg: number
@@ -182,6 +180,8 @@ interface Walker {
   moving: boolean
   /** 0 south, then clockwise-ish: the isometric facing is derived from this. */
   dir: number
+  /** Workers only: the connected integration this figure works for. */
+  worker?: CityWorker
   // Agents only.
   agent?: CityAgent
   /** Leaving the scene (task gone or finished and home). */
@@ -211,12 +211,6 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
   private state: CitySceneState = EMPTY_CITY_STATE
   private windows: Array<{ x: number; y: number }> = []
   private walkers: Walker[] = []
-  /** Townsfolk the state asks for (null until the population is known). */
-  private townsfolkWanted: number | null = null
-  /** Next time (seconds) a new resident may step out of a door. */
-  private nextArrival = 0
-  /** Numbers new townsfolk, so each gets the next look in turn. */
-  private folkSeq = 0
   /** Structures redrawn over walkers standing behind them (see DISTRICT_OCCLUDERS). */
   private readonly occluders: OccluderClip[] = buildOccluders()
   private lastT = 0
@@ -243,7 +237,6 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     }
     img.src = DISTRICT_IMAGE_SRC
     loadPeopleArt()
-    for (let i = 0; i < START_TOWNSFOLK; i++) this.walkers.push(this.spawnTownsfolk())
   }
 
   /**
@@ -267,7 +260,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
   setState(next: CitySceneState): void {
     this.state = next
     this.syncAgents()
-    this.syncTownsfolk()
+    this.syncWorkers()
   }
 
   hotspots(): Partial<Record<CityPlaceId, CityRect>> {
@@ -277,30 +270,44 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
   }
 
   /**
-   * What is under plan point (x, y). People come first, front-most (lowest on screen) first: an agent always wins,
-   * even over a building's button; a townsperson only matters where no button takes the click (the scene decides).
+   * What is under plan point (x, y). Residents come first, front-most (lowest on screen) first: a resident always wins,
+   * even over a building's button.
    */
   hitTest(x: number, y: number): CitySceneHit | null {
     const people = this.walkers
-      .filter((w) => !w.leaving && w.fade === undefined)
+      .filter((w) => this.clickable(w))
       .map((w) => ({ w, at: drawnAt(w) }))
       .sort((a, b) => b.at.y - a.at.y)
     const over = (at: Point, halfWidth: number) => Math.abs(x - at.x) <= halfWidth && y >= at.y - PERSON_HEIGHT - 6 && y <= at.y + 6
     for (const { w, at } of people) {
-      if (w.kind !== "agent" || !w.agent || !over(at, AGENT_HIT_HALF_WIDTH)) continue
-      return { kind: "agent", id: w.agent.id, label: w.agent.name, detail: this.agentDetail(w), anchorX: at.x, anchorY: at.y - PERSON_HEIGHT - 4 }
-    }
-    for (const { w, at } of people) {
-      if (w.kind !== "townsfolk" || !over(at, FOLK_HIT_HALF_WIDTH)) continue
-      // Still stepping out of a door: not clickable until it is mostly there.
-      if (w.appear !== undefined && !(this.lastT - w.appear >= APPEAR_SECONDS / 2)) continue
-      return { kind: "townsfolk", id: w.id, anchorX: at.x, anchorY: at.y - PERSON_HEIGHT - 4 }
+      if (!over(at, AGENT_HIT_HALF_WIDTH)) continue
+      return { kind: "resident", id: w.id, label: this.nameOf(w), detail: this.detailOf(w), anchorX: at.x, anchorY: at.y - PERSON_HEIGHT - 4 }
     }
     for (let i = DISTRICT_PLACES.length - 1; i >= 0; i--) {
       const r = DISTRICT_PLACES[i].hit
       if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return { kind: "hotspot", id: DISTRICT_PLACES[i].id }
     }
     return null
+  }
+
+  /** Every resident on the streets with where they stand now; the scene keeps one focusable button on each. */
+  residents(): CityResidentAnchor[] {
+    return this.walkers
+      .filter((w) => w.kind === "agent" ? !!w.agent : !!w.worker)
+      .map((w) => {
+        const at = drawnAt(w)
+        return { id: w.id, label: `${this.nameOf(w)}, ${w.kind === "agent" ? "agent" : "integration worker"}`, x: at.x, y: at.y, visible: this.clickable(w) }
+      })
+  }
+
+  /** A resident can be clicked unless it is leaving or still stepping out of a door. */
+  private clickable(w: Walker): boolean {
+    if (w.leaving || w.fade !== undefined) return false
+    return w.appear === undefined || this.lastT - w.appear >= APPEAR_SECONDS / 2
+  }
+
+  private nameOf(w: Walker): string {
+    return w.agent?.name ?? w.worker?.name ?? "Resident"
   }
 
   // ── Setup helpers ───────────────────────────────────────────────────────────
@@ -310,77 +317,50 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     return this.seed / 2147483647
   }
 
-  /**
-   * A new townsperson. With no `door` it stands somewhere in the city already (the starting crowd; `appear` fades
-   * it in). From a door it steps out, fading in, and walks off into town.
-   */
-  private spawnTownsfolk(options: { door?: WalkNodeId; appear?: boolean } = {}): Walker {
-    const i = this.folkSeq++
-    const node = options.door ?? NODE_IDS[Math.floor(cellNoise(i, 3, 91) * NODE_IDS.length)]
-    const p = pointOf(node)
-    return {
-      kind: "townsfolk",
-      id: `folk-${i}`,
-      node,
-      path: [p],
-      seg: 0,
-      segT: 0,
-      speed: 14 + cellNoise(i, 1, 91) * 10,
-      idleUntil: cellNoise(i, 2, 91) * 4,
-      x: p.x,
-      y: p.y,
-      lane: (cellNoise(i, 4, 91) - 0.5) * 10,
-      moving: false,
-      dir: 0,
-      ...(options.appear || options.door ? { appear: Number.NaN } : {}),
-    }
-  }
-
-  // ── Townsfolk ───────────────────────────────────────────────────────────────
+  // ── Workers ─────────────────────────────────────────────────────────────────
 
   /**
-   * Matches the crowd to the population. The first known count fills the streets at once, fading in (the city has
-   * not been seen at that size yet); later growth arrives one resident at a time out of a door (admitTownsfolk), and
-   * a smaller count sends the newest residents home through the nearest door.
+   * One worker per connected integration, at that integration's building. A newly connected integration's worker
+   * fades in at its door; a disconnected one fades out where it stands.
    */
-  private syncTownsfolk(): void {
-    if (this.state.townsfolk === null) return
-    const wanted = Math.min(MAX_TOWNSFOLK, Math.max(0, Math.floor(this.state.townsfolk)))
-    const first = this.townsfolkWanted === null
-    this.townsfolkWanted = wanted
-    const staying = this.walkers.filter((w) => w.kind === "townsfolk" && !w.leaving)
-    if (first) for (let n = staying.length; n < wanted; n++) this.walkers.push(this.spawnTownsfolk({ appear: true }))
-    for (const w of staying.slice(wanted)) {
-      w.leaving = true
-      this.sendTo(w, this.nearestDoor(w))
-    }
-  }
-
-  private nearestDoor(w: Walker): WalkNodeId {
-    let best = FOLK_DOORS[0]
-    let bestD = Infinity
-    for (const id of FOLK_DOORS) {
-      const p = pointOf(id)
-      const d = Math.hypot(p.x - w.x, p.y - w.y)
-      if (d < bestD) {
-        best = id
-        bestD = d
+  private syncWorkers(): void {
+    const wanted = this.state.workers.slice(0, MAX_WORKERS)
+    const byId = new Map(wanted.map((worker) => [worker.id, worker]))
+    for (const w of this.walkers) {
+      if (w.kind !== "worker" || !w.worker) continue
+      const next = byId.get(w.id)
+      if (!next) {
+        if (!w.leaving) {
+          w.leaving = true
+          w.moving = false
+        }
+        continue
       }
+      w.worker = next
     }
-    return best
-  }
-
-  /** Lets in at most one waiting resident every ARRIVAL_GAP_SECONDS: out of a door, then off into town. */
-  private admitTownsfolk(t: number): void {
-    if (this.townsfolkWanted === null || t < this.nextArrival) return
-    let present = 0
-    for (const w of this.walkers) if (w.kind === "townsfolk" && !w.leaving) present++
-    if (present >= this.townsfolkWanted) return
-    const door = FOLK_DOORS[Math.floor(this.rand() * FOLK_DOORS.length)]
-    const w = this.spawnTownsfolk({ door })
-    w.idleUntil = t + 0.3
-    this.walkers.push(w)
-    this.nextArrival = t + ARRIVAL_GAP_SECONDS
+    const present = new Set(this.walkers.filter((w) => w.kind === "worker" && !w.leaving).map((w) => w.id))
+    wanted.forEach((worker, i) => {
+      if (present.has(worker.id)) return
+      const door = INTEGRATION_DOOR[worker.integration]
+      const start = pointOf(door)
+      this.walkers.push({
+        kind: "worker",
+        id: worker.id,
+        node: door,
+        path: [start],
+        seg: 0,
+        segT: 0,
+        speed: 16 + cellNoise(i, 1, 91) * 8,
+        idleUntil: 4 + cellNoise(i, 2, 91) * 12,
+        x: start.x,
+        y: start.y,
+        lane: ((i % 5) - 2) * 6,
+        moving: false,
+        dir: 0,
+        worker,
+        appear: Number.NaN,
+      })
+    })
   }
 
   /** Finds lit windows (warm, bright 4x4 cells) once, so some can switch off and on over time. */
@@ -441,7 +421,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
       const start = pointOf(WORKPLACE_DOOR.hq)
       const w: Walker = {
         kind: "agent",
-        id: agent.id,
+        id: agentResidentId(agent.id),
         node: WORKPLACE_DOOR.hq,
         path: [start],
         seg: 0,
@@ -467,6 +447,15 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     w.segT = 0
     w.node = target
     w.moving = w.path.length > 1
+  }
+
+  private detailOf(w: Walker): string {
+    const worker = w.worker
+    if (worker) {
+      const place = WORKPLACE_NAME[worker.workplace]
+      return w.moving ? `connected · walking near the ${place}` : `connected · working at the ${place}`
+    }
+    return this.agentDetail(w)
   }
 
   private agentDetail(w: Walker): string {
@@ -706,7 +695,6 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
   // ── People ──────────────────────────────────────────────────────────────────
 
   private stepWalkers(t: number, dt: number): void {
-    this.admitTownsfolk(t)
     for (const w of this.walkers) {
       if (w.appear !== undefined && Number.isNaN(w.appear)) w.appear = t
       // Someone leaving who is already at the door just goes in.
@@ -739,15 +727,18 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
         }
         if (w.seg >= w.path.length - 1) {
           w.moving = false
-          if (w.kind === "agent") w.dir = 0
-          w.idleUntil = t + (w.kind === "townsfolk" ? 1 + this.rand() * 4 : 18 + this.rand() * 20)
+          w.dir = 0
+          w.idleUntil = t + 18 + this.rand() * 20
           if (w.leaving) w.fade = t
         }
         continue
       }
-      if (w.kind === "townsfolk" && !w.leaving && t >= w.idleUntil) {
-        const target = NODE_IDS[Math.floor(this.rand() * NODE_IDS.length)]
-        if (target !== w.node) this.sendTo(w, target)
+      if (w.kind === "worker" && w.worker && !w.leaving && t >= w.idleUntil) {
+        // A worker now and then steps to a neighbouring spot by its building and back.
+        const door = INTEGRATION_DOOR[w.worker.integration]
+        const around = ADJ.get(door) ?? [door]
+        const next = w.node === door ? around[Math.floor(this.rand() * around.length)] : door
+        this.sendTo(w, next)
       } else if (w.kind === "agent" && w.agent && !w.leaving && w.agent.status === "running" && t >= w.idleUntil) {
         // A working agent sometimes steps out to a neighbouring spot and comes back, so the street keeps moving.
         const door = WORKPLACE_DOOR[w.agent.workplace]
@@ -822,7 +813,9 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
   }
 
   private paintWalker(x: number, y: number, w: Walker, t: number): void {
-    const look: PersonLook = w.kind === "agent" && w.agent ? agentLook(w.agent.workplace) : townsfolkLook(w.id)
+    const base = w.worker ? agentLook(w.worker.workplace) : agentLook(w.agent?.workplace ?? "hq")
+    const worn = this.state.looks[w.id]
+    const look: PersonLook = worn ? { ...base, outfit: worn.outfit, hat: worn.hat } : base
     drawPerson(this.ctx, x, y, w.dir, w.moving, t, look)
   }
 

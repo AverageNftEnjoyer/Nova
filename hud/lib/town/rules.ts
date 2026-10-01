@@ -1,12 +1,12 @@
 /**
- * Nova City progression rules: XP weights, the level curve, level titles, building thresholds and population.
+ * Nova City progression rules: XP weights, the level curve, level titles, and building thresholds.
  *
  * Pure and free of `server-only` / `@/` runtime imports so plain Node smokes can transpile and run it
  * (scripts/smoke/town). Every input is a real, persisted count (see stats.ts); nothing here is random.
  */
 
 import { INTEGRATION_SETUP_KEYS, type IntegrationSetupKey } from "../integrations/navigation"
-import type { TownBuilding, TownLevel, TownQuestCategory, TownXpSource } from "./types"
+import type { TownBuilding, TownLevel, TownXpSource } from "./types"
 
 // ─── Stats snapshot ───────────────────────────────────────────────────────────
 
@@ -192,34 +192,4 @@ export function buildBuildings(
   uses: Readonly<Record<IntegrationSetupKey, number>>,
 ): TownBuilding[] {
   return INTEGRATION_SETUP_KEYS.map((key) => buildingFor(key, connected.has(key), uses[key] ?? 0))
-}
-
-// ─── Population ──────────────────────────────────────────────────────────────
-
-export const MAX_POPULATION = 500
-
-/**
- * Townsfolk who move in when a quest of each kind is completed; the quest log shows it as part of the reward.
- * Bigger goals bring more people, a daily quest brings one.
- */
-export const QUEST_TOWNSFOLK: Readonly<Record<TownQuestCategory, number>> = {
-  tutorial: 2,
-  daily: 1,
-  milestone: 4,
-  integration: 3,
-}
-
-export function townsfolkRewardFor(category: TownQuestCategory): number {
-  return QUEST_TOWNSFOLK[category]
-}
-
-/**
- * Townsfolk: 2 per conversation, 1 per 5 messages sent, 3 per town level, plus everyone completed quests brought
- * (`questTownsfolk`: QUEST_TOWNSFOLK summed over every completed quest, daily ones included).
- */
-export function populationFor(counts: TownLifetimeCounts, level: number, questTownsfolk = 0): number {
-  return Math.min(
-    MAX_POPULATION,
-    counts.conversations * 2 + Math.floor(counts.chatMessages / 5) + level * 3 + Math.max(0, Math.floor(questTownsfolk)),
-  )
 }

@@ -8,7 +8,7 @@ import { MessageList } from "./message-list"
 import { Composer } from "@/components/chat/composer"
 import { useNovaState } from "@/lib/chat/hooks/useNovaState"
 import { ChatSidebar } from "@/components/chat/chat-sidebar"
-import { cn } from "@/lib/shared/utils"
+import { NovaCatPortrait, resolveNovaCatState, type NovaCatState } from "@/components/chat/nova-cat-portrait"
 import { loadUserSettings } from "@/lib/settings/userSettings"
 import { readVoiceMuted, writeVoiceMuted } from "@/lib/chat/voice-mode"
 import { getActiveUserId } from "@/lib/auth/active-user"
@@ -57,7 +57,6 @@ export function ChatShellController() {
 
   // Background & theme
   const {
-    isLight,
     orbPalette,
     spotlightEnabled,
   } = useChatBackground()
@@ -523,37 +522,26 @@ export function ChatShellController() {
     return msgs
   }, [activeConvo, streamingAssistantId])
 
-  // UI styling
-  const panelClass = isLight
-    ? "rounded-2xl border border-[#d9e0ea] bg-white shadow-none"
-    : "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl"
-  const panelStyle = isLight ? undefined : { boxShadow: "0 20px 60px -35px rgba(var(--accent-rgb), 0.35)" }
-  const subPanelClass = isLight
-    ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd]"
-    : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md"
-  const missionHover = isLight
-    ? "hover:bg-[#eef3fb] hover:border-[#d5dce8]"
-    : "hover:bg-[#141923] hover:border-[#2b3240]"
+  // UI styling (pixel skin lives in app/styles/pixel-ui.css "Chat page")
+  const catState = resolveNovaCatState({ agentConnected, novaState, thinking: isThinking })
+  const CAT_STATE_LABEL: Record<NovaCatState, string> = {
+    idle: "Idle",
+    thinking: "Thinking",
+    speaking: "Speaking",
+    listening: "Listening",
+    muted: "Muted",
+    offline: "Offline",
+  }
+  const activeTitle = String(activeConvo?.title || "").trim() || "New conversation"
 
   const integrationBadgeClass = (connected: boolean) =>
-    !integrationsHydrated
-      ? "border-white/15 bg-white/10 text-slate-200"
-      : connected
-        ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
-        : "border-rose-300/50 bg-rose-500/35 text-rose-100"
+    !integrationsHydrated ? "pc-slot pc-slot--wait" : connected ? "pc-slot pc-slot--on" : "pc-slot pc-slot--off"
 
   return (
-    <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-page" : "bg-transparent")}>
+    <div className="pixel-ui pixel-chat pc-root relative flex overflow-hidden">
       {pendingQueueStatus.mode !== "idle" ? (
         <div className="pointer-events-none fixed left-1/2 top-5 z-50 -translate-x-1/2">
-          <div
-            className={cn(
-              "rounded-lg border px-3 py-2 text-xs backdrop-blur-md shadow-lg",
-              isLight
-                ? "border-amber-300/40 bg-amber-500/12 text-amber-700"
-                : "border-amber-300/40 bg-amber-500/15 text-amber-200",
-            )}
-          >
+          <div className="pc-banner">
             {pendingQueueStatus.mode === "retrying"
               ? `${pendingQueueStatus.message} Retrying in ${pendingQueueStatus.retryInSeconds}s.`
               : "Processing pending mission output..."}
@@ -577,213 +565,214 @@ export function ChatShellController() {
       />
 
       {/* Main chat area */}
-      <div
-        className="relative flex flex-col flex-1 h-dvh overflow-hidden"
-        style={{
-          marginLeft: "0",
-          boxShadow: isLight
-            ? "0 0 0 1px rgba(217, 224, 234, 1)"
-            : "rgba(139, 92, 246, 0.03) 0px 0px 0px 1px, rgba(0, 0, 0, 0.2) 0px 1px 1px -0.5px",
-        }}
-      >
+      <div className="pc-main relative flex flex-col flex-1 overflow-hidden">
         <div className="relative z-10 h-full w-full px-6 pt-4 pb-6">
-          <div className="grid h-full min-h-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-            <div className="relative min-h-0 overflow-hidden rounded-2xl">
-              <MessageList
-                messages={displayMessages}
-                isStreaming={isThinking}
-                streamingAssistantId={streamingAssistantId}
-                thinkingStatus={thinkingStatus}
-                error={null}
-                onRetry={() => {}}
-                isLoaded={isLoaded}
-                zoom={100}
-                orbPalette={orbPalette}
-                onUseSuggestedWording={handleUseSuggestedWording}
-              />
-              <Composer
-                onSend={sendMessage}
-                isStreaming={isThinking}
-                disabled={!agentConnected}
-                isMuted={isMuted}
-                onToggleMute={handleMuteToggle}
-                muteHydrated={muteHydrated}
-              />
+          <div className="grid h-full min-h-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_22.5rem]">
+            <div className="pc-dialog pixel-notch relative flex min-h-0 flex-col overflow-hidden">
+              <header className="pc-dialog-head">
+                <div className="pc-portrait-frame">
+                  <NovaCatPortrait state={catState} scale={3} accent={orbPalette.circle1} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="pc-dialog-name">Nova</h2>
+                  <p className="pc-dialog-topic truncate" title={activeTitle}>{activeTitle}</p>
+                </div>
+                <span className="pc-state" data-state={catState} role="status" aria-label={`Nova is ${CAT_STATE_LABEL[catState].toLowerCase()}`}>
+                  <i aria-hidden="true" />
+                  {CAT_STATE_LABEL[catState]}
+                </span>
+              </header>
+              <div className="pc-dialog-body relative min-h-0 flex-1 overflow-hidden">
+                <MessageList
+                  messages={displayMessages}
+                  isStreaming={isThinking}
+                  streamingAssistantId={streamingAssistantId}
+                  thinkingStatus={thinkingStatus}
+                  error={null}
+                  onRetry={() => {}}
+                  isLoaded={isLoaded}
+                  zoom={100}
+                  orbPalette={orbPalette}
+                  onUseSuggestedWording={handleUseSuggestedWording}
+                />
+                <Composer
+                  onSend={sendMessage}
+                  isStreaming={isThinking}
+                  disabled={!agentConnected}
+                  isMuted={isMuted}
+                  onToggleMute={handleMuteToggle}
+                  muteHydrated={muteHydrated}
+                />
+              </div>
             </div>
 
             {/* Right sidebar panels */}
-            <aside ref={sidebarPanelsRef} className="home-spotlight-shell relative hidden min-h-0 flex-col gap-4 pt-0 xl:flex">
+            <aside ref={sidebarPanelsRef} className="relative hidden min-h-0 flex-col gap-4 pt-0 xl:flex">
               {/* Mission Pipeline */}
-              <section style={panelStyle} className={`${panelClass} p-4 min-h-0 flex-1 flex flex-col`}>
-                <div className="flex items-center justify-between gap-2 text-s-80">
-                  <div className="flex items-center gap-2">
-                    <Pin className="w-4 h-4 text-accent" />
-                    <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Mission Pipeline</h2>
+              <section className="pc-panel pixel-notch min-h-0 flex-1 flex flex-col">
+                <div className="pc-panel-head">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Pin className="w-4 h-4 shrink-0" />
+                    <h2 className="pc-panel-title truncate">Mission Pipeline</h2>
                   </div>
                   <button
                     onClick={() => {
                       router.push("/deployments?mode=advanced&kind=automation")
                     }}
-                    className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow group/mission-gear`, subPanelClass)}
+                    className="pc-icon-btn group/mission-gear"
                     aria-label="Open mission settings"
                   >
-                    <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/mission-gear:text-accent group-hover/mission-gear:rotate-90 transition-transform duration-200" />
+                    <Settings className="w-3.5 h-3.5 mx-auto group-hover/mission-gear:rotate-90 transition-transform duration-200" />
                   </button>
                 </div>
-                <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>Scheduled Nova workflows</p>
+                <div className="pc-panel-body flex min-h-0 flex-1 flex-col">
+                  <p className="pc-hint pc-hint--flush">Scheduled Nova workflows</p>
 
-                <div className="mt-2.5 min-h-0 flex-1 overflow-y-auto no-scrollbar space-y-1.5 px-1 py-1">
-                  {missions.length === 0 && (
-                    <p className={cn("text-xs", isLight ? "text-s-40" : "text-slate-500")}>
-                      No missions yet. Add one in Mission Settings.
-                    </p>
-                  )}
-                  {missions.map((mission) => (
-                    <div key={mission.id} className={cn(`${subPanelClass} p-2 transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover mission-spotlight-card`, missionHover)}>
-                      <div className="flex items-start justify-between gap-2">
-                        <p className={cn("text-[13px] leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{mission.title}</p>
-                        <div className="flex items-center gap-1 flex-nowrap shrink-0">
-                          <span
-                            className={cn(
-                              "text-[9px] px-1.5 py-0 rounded-full border whitespace-nowrap",
-                              mission.enabledCount > 0
-                                ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-300"
-                                : "border-rose-300/40 bg-rose-500/15 text-rose-300",
-                            )}
-                          >
-                            {mission.enabledCount > 0 ? "Active" : "Paused"}
-                          </span>
+                  <div className="mt-2.5 min-h-0 flex-1 overflow-y-auto no-scrollbar space-y-2">
+                    {missions.length === 0 && (
+                      <p className="pc-hint pc-hint--flush">
+                        No missions yet. Add one in Mission Settings.
+                      </p>
+                    )}
+                    {missions.map((mission) => (
+                      <div key={mission.id} className="pc-card">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="pc-card-title text-[13px] leading-tight">{mission.title}</p>
+                          <div className="flex items-center gap-1 flex-nowrap shrink-0">
+                            <span className="pc-tag" data-on={mission.enabledCount > 0 ? "true" : "false"}>
+                              {mission.enabledCount > 0 ? "Active" : "Paused"}
+                            </span>
+                          </div>
+                        </div>
+                        {mission.description && (
+                          <p className="pc-card-desc mt-0.5 text-[11px] leading-4 line-clamp-2">{mission.description}</p>
+                        )}
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {mission.times.map((time) => (
+                            <span key={`${mission.id}-${time}`} className="pc-time-chip">
+                              {formatDailyTime(time, mission.timezone)}
+                            </span>
+                          ))}
                         </div>
                       </div>
-                      {mission.description && (
-                        <p className={cn("mt-0.5 text-[11px] leading-4 line-clamp-2", isLight ? "text-s-60" : "text-slate-400")}>{mission.description}</p>
-                      )}
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {mission.times.map((time) => (
-                          <span key={`${mission.id}-${time}`} className={cn("text-[10px] px-1.5 py-0.5 rounded-md border", isLight ? "border-[#d6deea] bg-[#edf2fb] text-s-70" : "border-white/10 bg-white/4 text-slate-300")}>
-                            {formatDailyTime(time, mission.timezone)}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </section>
 
               {/* Integrations */}
-              <section style={panelStyle} className={`${panelClass} p-4`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 min-w-0 text-s-80">
-                    <Blocks className="w-4 h-4 text-accent" />
-                    <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Integrations</h2>
+              <section className="pc-panel pixel-notch">
+                <div className="pc-panel-head">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Blocks className="w-4 h-4 shrink-0" />
+                    <h2 className="pc-panel-title truncate">Integrations</h2>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => router.push("/integrations")}
-                      className={cn(`h-8 w-8 rounded-lg transition-colors home-spotlight-card home-border-glow group/gear`, subPanelClass)}
+                      className="pc-icon-btn group/gear"
                       aria-label="Open integrations settings"
                     >
-                      <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/gear:text-accent group-hover/gear:rotate-90 transition-transform duration-200" />
+                      <Settings className="w-3.5 h-3.5 mx-auto group-hover/gear:rotate-90 transition-transform duration-200" />
                     </button>
                   </div>
                 </div>
 
-                <div className="relative mt-1 h-5">
-                  <p className={cn("text-xs", isLight ? "text-s-50" : "text-slate-400")}>Node connectivity</p>
-                  {integrationGuardNotice ? (
-                    <div className="pointer-events-none absolute right-0 top-1/2 z-20 -translate-y-1/2">
-                      <div className={cn("rounded-xl border px-3 py-1.5 text-[12px] font-semibold whitespace-nowrap backdrop-blur-xl shadow-[0_14px_30px_-16px_rgba(0,0,0,0.7)]", isLight ? "border-rose-300 bg-rose-100 text-rose-700" : "border-rose-300/50 bg-rose-950 text-rose-100")}>
-                        {integrationGuardNotice}
+                <div className="pc-panel-body">
+                  <div className="relative min-h-5">
+                    <p className="pc-hint pc-hint--flush">Node connectivity</p>
+                    {integrationGuardNotice ? (
+                      <div className="pointer-events-none absolute right-0 top-1/2 z-20 -translate-y-1/2">
+                        <div className="pc-toast">{integrationGuardNotice}</div>
                       </div>
-                    </div>
-                  ) : null}
-                </div>
+                    ) : null}
+                  </div>
 
-                <div className={cn("mt-3 p-2 rounded-lg", subPanelClass)}>
-                  <div className="grid grid-cols-6 gap-1">
-                    <button
-                      onClick={handleToggleTelegramIntegration}
-                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(telegramConnected))}
-                      title={telegramConnected ? "Telegram connected" : "Telegram disconnected"}
-                    >
-                      <TelegramIcon className="w-3.5 h-3.5 -translate-y-0.5" />
-                    </button>
-                    <button
-                      onClick={handleToggleDiscordIntegration}
-                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(discordConnected))}
-                      title={discordConnected ? "Discord connected" : "Discord disconnected"}
-                    >
-                      <DiscordIcon className="w-3.5 h-3.5 text-white -translate-y-0.5" />
-                    </button>
-                    <button
-                      onClick={handleToggleOpenAIIntegration}
-                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(openaiConnected))}
-                      title={openaiConnected ? "OpenAI connected" : "OpenAI disconnected"}
-                    >
-                      <OpenAIIcon className="w-4 h-4 -translate-y-0.5" />
-                    </button>
-                    <button
-                      onClick={handleToggleClaudeIntegration}
-                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(claudeConnected))}
-                      title={claudeConnected ? "Claude connected" : "Claude disconnected"}
-                    >
-                      <ClaudeIcon className="w-4 h-4 -translate-y-0.5" />
-                    </button>
-                    <button
-                      onClick={handleToggleGrokIntegration}
-                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(grokConnected))}
-                      title={grokConnected ? "Grok connected" : "Grok disconnected"}
-                    >
-                      <span className="inline-flex -translate-y-0.5"><XAIIcon size={16} /></span>
-                    </button>
-                    <button
-                      onClick={handleToggleGeminiIntegration}
-                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(geminiConnected))}
-                      title={geminiConnected ? "Gemini connected" : "Gemini disconnected"}
-                    >
-                      <span className="inline-flex -translate-y-0.5"><GeminiIcon size={16} /></span>
-                    </button>
-                    <button
-                      onClick={handleToggleGmailIntegration}
-                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(gmailConnected))}
-                      title={gmailConnected ? "Gmail connected" : "Gmail disconnected"}
-                    >
-                      <GmailIcon className="w-3.5 h-3.5 -translate-y-0.5" />
-                    </button>
-                    <button
-                      onClick={() => router.push("/integrations")}
-                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(spotifyConnected))}
-                      title={spotifyConnected ? "Spotify connected" : "Spotify disconnected"}
-                    >
-                      <SpotifyIcon className="w-3.5 h-3.5 -translate-y-0.5" />
-                    </button>
-                    <button
-                      onClick={() => router.push("/integrations")}
-                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(gcalendarConnected))}
-                      title={gcalendarConnected ? "Google Calendar connected" : "Google Calendar disconnected"}
-                    >
-                      <GmailCalendarIcon className="w-3.5 h-3.5 -translate-y-0.5" />
-                    </button>
-                    <button
-                      onClick={handleToggleBraveIntegration}
-                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(braveConnected))}
-                      title={braveConnected ? "Brave connected" : braveConfigured ? "Brave disconnected" : "Brave key required"}
-                    >
-                      <BraveIcon className="w-4 h-4 -translate-y-0.5" />
-                    </button>
-                    <button
-                      onClick={handleToggleCoinbaseIntegration}
-                      className={cn("h-9 rounded-sm border transition-colors flex items-center justify-center home-spotlight-card home-border-glow", integrationBadgeClass(coinbaseConnected))}
-                      title={coinbaseConnected ? "Coinbase connected" : coinbaseConfigured ? "Coinbase disconnected" : "Coinbase keys required"}
-                    >
-                      <CoinbaseIcon className="w-4 h-4 -translate-y-0.5" />
-                    </button>
-                    {Array.from({ length: 13 }).map((_, index) => (
-                      <div key={index} className={cn("h-9 rounded-sm border home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#eef3fb]" : "border-white/10 bg-black/20")} />
-                    ))}
+                  <div className="pc-slots mt-3">
+                    <div className="grid grid-cols-6 gap-1.5">
+                      <button
+                        onClick={handleToggleTelegramIntegration}
+                        className={integrationBadgeClass(telegramConnected)}
+                        title={telegramConnected ? "Telegram connected" : "Telegram disconnected"}
+                      >
+                        <TelegramIcon className="w-3.5 h-3.5 -translate-y-0.5" />
+                      </button>
+                      <button
+                        onClick={handleToggleDiscordIntegration}
+                        className={integrationBadgeClass(discordConnected)}
+                        title={discordConnected ? "Discord connected" : "Discord disconnected"}
+                      >
+                        <DiscordIcon className="w-3.5 h-3.5 text-white -translate-y-0.5" />
+                      </button>
+                      <button
+                        onClick={handleToggleOpenAIIntegration}
+                        className={integrationBadgeClass(openaiConnected)}
+                        title={openaiConnected ? "OpenAI connected" : "OpenAI disconnected"}
+                      >
+                        <OpenAIIcon className="w-4 h-4 -translate-y-0.5" />
+                      </button>
+                      <button
+                        onClick={handleToggleClaudeIntegration}
+                        className={integrationBadgeClass(claudeConnected)}
+                        title={claudeConnected ? "Claude connected" : "Claude disconnected"}
+                      >
+                        <ClaudeIcon className="w-4 h-4 -translate-y-0.5" />
+                      </button>
+                      <button
+                        onClick={handleToggleGrokIntegration}
+                        className={integrationBadgeClass(grokConnected)}
+                        title={grokConnected ? "Grok connected" : "Grok disconnected"}
+                      >
+                        <span className="inline-flex -translate-y-0.5"><XAIIcon size={16} /></span>
+                      </button>
+                      <button
+                        onClick={handleToggleGeminiIntegration}
+                        className={integrationBadgeClass(geminiConnected)}
+                        title={geminiConnected ? "Gemini connected" : "Gemini disconnected"}
+                      >
+                        <span className="inline-flex -translate-y-0.5"><GeminiIcon size={16} /></span>
+                      </button>
+                      <button
+                        onClick={handleToggleGmailIntegration}
+                        className={integrationBadgeClass(gmailConnected)}
+                        title={gmailConnected ? "Gmail connected" : "Gmail disconnected"}
+                      >
+                        <GmailIcon className="w-3.5 h-3.5 -translate-y-0.5" />
+                      </button>
+                      <button
+                        onClick={() => router.push("/integrations")}
+                        className={integrationBadgeClass(spotifyConnected)}
+                        title={spotifyConnected ? "Spotify connected" : "Spotify disconnected"}
+                      >
+                        <SpotifyIcon className="w-3.5 h-3.5 -translate-y-0.5" />
+                      </button>
+                      <button
+                        onClick={() => router.push("/integrations")}
+                        className={integrationBadgeClass(gcalendarConnected)}
+                        title={gcalendarConnected ? "Google Calendar connected" : "Google Calendar disconnected"}
+                      >
+                        <GmailCalendarIcon className="w-3.5 h-3.5 -translate-y-0.5" />
+                      </button>
+                      <button
+                        onClick={handleToggleBraveIntegration}
+                        className={integrationBadgeClass(braveConnected)}
+                        title={braveConnected ? "Brave connected" : braveConfigured ? "Brave disconnected" : "Brave key required"}
+                      >
+                        <BraveIcon className="w-4 h-4 -translate-y-0.5" />
+                      </button>
+                      <button
+                        onClick={handleToggleCoinbaseIntegration}
+                        className={integrationBadgeClass(coinbaseConnected)}
+                        title={coinbaseConnected ? "Coinbase connected" : coinbaseConfigured ? "Coinbase disconnected" : "Coinbase keys required"}
+                      >
+                        <CoinbaseIcon className="w-4 h-4 -translate-y-0.5" />
+                      </button>
+                      {Array.from({ length: 13 }).map((_, index) => (
+                        <div key={index} className="pc-slot pc-slot--empty" />
+                      ))}
+                    </div>
                   </div>
                 </div>
-                <div className="mt-2" />
               </section>
             </aside>
           </div>
@@ -792,7 +781,3 @@ export function ChatShellController() {
     </div>
   )
 }
-
-
-
-

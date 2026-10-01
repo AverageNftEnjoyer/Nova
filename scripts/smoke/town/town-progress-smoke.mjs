@@ -44,7 +44,9 @@ const TOWN_SOURCES = [
   "hud/lib/town/types.ts",
   "hud/lib/town/rules.ts",
   "hud/lib/town/quests.ts",
+  "hud/lib/town/cosmetics.ts",
   "hud/lib/town/state.ts",
+  "hud/lib/town/wardrobe.ts",
   "hud/lib/town/stats.ts",
   "hud/lib/town/progress.ts",
 ];
@@ -73,12 +75,15 @@ function loadTown(outDir) {
     progress: require("./hud/lib/town/progress.js"),
     rules: require("./hud/lib/town/rules.js"),
     state: require("./hud/lib/town/state.js"),
+    quests: require("./hud/lib/town/quests.js"),
+    cosmetics: require("./hud/lib/town/cosmetics.js"),
+    wardrobe: require("./hud/lib/town/wardrobe.js"),
   };
 }
 
 const { getDb, kvGet } = await import(pathToFileURL(path.join(repoRoot, "src/db/index.js")).href);
 const { resolveUserContextRoot } = await import(pathToFileURL(path.join(repoRoot, "src/db/paths.js")).href);
-const { progress: town, rules, state: townState } = loadTown(path.join(isolatedDataDir, "town-smoke-out"));
+const { progress: town, rules, state: townState, quests: questsMod, cosmetics, wardrobe } = loadTown(path.join(isolatedDataDir, "town-smoke-out"));
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -183,7 +188,7 @@ await run("TW-1 empty user starts as a level-1 hamlet with the tutorial on Meet 
   assert.equal(p.quests.filter((q) => q.category === "daily").length, 4);
   assert.ok(p.quests.every((q) => q.status !== "completed"));
   assert.deepEqual(eventIds(p), ["founded"]);
-  assert.equal(p.population, 3);
+  assert.equal(p.population, undefined, "townsfolk/population are gone");
 });
 
 await run("TW-2 tutorial skip / restart / finish persist", () => {
@@ -270,12 +275,21 @@ await run("TW-3 XP math on seeded activity", () => {
   assert.equal(quest(p, "milestone-tasks-10"), undefined, "only the next milestone tier is listed");
   assert.deepEqual(p.tutorial, { active: false, currentQuestId: null, skipped: false });
   assert.ok(p.quests.filter((q) => q.category === "tutorial").every((q) => q.status === "completed" && q.completedAt));
-  // Population: 1 conversation × 2 + floor(3 / 5) + level 5 × 3, plus the townsfolk completed quests brought:
-  // 8 tutorial × 2 + 2 building quests × 3 + 2 daily quests × 1.
-  assert.equal(p.population, 17 + 16 + 6 + 2);
-  // Every quest shows its townsfolk reward by category.
-  assert.deepEqual(rules.QUEST_TOWNSFOLK, { tutorial: 2, daily: 1, milestone: 4, integration: 3 });
-  for (const q of p.quests) assert.equal(q.townsfolkReward, rules.QUEST_TOWNSFOLK[q.category], `townsfolk reward of ${q.id}`);
+  // Townsfolk are gone: quests pay items (or nothing), never townsfolk.
+  assert.equal(p.population, undefined);
+  assert.ok(p.quests.every((q) => q.townsfolkReward === undefined), "no townsfolk rewards");
+  assert.equal(rules.QUEST_TOWNSFOLK, undefined);
+  assert.equal(rules.populationFor, undefined);
+  // Item rewards are attached exactly where the mapping says.
+  for (const q of p.quests) {
+    const itemId = cosmetics.QUEST_ITEM_REWARDS[q.id];
+    assert.equal(q.itemReward?.id, itemId, `item reward of ${q.id}`);
+  }
+  // This user has 8 tutorial quests done: the baseline records their items silently (no events).
+  const base = wardrobe.buildWardrobe(wardrobe.readWardrobeState(U), townState.readTownState(U).quests);
+  const ownedNow = (id) => base.items.find((item) => item.id === id).unlocked;
+  assert.ok(ownedNow("hat-headphones") && ownedNow("hat-flower-crown") && ownedNow("hat-chef") && ownedNow("outfit-raincoat"));
+  assert.ok(!ownedNow("outfit-varsity") && !ownedNow("hat-crown"));
   // The baseline is not replayed as events.
   assert.deepEqual(eventIds(p), ["founded"]);
 });
@@ -313,6 +327,7 @@ await run("TW-5 new progress fires each event once; ack clears it for good", () 
   const expectedEvents = [
     "building-claude-2",
     "building-gmail-1",
+    "item-outfit-varsity",
     "level-6",
     "quest-daily-chat-2026-09-30",
     "quest-integration-claude-2",
@@ -327,9 +342,6 @@ await run("TW-5 new progress fires each event once; ack clears it for good", () 
   assert.equal(p.level.xp, 1200 + 120 + 4 + 15 + 40 + 100 + 60 + 100 + 100 + 50 + 120 + 150 + 30);
   assert.equal(p.level.level, 6);
   assert.equal(p.level.title, "Town");
-  // Population grows with the quests: 2 conversations × 2 + floor(5 / 5) + level 6 × 3, plus quest townsfolk
-  // (8 tutorial × 2 + building quests telegram-1, claude-1, claude-2, gmail-1 × 3 + 3 milestones × 4 + 3 daily × 1).
-  assert.equal(p.population, 4 + 1 + 18 + 16 + 12 + 12 + 3);
   const levelUp = p.pendingEvents.find((event) => event.id === "level-6");
   assert.equal(levelUp.kind, "level-up");
   assert.equal(levelUp.title, "Level 6: Town");
@@ -337,6 +349,11 @@ await run("TW-5 new progress fires each event once; ack clears it for good", () 
   assert.equal(questEvent.kind, "quest-complete");
   assert.equal(questEvent.xp, 150);
   assert.equal(building(p, "claude").level, 2);
+  // Skills I (3 skills) unlocked exactly one item, announced once as an item-unlock event.
+  const itemEvents = p.pendingEvents.filter((event) => event.kind === "item-unlock");
+  assert.deepEqual(itemEvents.map((event) => event.id), ["item-outfit-varsity"]);
+  assert.match(itemEvents[0].title, /common outfit: Varsity Jacket/);
+  assert.equal(quest(p, "milestone-skills-3").itemReward.id, "outfit-varsity");
 
   // Recomputing does not duplicate anything.
   const again = build(U, ["claude", "telegram", "gmail"]);
@@ -403,10 +420,10 @@ await run("TW-8 cached within the TTL, invalidated by ack", () => {
   assert.equal(cached, first, "same snapshot within the TTL");
   const expired = town.buildTownProgress(user, opts(new Date(NOW.getTime() + town.TOWN_CACHE_TTL_MS + 1)));
   assert.equal(source(expired, "notes").count, 1);
-  assert.deepEqual(eventIds(expired), ["founded", "level-2", "quest-daily-note-2026-09-30", "quest-tutorial-first-note"]); // 10 + 50 + 25 XP
+  assert.deepEqual(eventIds(expired), ["founded", "item-hat-flower-crown", "level-2", "quest-daily-note-2026-09-30", "quest-tutorial-first-note"]); // 10 + 50 + 25 XP
   town.applyTownAck(user, { eventIds: ["founded"] });
   const afterAck = town.buildTownProgress(user, opts(new Date(NOW.getTime() + town.TOWN_CACHE_TTL_MS + 2)));
-  assert.deepEqual(eventIds(afterAck), ["level-2", "quest-daily-note-2026-09-30", "quest-tutorial-first-note"]);
+  assert.deepEqual(eventIds(afterAck), ["item-hat-flower-crown", "level-2", "quest-daily-note-2026-09-30", "quest-tutorial-first-note"]);
 });
 
 // ── TW-9: ack validation ────────────────────────────────────────────────────────────────────────────────────
@@ -439,6 +456,160 @@ await run("TW-10 per-user queries use indexes, never a full table scan", () => {
     const detail = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all("u").map((row) => row.detail).join(" | ");
     assert.ok(!new RegExp(`^SCAN ${table}$|SCAN ${table}(?! USING)`).test(detail), `${table}: ${detail}`);
   }
+});
+
+// ── TW-11..15: wardrobe ─────────────────────────────────────────────────────────────────────────────────────
+
+const STARTER_IDS = ["outfit-street", "outfit-office", "outfit-overalls", "hat-beanie", "hat-cap"];
+const COMMON_IDS = ["hat-headphones", "hat-flower-crown", "hat-chef", "outfit-raincoat", "outfit-varsity"];
+const RARE_IDS = ["outfit-neon-jacket", "outfit-astronaut", "hat-top-hat", "hat-cat-ears"];
+const EPIC_IDS = ["outfit-knight", "outfit-wizard", "hat-wizard", "hat-crown"];
+
+await run("TW-11 catalogue: exact ids, rarity counts, slots, art urls", () => {
+  const ids = cosmetics.COSMETIC_CATALOG.map((item) => item.id);
+  assert.deepEqual([...ids].sort(), [...STARTER_IDS, ...COMMON_IDS, ...RARE_IDS, ...EPIC_IDS].sort());
+  assert.deepEqual([...cosmetics.COSMETIC_IDS], ids);
+  const byRarity = (rarity) => cosmetics.COSMETIC_CATALOG.filter((item) => item.rarity === rarity).map((item) => item.id).sort();
+  assert.deepEqual(byRarity("starter"), [...STARTER_IDS].sort());
+  assert.deepEqual(byRarity("common"), [...COMMON_IDS].sort());
+  assert.deepEqual(byRarity("rare"), [...RARE_IDS].sort());
+  assert.deepEqual(byRarity("epic"), [...EPIC_IDS].sort());
+  for (const item of cosmetics.COSMETIC_CATALOG) {
+    assert.equal(item.slot, item.id.split("-")[0], `slot of ${item.id}`);
+    assert.ok(item.name && item.description, `name/description of ${item.id}`);
+    assert.equal(cosmetics.getCosmetic(item.id), item);
+    assert.equal(cosmetics.cosmeticArtUrl(item.id), `/pixel-city/town/cosmetics/${item.id}.png`);
+  }
+  assert.equal(cosmetics.getCosmetic("outfit-nope"), undefined);
+});
+
+await run("TW-12 mapping integrity: real quests, every non-starter item exactly once, harder = rarer", () => {
+  // A user who finished everything: every milestone/integration tier appears in the evaluated list.
+  const huge = { chatMessages: 1e6, conversations: 1e6, tasksCompleted: 1e6, notes: 1e6, skills: 1e6, deployments: 1e6, deploymentRunsSucceeded: 1e6, toolRuns: 1e6 };
+  const keys = Object.keys(rules.buildBuildings(new Set(), {}).reduce((acc, b) => ({ ...acc, [b.integration]: 1 }), {}));
+  const uses = Object.fromEntries(keys.map((key) => [key, 1e6]));
+  const ctx = {
+    counts: { ...huge }, today: { chatMessages: 0, tasksCompleted: 0, notesTouched: 0, toolRuns: 0 }, dayKey: "2026-09-30",
+    connectedEver: new Set(keys), connected: new Set(keys), uses,
+  };
+  const evaluated = new Set(questsMod.evaluateQuests(ctx, {}, at(0)).quests.map((q) => q.id));
+  const mapping = cosmetics.QUEST_ITEM_REWARDS;
+  const mappedItems = Object.values(mapping);
+  for (const questId of Object.keys(mapping)) {
+    assert.ok(evaluated.has(questId), `mapped quest ${questId} exists`);
+    assert.ok(!questId.startsWith("daily-"), "daily quests are not persisted by id, so they cannot unlock items");
+    assert.ok(questsMod.questTitleFor(questId), `title of ${questId}`);
+  }
+  const nonStarter = cosmetics.COSMETIC_CATALOG.filter((item) => item.rarity !== "starter");
+  assert.equal(mappedItems.length, nonStarter.length);
+  assert.equal(new Set(mappedItems).size, mappedItems.length, "no item is mapped twice");
+  for (const item of nonStarter) {
+    assert.equal(mappedItems.filter((id) => id === item.id).length, 1, `${item.id} mapped exactly once`);
+    const questId = Object.keys(mapping).find((id) => mapping[id] === item.id);
+    assert.deepEqual(item.source, { kind: "quest", questId, questTitle: questsMod.questTitleFor(questId) });
+  }
+  for (const item of cosmetics.COSMETIC_CATALOG.filter((entry) => entry.rarity === "starter")) assert.deepEqual(item.source, { kind: "starter" });
+  assert.ok(mappedItems.every((id) => cosmetics.getCosmetic(id)));
+  assert.equal(questsMod.questTitleFor("milestone-tasks-100"), "Workforce V");
+  assert.equal(questsMod.questTitleFor("milestone-tasks-7"), null);
+});
+
+await run("TW-13 item unlock: one event, not replayed, never revoked, wardrobe derives it", () => {
+  const user = "wardrobe-user";
+  const first = build(user, []);
+  assert.deepEqual(eventIds(first), ["founded"]);
+  assert.ok(wardrobe.loadWardrobe(user).items.filter((item) => item.unlocked).map((item) => item.id).sort().join() === [...STARTER_IDS].sort().join(), "only starters at first");
+  const thread = seedThread(user);
+  seedMessage(user, thread, "user");
+  seedNote(user); // first note -> hat-flower-crown
+  const p = build(user, []);
+  const unlocks = p.pendingEvents.filter((event) => event.kind === "item-unlock");
+  assert.deepEqual(unlocks.map((event) => event.id), ["item-hat-flower-crown"]);
+  assert.match(unlocks[0].title, /common hat: Flower Crown/);
+  assert.match(unlocks[0].detail, /Open the archive/);
+  assert.equal(quest(p, "tutorial-first-note").itemReward.name, "Flower Crown");
+  const stored = wardrobe.readWardrobeState(user).unlocked;
+  assert.deepEqual(Object.keys(stored), ["hat-flower-crown"]);
+  const owned = wardrobe.loadWardrobe(user).items.find((item) => item.id === "hat-flower-crown");
+  assert.equal(owned.unlocked, true);
+  assert.equal(owned.unlockedAt, stored["hat-flower-crown"]);
+  // Not replayed after an ack, a cold cache, or deleting the note.
+  town.applyTownAck(user, { eventIds: eventIds(p) });
+  db.prepare("DELETE FROM notes WHERE user_id = ?").run(user);
+  globalThis.__novaTownProgressCache = undefined;
+  assert.deepEqual(eventIds(build(user, [])), []);
+  assert.equal(wardrobe.loadWardrobe(user).items.find((item) => item.id === "hat-flower-crown").unlocked, true, "never revoked");
+  // Completion that happened before the wardrobe state existed is still derived by GET and announced once afterwards.
+  const legacy = "legacy-wardrobe-user";
+  build(legacy, []);
+  const legacyState = townState.readTownState(legacy);
+  legacyState.quests["tutorial-first-task"] = at(-5);
+  townState.writeTownState(legacy, legacyState);
+  const derived = wardrobe.loadWardrobe(legacy).items.find((item) => item.id === "hat-chef");
+  assert.equal(derived.unlocked, true);
+  assert.equal(derived.unlockedAt, at(-5));
+  globalThis.__novaTownProgressCache = undefined;
+  assert.deepEqual(build(legacy, []).pendingEvents.filter((event) => event.kind === "item-unlock").map((event) => event.id), ["item-hat-chef"]);
+  globalThis.__novaTownProgressCache = undefined;
+  assert.equal(build(legacy, []).pendingEvents.filter((event) => event.kind === "item-unlock").length, 1, "once");
+});
+
+await run("TW-14 wardrobe update validation: shape, names, ownership", () => {
+  const parse = wardrobe.parseWardrobeUpdate;
+  const reject = (raw) => {
+    const r = parse(raw);
+    assert.equal(r.ok, false, JSON.stringify(raw));
+    assert.equal(r.status, 400);
+  };
+  for (const raw of [null, [], "x", 3, {}, { name: "x" }, { residentId: "agent:" }, { residentId: "agent:   " }, { residentId: "integration:nope", name: "x" }, { residentId: "nova", name: "x" }, { residentId: "agent:a" }, { residentId: "agent:a", name: 5 }, { residentId: "agent:a", equipped: "hat" }, { residentId: "agent:a", equipped: { cape: "hat-cap" } }, { residentId: "agent:a", equipped: { hat: 4 } }, { residentId: "agent:a", name: "x".repeat(25) }]) reject(raw);
+  assert.deepEqual(parse({ residentId: "agent:a1", name: "  Ada  " }), { ok: true, update: { residentId: "agent:a1", name: "Ada" } });
+  assert.equal(parse({ residentId: "agent:a1", name: "x".repeat(24) }).ok, true);
+  assert.equal(parse({ residentId: "agent:a1", name: "A\u0000d\u0007a\n" }).update.name, "Ada", "control characters stripped");
+  assert.equal(parse({ residentId: "agent:a1", name: "   " }).update.name, null, "whitespace clears");
+  assert.equal(parse({ residentId: "agent:a1", name: "" }).update.name, null);
+  assert.equal(parse({ residentId: "agent:a1", name: null }).update.name, null);
+  assert.equal(parse({ residentId: "integration:claude", equipped: { hat: null } }).ok, true);
+
+  const none = {};
+  const base = wardrobe.emptyWardrobeState();
+  const apply = (update, quests = none, state = base) => wardrobe.applyWardrobeUpdate(state, quests, update);
+  assert.deepEqual(apply({ residentId: "agent:a1", equipped: { hat: "hat-nope" } }), { ok: false, status: 404, error: 'Unknown item "hat-nope".' });
+  assert.equal(apply({ residentId: "agent:a1", equipped: { hat: "hat-crown" } }).status, 403, "locked");
+  assert.equal(apply({ residentId: "agent:a1", equipped: { outfit: "hat-cap" } }).status, 422, "wrong slot");
+  assert.equal(apply({ residentId: "agent:a1", equipped: { hat: "outfit-street" } }).status, 422, "wrong slot");
+  // Starters are always wearable.
+  const dressed = apply({ residentId: "agent:a1", name: "Ada", equipped: { hat: "hat-cap", outfit: "outfit-office" } });
+  assert.equal(dressed.ok, true);
+  assert.deepEqual(dressed.state.residents["agent:a1"], { residentId: "agent:a1", name: "Ada", equipped: { hat: "hat-cap", outfit: "outfit-office" } });
+  assert.deepEqual(base.residents, {}, "input state is not mutated");
+  // A quest-completed item becomes wearable; a failed update changes nothing.
+  const quests = { "milestone-integrations-16": at(0) };
+  assert.equal(apply({ residentId: "agent:a1", equipped: { hat: "hat-crown" } }, quests, dressed.state).state.residents["agent:a1"].equipped.hat, "hat-crown");
+  // Partial update keeps the rest; null unequips; clearing everything drops the look.
+  const renamed = apply({ residentId: "agent:a1", name: "Ava" }, none, dressed.state);
+  assert.deepEqual(renamed.state.residents["agent:a1"].equipped, { hat: "hat-cap", outfit: "outfit-office" });
+  const cleared = apply({ residentId: "agent:a1", name: null, equipped: { hat: null, outfit: null } }, none, renamed.state);
+  assert.deepEqual(cleared.state.residents, {});
+  // The look cap refuses a new resident instead of pruning silently.
+  const full = wardrobe.emptyWardrobeState();
+  for (let i = 0; i < wardrobe.MAX_RESIDENT_LOOKS; i++) full.residents[`agent:r${i}`] = { residentId: `agent:r${i}`, name: "x", equipped: {} };
+  assert.equal(apply({ residentId: "agent:extra", name: "y" }, none, full).status, 409);
+  assert.equal(apply({ residentId: "agent:r1", name: "z" }, none, full).ok, true, "existing residents still editable");
+});
+
+await run("TW-15 wardrobe persists per user in kv_state; corrupt state is tolerated", () => {
+  const user = "wardrobe-persist-user";
+  build(user, []);
+  const outcome = wardrobe.updateWardrobe(user, { residentId: "integration:claude", name: "Claudia", equipped: { outfit: "outfit-overalls" } });
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.wardrobe.items.length, 18);
+  assert.deepEqual(outcome.wardrobe.residents["integration:claude"], { residentId: "integration:claude", name: "Claudia", equipped: { outfit: "outfit-overalls" } });
+  assert.deepEqual(kvGet(user, "town-wardrobe", "state").residents["integration:claude"].name, "Claudia");
+  assert.equal(wardrobe.updateWardrobe(user, { residentId: "integration:claude", equipped: { hat: "hat-crown" } }).status, 403);
+  assert.deepEqual(wardrobe.loadWardrobe(user).residents["integration:claude"].equipped, { outfit: "outfit-overalls" });
+  assert.deepEqual(wardrobe.loadWardrobe("someone-else").residents, {});
+  assert.deepEqual(wardrobe.normalizeWardrobeState("garbage"), wardrobe.emptyWardrobeState());
+  assert.deepEqual(wardrobe.normalizeWardrobeState({ unlocked: { "hat-crown": "t", bogus: "t" }, residents: { "agent:x": { equipped: { hat: "outfit-street" } } } }).residents, {});
 });
 
 console.log(failures === 0 ? "\nTown progress smoke: all checks passed." : `\nTown progress smoke: ${failures} check(s) failed.`);

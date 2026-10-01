@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
 import { cn } from "@/lib/shared/utils"
 import type { OrbPalette } from "@/components/chat/nova-orb-indicator"
+import { NovaCatPortrait } from "@/components/chat/nova-cat-portrait"
 
 interface MessageListProps {
   messages: Message[]
@@ -132,14 +133,14 @@ export function MessageList({
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="absolute inset-0 overflow-y-auto overflow-x-hidden no-scrollbar pt-3 pb-20 border-none"
+      className="pc-log absolute inset-0 overflow-y-auto overflow-x-hidden no-scrollbar pt-3 pb-20 border-none"
       role="log"
       aria-label="Chat messages"
       aria-live="polite"
     >
     <div
       className={cn(
-        "mx-auto w-full min-h-full origin-top px-4 sm:px-5 flex flex-col justify-start",
+        "pc-log-inner mx-auto w-full min-h-full origin-top px-4 sm:px-5 flex flex-col justify-start",
         compactMode ? "max-w-3xl space-y-3" : "max-w-none space-y-4",
       )}
       style={{
@@ -150,13 +151,18 @@ export function MessageList({
       }}
     >
       {messages.length === 0 && !error && !isStreaming && (
-        <div className="flex flex-col items-center justify-center h-full text-center text-s-40">
-          <p className="text-lg font-medium text-s-60">
-            Hi, my name is Nova
-          </p>
-          <p className="text-sm mt-1 text-s-30">
-            What can I help you with today?
-          </p>
+        <div className="pc-empty">
+          <NovaCatPortrait state="idle" scale={4} accent={orbPalette.circle1} />
+          <div className="pc-bubble pc-bubble--nova pc-bubble--center">
+            <div className="pc-bubble-body text-center">
+              <p className="pc-empty-title">
+                Hi, my name is Nova
+              </p>
+              <p className="pc-empty-sub">
+                What can I help you with today?
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -181,15 +187,15 @@ export function MessageList({
 
       {error && (
         <div
-          className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/20 rounded-xl"
+          className="pc-error"
           role="alert"
         >
-          <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
+          <AlertCircle className="w-5 h-5 shrink-0" />
           <div className="flex-1">
-            <p className="text-sm font-medium text-red-400">Something went wrong</p>
-            <p className="text-xs text-red-400/70 mt-0.5">{error}</p>
+            <p className="text-sm font-medium">Something went wrong</p>
+            <p className="text-xs mt-0.5 opacity-80">{error}</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={onRetry}>
+          <Button variant="ghost" size="sm" onClick={onRetry} className="pc-chip-btn">
             <RefreshCw className="w-4 h-4 mr-1" />
             Retry
           </Button>

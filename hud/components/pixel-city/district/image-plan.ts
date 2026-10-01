@@ -193,6 +193,25 @@ export const WORKPLACE_DOOR: Readonly<Record<CityWorkplace, WalkNodeId>> = {
   depot: "dep",
 }
 
+/** Where an integration's worker stands: the walk node in front of that integration's own building. */
+export const INTEGRATION_DOOR: Readonly<Record<CityIntegration, WalkNodeId>> = {
+  telegram: "tel",
+  discord: "arc",
+  slack: "cow",
+  openai: "lab",
+  claude: "stu",
+  grok: "obs",
+  gemini: "gem",
+  spotify: "cin", // Records stands next to the Cinema's door
+  youtube: "cin",
+  gmail: "pst",
+  "gmail-calendar": "kW", // beside the clock tower
+  brave: "lib",
+  coinbase: "bnk",
+  phantom: "vlt",
+  polymarket: "odd",
+}
+
 export const WORKPLACE_NAME: Readonly<Record<CityWorkplace, string>> = {
   hq: "Nova HQ",
   lab: "Lab",

@@ -2,26 +2,27 @@
 
 import { useMemo } from "react"
 import {
+  agentResidentId,
   cityWeatherFromCode,
+  integrationWorkplace,
   workplaceForTools,
   type CityAgent,
   type CityIntegration,
+  type CityLook,
   type CityPresence,
   type CitySceneState,
   type CityTaskLight,
   type CityTickerItem,
+  type CityWorker,
 } from "@/components/pixel-city"
 import type { AgentTask, AgentTaskStatus } from "@/lib/agents/types"
+import { integrationLabel } from "@/lib/town/quests"
+import type { ResidentLook, TownWardrobe } from "@/lib/town/wardrobe-types"
 import type { NovaState } from "@/lib/chat/hooks/useNovaState"
 import { formatPct, formatUsdCompact, orderCryptoAssets } from "../components/crypto-prices-module"
 import type { HomeCryptoAsset } from "./use-home-crypto-market"
 
 const TASK_FLOORS = 5
-/** Townsfolk on the streets: a small crowd for a new city, growing with its population, capped for the frame rate. */
-export const MIN_STREET_TOWNSFOLK = 6
-export const MAX_STREET_TOWNSFOLK = 48
-/** One walker on the street for every this many residents (on top of a base of 4). */
-const RESIDENTS_PER_WALKER = 2
 /** The city animates at most this many tasks; live and waiting work comes first, then the newest outcomes. */
 const MAX_STREET_AGENTS = 24
 /** Which tasks light the tower first: live work, then waiting work, then recent outcomes. */
@@ -55,27 +56,55 @@ export function taskLightsFor(tasks: readonly AgentTask[]): CityTaskLight[] {
     .map((task) => task.status as CityTaskLight)
 }
 
-/** One character per task: name, status and the workplace matching the tools it last used. */
-export function agentsFor(tasks: readonly AgentTask[]): CityAgent[] {
+/** The name a resident has when the user has not chosen one. */
+export function defaultAgentName(task: Pick<AgentTask, "name" | "prompt">): string {
+  return (task.name || task.prompt || "Agent task").trim().slice(0, 60) || "Agent task"
+}
+
+export function defaultWorkerName(integration: CityIntegration): string {
+  return `${integrationLabel(integration)} worker`
+}
+
+type ResidentLooks = Readonly<Record<string, ResidentLook>>
+
+function chosenName(looks: ResidentLooks | undefined, id: string): string | null {
+  const name = looks?.[id]?.name?.trim()
+  return name ? name : null
+}
+
+/** One character per task: name (the user's, else the task's), status and the workplace matching the tools it last used. */
+export function agentsFor(tasks: readonly AgentTask[], looks?: ResidentLooks): CityAgent[] {
   return sortTasks(tasks)
     .slice(0, MAX_STREET_AGENTS)
     .map((task) => ({
       id: task.id,
-      name: (task.name || task.prompt || "Agent task").trim().slice(0, 60) || "Agent task",
+      name: chosenName(looks, agentResidentId(task.id)) ?? defaultAgentName(task),
       status: task.status as CityTaskLight,
       workplace: workplaceForTools(task.toolCalls),
     }))
 }
 
 /**
- * How many townsfolk walk the streets for a real population (TownProgress.population). One walker per two residents
- * on top of a base of four, between MIN_STREET_TOWNSFOLK and MAX_STREET_TOWNSFOLK, so each completed quest (one to
- * four new residents) visibly adds people until the street is full. null while the population is unknown.
+ * One worker per connected integration (and only those): nothing connected means none. Order follows the integration
+ * list Home already uses, so the same set always produces the same workers.
  */
-export function townsfolkFor(population: number | null): number | null {
-  if (population === null || !Number.isFinite(population)) return null
-  const walkers = Math.round(4 + Math.max(0, population) / RESIDENTS_PER_WALKER)
-  return Math.min(MAX_STREET_TOWNSFOLK, Math.max(MIN_STREET_TOWNSFOLK, walkers))
+export function workersFor(connected: readonly CityIntegration[], looks?: ResidentLooks): CityWorker[] {
+  return Array.from(new Set(connected)).map((integration) => {
+    const id = `integration:${integration}` as const
+    return { id, integration, name: chosenName(looks, id) ?? defaultWorkerName(integration), workplace: integrationWorkplace(integration) }
+  })
+}
+
+/** Equipped cosmetics of the residents that wear any. */
+export function looksFor(wardrobe: TownWardrobe | null): Record<string, CityLook> {
+  const out: Record<string, CityLook> = {}
+  if (!wardrobe) return out
+  for (const [id, look] of Object.entries(wardrobe.residents)) {
+    const outfit = look.equipped.outfit
+    const hat = look.equipped.hat
+    if (outfit || hat) out[id] = { ...(outfit ? { outfit } : {}), ...(hat ? { hat } : {}) }
+  }
+  return out
 }
 
 export function tickerFor(assets: readonly HomeCryptoAsset[]): CityTickerItem[] {
@@ -97,14 +126,17 @@ interface CitySceneInput {
   cryptoAssets: readonly HomeCryptoAsset[]
   notesCount: number
   connectedIntegrations: readonly CityIntegration[]
-  /** TownProgress.population; null until the town's progress has loaded. */
-  population: number | null
+  /** The wardrobe (resident names and what they wear); null until it has loaded: everyone keeps the default look. */
+  wardrobe: TownWardrobe | null
 }
 
 /** Home's live data, reduced to what Nova City draws. Memoised on content so the scene only updates on change. */
 export function useCitySceneState(input: CitySceneInput): CitySceneState {
   const taskLights = taskLightsFor(input.tasks)
-  const agents = agentsFor(input.tasks)
+  const residentLooks = input.wardrobe?.residents
+  const agents = agentsFor(input.tasks, residentLooks)
+  const workers = workersFor(input.connectedIntegrations, residentLooks)
+  const looks = looksFor(input.wardrobe)
   const ticker = tickerFor(input.cryptoAssets)
   const taskKey = taskLights.join(",")
   const agentsKey = agents.map((agent) => `${agent.id}:${agent.status}:${agent.workplace}:${agent.name}`).join("|")
@@ -112,8 +144,8 @@ export function useCitySceneState(input: CitySceneInput): CitySceneState {
   const connectedKey = input.connectedIntegrations.join(",")
   const presence = presenceFor(input.connected, input.novaState)
   const weather = cityWeatherFromCode(input.weatherCode)
-  const residents = input.population !== null && Number.isFinite(input.population) ? Math.max(0, Math.floor(input.population)) : null
-  const townsfolk = townsfolkFor(residents)
+  const workersKey = workers.map((worker) => `${worker.id}:${worker.name}`).join("|")
+  const looksKey = JSON.stringify(looks)
 
   return useMemo<CitySceneState>(
     () => ({
@@ -125,11 +157,11 @@ export function useCitySceneState(input: CitySceneInput): CitySceneState {
       notesCount: input.notesCount,
       agents: agentsKey ? agents : [],
       connectedIntegrations: connectedKey ? (connectedKey.split(",") as CityIntegration[]) : [],
-      townsfolk,
-      residents,
+      workers: workersKey ? workers : [],
+      looks,
     }),
-    // `ticker` and `agents` are rebuilt each render; their content is captured by tickerKey / agentsKey.
+    // `ticker`, `agents`, `workers` and `looks` are rebuilt each render; their content is captured by the keys.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [weather, presence, taskKey, agentsKey, input.activeRuns, tickerKey, input.notesCount, connectedKey, townsfolk, residents],
+    [weather, presence, taskKey, agentsKey, input.activeRuns, tickerKey, input.notesCount, connectedKey, workersKey, looksKey],
   )
 }
