@@ -23,6 +23,7 @@ import {
 } from "@/components/icons"
 import { DISTRICT_PLACES, PixelCityScene, type CityHotspot, type CityHotspotId, type CityIntegration, type CityPlaceId } from "@/components/pixel-city"
 import { SettingsModal } from "@/components/settings/settings-modal"
+import type { SettingsSectionId } from "@/components/settings/settings-nav"
 import { WindowControls } from "@/components/window/window-controls"
 import { isRunActive, useDeploymentsData } from "@/app/deployments/hooks/use-deployments-data"
 import { LazyNewDeploymentModal, preloadNewDeploymentModal } from "@/app/deployments/components/new-deployment-modal-lazy"
@@ -36,6 +37,11 @@ import { useCitySceneState } from "../hooks/use-city-scene-state"
 import { useHomeAnalyticsSummary } from "../hooks/use-home-analytics-summary"
 import { useHomeMainScreenState } from "../hooks/use-home-main-screen-state"
 import { useHomeNotes } from "../hooks/use-home-notes"
+import { useTownProgress } from "../hooks/use-town-progress"
+import { TownGameLayer } from "./game/town-game-layer"
+import { TownHallBody } from "./game/town-hall-panel"
+import { QuestsChip, TownLevelBadge, useQuestNews } from "./game/town-hud"
+import { useQuestNavigator } from "./game/use-quest-navigator"
 import { AgentTasksHomeModule } from "./agent-tasks-home-module"
 import { AnalyticsHomeModule } from "./analytics-home-module"
 import { ChatHistoryModule } from "./chat-history-module"
@@ -176,6 +182,19 @@ export function HomeMainScreen() {
   )
   const closePlace = useCallback(() => setOpenPlace(null), [])
 
+  // Nova City progression: level, quests, tutorial and celebrations (components/game).
+  const town = useTownProgress()
+  const [questLogOpen, setQuestLogOpen] = useState(false)
+  const closeQuestLog = useCallback(() => setQuestLogOpen(false), [])
+  const questNews = useQuestNews(town.progress, questLogOpen)
+  // Quests only open Settings for skills ("Teach Nova a skill"); the HUD gear opens it on Profile.
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId>("profile")
+  const openSettings = useCallback(() => {
+    setSettingsSection("skills")
+    setSettingsOpen(true)
+  }, [])
+  const goToQuest = useQuestNavigator({ openPlace: openHotspot, goToIntegrations: home.goToIntegrations, openSettings })
+
 
   const pageAction = (label: string, onClick: () => void) => (
     <button type="button" onClick={onClick} className="pixel-chip h-7! px-2! text-[13px]!" title={label}>
@@ -266,8 +285,13 @@ export function HomeMainScreen() {
         )
       case "integrations":
         return (
-          <PixelWindow place={names.integrations} role="Integrations" size="md" onClose={closePlace} actions={pageAction("Integrations", home.openIntegrations)}>
-            <IntegrationsGridModule isLight={isLight} subPanelClass={PIXEL_SUBPANEL} nodes={integrationNodes} onOpen={home.goToIntegrations} />
+          <PixelWindow place={names.integrations} role="Town progress" size="md" onClose={closePlace} actions={pageAction("Integrations", home.openIntegrations)}>
+            <TownHallBody
+              town={town}
+              integrations={integrationNodes}
+              onSetup={home.goToIntegrations}
+              integrationsGrid={<IntegrationsGridModule isLight={isLight} subPanelClass={PIXEL_SUBPANEL} nodes={integrationNodes} onOpen={home.goToIntegrations} />}
+            />
           </PixelWindow>
         )
       case "chat":
@@ -294,7 +318,7 @@ export function HomeMainScreen() {
     }
     // pageAction and integrationNodes are rebuilt each render from the values listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openPlace, isLight, home, agentTasks, notesState, summaryState, assistantName, names, closePlace, router])
+  }, [openPlace, isLight, home, agentTasks, notesState, summaryState, assistantName, names, closePlace, router, town])
 
   const weather = home.homeWeather
   return (
@@ -303,18 +327,22 @@ export function HomeMainScreen() {
 
       {/* HUD: wordmark top-left, everything about the user top-right. The bar doubles as the window drag area. */}
       <header className="absolute inset-x-0 top-0 z-10 flex h-16 items-start justify-between gap-4 px-4 pt-3" style={DRAG}>
-        <div className="min-w-0 select-none" style={NO_DRAG}>
-          <button type="button" onClick={() => router.push("/home")} className="pixel-wordmark flex items-baseline gap-2" aria-label="Home">
-            <span className="font-pixel-display text-[28px] leading-none text-(--px-text)">NovaAIO</span>
-            <span className="font-pixel text-[13px] text-(--px-accent)">{NOVA_VERSION}</span>
-          </button>
-          <p className="pixel-wordmark mt-1 flex items-center gap-2 font-pixel text-[14px] text-(--px-muted)">
-            <span className={cn("h-2 w-2 shrink-0", presence.dotClassName)} aria-hidden="true" />
-            <span className={presence.textClassName}>{presence.label}</span>
-          </p>
+        <div className="flex min-w-0 select-none items-start gap-4" style={NO_DRAG}>
+          <div className="min-w-0">
+            <button type="button" onClick={() => router.push("/home")} className="pixel-wordmark flex items-baseline gap-2" aria-label="Home">
+              <span className="font-pixel-display text-[28px] leading-none text-(--px-text)">NovaAIO</span>
+              <span className="font-pixel text-[13px] text-(--px-accent)">{NOVA_VERSION}</span>
+            </button>
+            <p className="pixel-wordmark mt-1 flex items-center gap-2 font-pixel text-[14px] text-(--px-muted)">
+              <span className={cn("h-2 w-2 shrink-0", presence.dotClassName)} aria-hidden="true" />
+              <span className={presence.textClassName}>{presence.label}</span>
+            </p>
+          </div>
+          <TownLevelBadge town={town} onOpen={() => setOpenPlace("integrations")} />
         </div>
 
         <div className="flex shrink-0 items-center gap-2" style={NO_DRAG}>
+          <QuestsChip town={town} open={questLogOpen} news={questNews} onClick={() => setQuestLogOpen(true)} />
           <button
             type="button"
             onClick={() => setWeatherPopupOpen(true)}
@@ -341,7 +369,7 @@ export function HomeMainScreen() {
             </span>
             <span className="max-w-36 truncate">{profileName}</span>
           </div>
-          <button type="button" onClick={() => setSettingsOpen(true)} className="pixel-chip pixel-chip--icon group" aria-label="Open settings" title="Settings">
+          <button type="button" onClick={() => { setSettingsSection("profile"); setSettingsOpen(true) }} className="pixel-chip pixel-chip--icon group" aria-label="Open settings" title="Settings">
             <Settings className="h-4 w-4 transition-transform duration-200 group-hover:rotate-90" />
           </button>
           <WindowControls />
@@ -368,6 +396,7 @@ export function HomeMainScreen() {
       </footer>
 
       {windowContent}
+      <TownGameLayer town={town} assistantName={assistantName} hotspots={hotspots} questLogOpen={questLogOpen} onCloseQuestLog={closeQuestLog} onGo={goToQuest} />
 
       {weatherPopupOpen ? (
         <div className="pixel-ui">
@@ -383,7 +412,7 @@ export function HomeMainScreen() {
         </div>
       ) : null}
       <div className="pixel-ui">
-        <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        <SettingsModal isOpen={settingsOpen} initialSection={settingsSection} onClose={() => setSettingsOpen(false)} />
       </div>
       {home.newDeploymentOpen ? (
         <LazyNewDeploymentModal

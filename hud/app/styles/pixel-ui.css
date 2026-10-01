@@ -385,3 +385,484 @@ html.light .pixel-wordmark {
 html.light .pixel-night .pixel-wordmark {
   text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6);
 }
+
+/* ── Scene camera (Nova City pan / zoom) ─────────────────────────────────────
+   The scene host is the camera: drag to pan, wheel / pinch to zoom. Where the camera shows past the painting's
+   edge (zoomed out, or the top / bottom panned out from under the HUD and footer) the host's backdrop continues the
+   painting's sky above and its street below. */
+.pixel-camera {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  outline: none;
+  background: linear-gradient(to bottom, #111a36 0%, #151a33 45%, #1f1d2b 100%);
+}
+
+.pixel-camera[data-dragging="true"],
+.pixel-camera[data-dragging="true"] .pixel-hotspot {
+  cursor: grabbing;
+}
+
+/* While dragging, the building under the pointer must not light up as if it were about to be clicked. */
+.pixel-camera[data-dragging="true"] .pixel-hotspot::before,
+.pixel-camera[data-dragging="true"] .pixel-hotspot-tag {
+  display: none;
+}
+
+.pixel-camera:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--px-accent);
+}
+
+.pixel-camera-controls {
+  position: absolute;
+  right: 16px;
+  z-index: 7;
+  display: flex;
+  gap: 6px;
+  cursor: default;
+}
+
+/* ══ Game UI: level badge, quests, tutorial guide, celebrations (hud/app/home/components/game) ══════════════
+ * Same rules as the rest of the pixel UI: notched boxes, pixel fonts, steps() motion, no glows or soft shadows.
+ */
+
+/* ── Level badge + XP bar (beside the wordmark) ── */
+.game-level-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: 268px;
+  height: 46px;
+  padding: 4px 10px 4px 4px;
+  background: color-mix(in srgb, var(--px-bg) 82%, transparent);
+  border: 2px solid var(--px-border);
+  color: var(--px-text);
+  text-align: left;
+  transition: border-color 120ms steps(2), background-color 120ms steps(2);
+}
+
+button.game-level-badge:hover,
+button.game-level-badge:focus-visible {
+  border-color: var(--px-border-hi);
+  background: color-mix(in srgb, var(--px-bg-3) 92%, transparent);
+  outline: none;
+}
+
+.game-level-num {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  background: var(--px-accent);
+  color: #120f24;
+  box-shadow: inset -3px -3px 0 0 color-mix(in srgb, var(--px-accent) 60%, #120f24);
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.game-level-lv {
+  font-size: 7px;
+  letter-spacing: 0.1em;
+  margin-bottom: 2px;
+}
+
+.game-level-num--lg {
+  width: 58px;
+  height: 58px;
+  font-size: 24px;
+  box-shadow: inset -4px -4px 0 0 color-mix(in srgb, var(--px-accent) 60%, #120f24);
+}
+
+.game-level-num--lg .game-level-lv {
+  font-size: 9px;
+  margin-bottom: 4px;
+}
+
+.game-level-badge[data-state] .game-level-num {
+  background: var(--px-bg-3);
+  color: var(--px-muted);
+  box-shadow: none;
+}
+
+/* ── Progress bars ── */
+.game-bar {
+  --game-bar: var(--px-green);
+  position: relative;
+  height: 10px;
+  background: var(--px-bg-2);
+  border: 2px solid var(--px-border);
+}
+
+.game-bar--xp { --game-bar: var(--px-accent-2); }
+.game-bar--done { --game-bar: var(--px-accent); }
+
+.game-bar-fill {
+  height: 100%;
+  background: repeating-linear-gradient(90deg, var(--game-bar) 0 6px, color-mix(in srgb, var(--game-bar) 62%, var(--px-bg)) 6px 8px);
+  transition: width 480ms steps(6);
+}
+
+/* ── Quests chip ── */
+.game-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  background: var(--px-accent);
+  color: #120f24;
+  font-size: 12px;
+}
+
+.game-dot {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 10px;
+  height: 10px;
+  background: var(--px-pink);
+  border: 2px solid var(--px-bg);
+  animation: game-blink 1s steps(2) infinite;
+}
+
+@keyframes game-blink {
+  50% { background: var(--px-accent); }
+}
+
+/* ── Tabs, quest cards, tags, tables ── */
+.game-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px;
+  background: var(--px-bg-2);
+  border: 2px solid var(--px-border);
+  color: var(--px-text);
+  font-family: var(--font-pixel), ui-monospace, monospace;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.game-tab:hover,
+.game-tab:focus-visible {
+  border-color: var(--px-border-hi);
+  outline: none;
+}
+
+.game-tab[data-active="true"] {
+  background: var(--px-bg-3);
+  border-color: var(--px-accent);
+  color: var(--px-accent);
+}
+
+.game-quest {
+  padding: 8px 10px 10px;
+  background: var(--px-bg-2);
+  border: 2px solid var(--px-border);
+}
+
+.game-quest[data-status="active"] {
+  box-shadow: inset 4px 0 0 0 var(--px-accent);
+  padding-left: 14px;
+}
+
+.game-quest[data-status="completed"] {
+  border-color: color-mix(in srgb, var(--px-green) 45%, var(--px-border));
+}
+
+.game-quest[data-status="locked"] {
+  opacity: 0.55;
+}
+
+.game-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  height: 18px;
+  padding: 0 5px;
+  border: 2px solid currentColor;
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--px-accent);
+}
+
+.game-tag[data-status="completed"] { color: var(--px-green); }
+.game-tag[data-status="locked"] { color: var(--px-muted); }
+
+.game-table {
+  border-collapse: collapse;
+  background: var(--px-bg-2);
+  border: 2px solid var(--px-border);
+  font-family: var(--font-pixel), ui-monospace, monospace;
+  font-size: 13px;
+}
+
+.game-table th {
+  padding: 5px 8px;
+  background: var(--px-bg-3);
+  color: var(--px-muted);
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: normal;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.game-table td {
+  padding: 5px 8px;
+  border-top: 2px solid var(--px-border);
+}
+
+.game-table tr[data-zero="true"] td {
+  opacity: 0.55;
+}
+
+.game-pips {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.game-pip {
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--px-border);
+}
+
+.game-pip[data-on="true"] {
+  background: var(--px-accent);
+  border-color: var(--px-accent);
+}
+
+.game-link {
+  font-family: var(--font-pixel), ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--px-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.game-link:hover,
+.game-link:focus-visible {
+  color: var(--px-text);
+  outline: none;
+}
+
+.game-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--px-border) transparent;
+}
+
+/* ── Tutorial guide: the speech bubble, the arrow and the ring on the target building ── */
+/* Sits above the footer and the camera's zoom buttons. */
+.game-tutorial {
+  position: fixed;
+  bottom: 136px;
+  z-index: 60;
+  width: min(400px, calc(100vw - 32px));
+}
+
+/* The bubble's tail: a stepped triangle under the guide's portrait. */
+.game-tutorial::after {
+  content: "";
+  position: absolute;
+  left: 22px;
+  bottom: -12px;
+  width: 18px;
+  height: 12px;
+  background: var(--px-border-hi);
+  clip-path: polygon(0 0, 100% 0, 100% 33%, 67% 33%, 67% 67%, 33% 67%, 33% 100%, 0 100%);
+}
+
+.game-bubble {
+  background: var(--px-bg);
+  border: var(--px-unit) solid var(--px-border-hi);
+  box-shadow: 0 0 0 var(--px-unit) var(--px-shadow);
+  color: var(--px-text);
+  animation: pixel-pop 140ms steps(3);
+}
+
+.game-tutorial-reopen {
+  position: fixed;
+  left: 16px;
+  bottom: 136px;
+  z-index: 60;
+}
+
+.game-target-ring {
+  position: fixed;
+  z-index: 55;
+  pointer-events: none;
+  border: 2px dashed var(--px-accent-2);
+  animation: game-march 0.8s steps(2) infinite;
+}
+
+@keyframes game-march {
+  50% { border-color: color-mix(in srgb, var(--px-accent-2) 40%, transparent); }
+}
+
+/* A stepped down-arrow (24x24); left/top place its tip. */
+.game-arrow {
+  position: fixed;
+  z-index: 56;
+  width: 24px;
+  height: 24px;
+  margin-left: -12px;
+  margin-top: -28px;
+  pointer-events: none;
+  background: var(--px-accent-2);
+  clip-path: polygon(
+    35% 0, 65% 0, 65% 50%, 100% 50%, 100% 60%, 90% 60%, 90% 70%, 80% 70%, 80% 80%, 70% 80%, 70% 90%, 60% 90%,
+    60% 100%, 40% 100%, 40% 90%, 30% 90%, 30% 80%, 20% 80%, 20% 70%, 10% 70%, 10% 60%, 0 60%, 0 50%, 35% 50%
+  );
+  filter: drop-shadow(2px 2px 0 rgba(0, 0, 0, 0.7));
+  animation: game-arrow-bob 0.9s steps(2) infinite;
+}
+
+@keyframes game-arrow-bob {
+  50% { transform: translateY(-6px); }
+}
+
+/* Pointing up at a HUD chip from below; left/top place its tip. */
+.game-arrow--up {
+  margin-top: 0;
+  rotate: 180deg;
+}
+
+/* ── Celebrations ── */
+.game-toast-stage {
+  position: fixed;
+  top: 76px;
+  left: 50%;
+  z-index: 130;
+  transform: translateX(-50%);
+  width: min(440px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.game-toast {
+  --game-kind: var(--px-accent-2);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--px-bg);
+  border: var(--px-unit) solid var(--px-border);
+  box-shadow: inset 6px 0 0 0 var(--game-kind), 0 0 0 var(--px-unit) var(--px-shadow);
+  pointer-events: auto;
+  animation: game-drop 240ms steps(4);
+}
+
+.game-toast[data-kind="quest-complete"] { --game-kind: var(--px-green); }
+.game-toast[data-kind="achievement"] { --game-kind: var(--px-pink); }
+.game-toast[data-kind="building-up"] { --game-kind: var(--px-accent-2); }
+
+.game-toast-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  margin-left: 4px;
+  background: var(--game-kind);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+
+@keyframes game-drop {
+  from { transform: translateY(-16px); opacity: 0; }
+}
+
+.game-celebration-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 130;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 18vh;
+  pointer-events: none;
+}
+
+.game-levelup-wrap {
+  position: relative;
+}
+
+.game-levelup {
+  --px-unit: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: min(420px, calc(100vw - 32px));
+  padding: 18px 28px 20px;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 6px, color-mix(in srgb, var(--px-bg-2) 70%, transparent) 6px 8px),
+    var(--px-bg);
+  border: 4px solid var(--px-accent);
+  pointer-events: auto;
+  animation: game-stamp 320ms steps(4);
+}
+
+.game-levelup-title {
+  font-size: 32px;
+  line-height: 1.1;
+  color: var(--px-accent);
+  text-shadow: 3px 3px 0 #120f24;
+}
+
+@keyframes game-stamp {
+  0% { transform: scale(1.5); opacity: 0; }
+  60% { transform: scale(0.96); opacity: 1; }
+}
+
+.game-sparks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.game-spark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  background: var(--px-accent);
+  opacity: 0;
+  animation: game-spark 900ms steps(4) calc(var(--i) * 70ms) 2;
+}
+
+.game-spark:nth-child(3n + 1) { background: var(--px-accent-2); }
+.game-spark:nth-child(3n + 2) { background: var(--px-pink); }
+
+@keyframes game-spark {
+  0% { opacity: 1; transform: rotate(calc(var(--i) * 45deg)) translateY(-50px); }
+  100% { opacity: 0; transform: rotate(calc(var(--i) * 45deg)) translateY(-170px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-dot,
+  .game-target-ring,
+  .game-arrow,
+  .game-bubble,
+  .game-toast,
+  .game-levelup {
+    animation: none;
+  }
+
+  .game-bar-fill {
+    transition: none;
+  }
+
+  .game-sparks {
+    display: none;
+  }
+}

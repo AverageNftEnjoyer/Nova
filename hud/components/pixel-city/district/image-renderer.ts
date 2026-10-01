@@ -16,6 +16,7 @@ import {
   DISTRICT_IMAGE_HEIGHT,
   DISTRICT_IMAGE_SRC,
   DISTRICT_IMAGE_WIDTH,
+  DISTRICT_OCCLUDERS,
   DISTRICT_PLACES,
   FOUNTAIN,
   HQ_FLOORS,
@@ -29,10 +30,11 @@ import {
   WALK_NODES,
   WORKPLACE_DOOR,
   WORKPLACE_NAME,
+  type PlanPoint,
   type SignRect,
   type WalkNodeId,
 } from "./image-plan"
-import { PERSON_HEIGHT, agentLook, drawCat as paintCat, drawPerson, type PersonLook } from "./people"
+import { CAT_HEIGHT, PERSON_HEIGHT, agentLook, drawCat as paintCat, drawPerson, loadPeopleArt, townsfolkLook, type PersonLook } from "./people"
 
 /**
  * The District view: the painted night city, brought to life. The image is drawn at its native size and every live
@@ -48,6 +50,8 @@ const MAX_BUSES = 3
 const WINDOW_CELL = 4
 const WINDOW_BUCKET_SECONDS = 4
 const NOVA_CYAN = "#7ef6ea"
+/** Height of the park bench's seat above CAT_SPOT (where the bench stands), in plan pixels. */
+const CAT_SEAT_LIFT = 9
 const TRAIL_LENGTH = 12
 
 /** Sheet row for a movement direction on screen (y grows downward). */
@@ -94,6 +98,60 @@ function pointOf(id: WalkNodeId): Point {
   return { x, y }
 }
 
+// ── Depth ─────────────────────────────────────────────────────────────────────
+
+/** A plan occluder ready to draw: its outline as one clip path, and that outline's bounding box. */
+interface OccluderClip {
+  base: ReadonlyArray<PlanPoint>
+  path: Path2D
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
+
+/** Built on the client (Path2D is a browser API), once per renderer. */
+function buildOccluders(): OccluderClip[] {
+  return DISTRICT_OCCLUDERS.map((o) => {
+    const path = new Path2D()
+    let x0 = Infinity
+    let y0 = Infinity
+    let x1 = -Infinity
+    let y1 = -Infinity
+    for (const shape of o.shapes) {
+      shape.forEach(([x, y], i) => {
+        if (i === 0) path.moveTo(x, y)
+        else path.lineTo(x, y)
+        x0 = Math.min(x0, x)
+        y0 = Math.min(y0, y)
+        x1 = Math.max(x1, x)
+        y1 = Math.max(y1, y)
+      })
+      path.closePath()
+    }
+    return { base: o.base, path, x0, y0, x1, y1 }
+  })
+}
+
+/** The occluder's front ground line at `x`; past either end, that end's y. */
+function baseAt(base: ReadonlyArray<PlanPoint>, x: number): number {
+  const first = base[0]
+  const last = base[base.length - 1]
+  if (x <= first[0]) return first[1]
+  if (x >= last[0]) return last[1]
+  for (let i = 1; i < base.length; i++) {
+    const [ax, ay] = base[i - 1]
+    const [bx, by] = base[i]
+    if (x <= bx) return bx === ax ? by : ay + ((by - ay) * (x - ax)) / (bx - ax)
+  }
+  return last[1]
+}
+
+/** Box around a figure standing at (x, y), wide enough for the sprite cell, its shadow and an agent's ground ring. */
+const FIGURE_HALF_WIDTH = 30
+const FIGURE_HEADROOM = 10
+const FIGURE_FOOTROOM = 8
+
 // ── Walkers ───────────────────────────────────────────────────────────────────
 
 interface Walker {
@@ -109,10 +167,6 @@ interface Walker {
   y: number
   /** Small sideways offset so people on the same path don't overlap exactly. */
   lane: number
-  shirt: string
-  pants: string
-  hair: string
-  skin: string
   moving: boolean
   /** 0 south, then clockwise-ish: the isometric facing is derived from this. */
   dir: number
@@ -123,15 +177,6 @@ interface Walker {
   fade?: number
   /** Recent positions, newest last: the data trail behind a walking agent. */
   trail?: Point[]
-}
-
-const SHIRTS = ["#c65a6a", "#4f8ac6", "#e2d6b8", "#6aa870", "#d08a4a", "#8a6ac6", "#d8c24a", "#5a6a8a"]
-const PANTS = ["#23232e", "#2e3a4e", "#4a3a2e", "#3a2a3a"]
-const HAIR = ["#1a1414", "#3a2a1e", "#6a4a2a", "#c8b070", "#8a3a2a"]
-const SKIN = ["#f0c8a0", "#d8a47a", "#a8724c", "#7a4a30"]
-
-function pick<T>(list: readonly T[], n: number): T {
-  return list[Math.floor(n * list.length) % list.length]
 }
 
 function isHome(a: CityAgent): boolean {
@@ -149,10 +194,15 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
   /** Each image sign with its neon switched off (bright pixels dimmed), shown when a disconnected sign flickers. */
   private unlitSigns = new Map<SignRect, HTMLCanvasElement>()
   private walkers: Walker[] = []
+  /** Structures redrawn over walkers standing behind them (see DISTRICT_OCCLUDERS). */
+  private readonly occluders: OccluderClip[] = buildOccluders()
   private lastT = 0
   private seed = 1
   /** Device pixels per plan pixel: the canvas draws at screen resolution, the plan stays in image coordinates. */
   private k = 1
+  /** Plan point at the canvas's top-left corner (see `setCamera`). */
+  private camX = 0
+  private camY = 0
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext("2d")
@@ -169,19 +219,26 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
       this.render(performance.now() / 1000)
     }
     img.src = DISTRICT_IMAGE_SRC
+    loadPeopleArt()
     for (let i = 0; i < TOWNSFOLK; i++) this.walkers.push(this.spawnTownsfolk(i))
   }
 
   /**
-   * The scene component passes the canvas's size in device pixels (the plan scaled to cover the screen),
-   * so the painting and every sprite are drawn at screen resolution instead of being stretched afterwards.
+   * The scene component passes the canvas's size in device pixels (the viewport, not the whole plan): the canvas is
+   * the camera's window onto the city, so the painting and every sprite are drawn at screen resolution.
    */
   resize(width: number, height: number): void {
     const w = Math.max(1, Math.round(width))
     const h = Math.max(1, Math.round(height))
     if (this.canvas.width !== w) this.canvas.width = w
     if (this.canvas.height !== h) this.canvas.height = h
-    this.k = w / DISTRICT_IMAGE_WIDTH
+  }
+
+  /** Camera: `scale` device pixels per plan pixel, with plan point (`x`, `y`) at the canvas's top-left corner. */
+  setCamera(scale: number, x: number, y: number): void {
+    this.k = Math.max(0.0001, scale)
+    this.camX = x
+    this.camY = y
   }
 
   setState(next: CitySceneState): void {
@@ -231,10 +288,6 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
       x: p.x,
       y: p.y,
       lane: (cellNoise(i, 4, 91) - 0.5) * 10,
-      shirt: pick(SHIRTS, cellNoise(i, 5, 91)),
-      pants: pick(PANTS, cellNoise(i, 6, 91)),
-      hair: pick(HAIR, cellNoise(i, 7, 91)),
-      skin: pick(SKIN, cellNoise(i, 8, 91)),
       moving: false,
       dir: 0,
     }
@@ -331,10 +384,6 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
         x: start.x,
         y: start.y,
         lane: ((i % 5) - 2) * 5,
-        shirt: "#3ff2e0",
-        pants: "#1f6f6a",
-        hair: "#12302e",
-        skin: pick(SKIN, cellNoise(i, 9, 17)),
         moving: false,
         dir: 0,
         trail: [],
@@ -372,7 +421,11 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     const t = timeSeconds
     const dt = this.lastT === 0 ? 0 : Math.min(0.25, Math.max(0, t - this.lastT))
     this.lastT = t
-    ctx.setTransform(this.k, 0, 0, this.k, 0, 0)
+    // Clear first: when the camera shows past the painting's edge (zoomed out, or panned to reveal what the HUD
+    // covers) those pixels must not keep the previous frame.
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+    ctx.setTransform(this.k, 0, 0, this.k, -this.camX * this.k, -this.camY * this.k)
     if (!this.ready || !this.image) {
       ctx.fillStyle = "#120f24"
       ctx.fillRect(0, 0, DISTRICT_IMAGE_WIDTH, DISTRICT_IMAGE_HEIGHT)
@@ -392,8 +445,8 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     this.drawFountain(t)
     this.drawTraffic(t)
     this.stepWalkers(t, dt)
+    // People and Nova the cat, back to front; structures in front of a walker are redrawn over it.
     this.drawWalkers(t)
-    this.drawCat(t)
     drawWeatherOverlay(ctx, this.state.weather, DISTRICT_IMAGE_WIDTH, DISTRICT_IMAGE_HEIGHT, t, DISTRICT_IMAGE_HEIGHT * 0.3, 3)
   }
 
@@ -666,25 +719,70 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     this.walkers = this.walkers.filter((w) => !(w.fade !== undefined && t - w.fade > 2))
   }
 
+  /**
+   * Back to front by feet: each figure is painted, then every structure it stands behind is redrawn over it from the
+   * painting. Nova the cat takes its place in the same order. Badges go last so a waiting agent's mark stays visible.
+   */
   private drawWalkers(t: number): void {
-    const list = this.walkers.slice().sort((a, b) => a.y - b.y)
-    for (const w of list) {
-      const x = Math.round(w.x + w.lane * 0.6)
-      const y = Math.round(w.y + w.lane * 0.3)
+    const list = this.walkers
+      .map((w) => ({ w, x: Math.round(w.x + w.lane * 0.6), y: Math.round(w.y + w.lane * 0.3) }))
+      .sort((a, b) => a.y - b.y)
+    let catDrawn = false
+    const badges: Array<{ w: Walker; x: number; y: number }> = []
+    for (const { w, x, y } of list) {
+      if (!catDrawn && y > CAT_SPOT.y) {
+        this.drawCat(t)
+        catDrawn = true
+      }
       const alpha = w.fade !== undefined ? Math.max(0, 1 - (t - w.fade) / 2) : 1
       this.ctx.globalAlpha = alpha
       if (w.kind === "agent") this.drawAgentAura(x, y, w, t)
       this.paintWalker(x, y, w, t)
       this.ctx.globalAlpha = 1
-      if (w.kind === "agent" && w.agent && alpha > 0.2) this.drawAgentBadge(x, y, w, t)
+      this.occludeFigure(x, y)
+      if (w.kind === "agent" && w.agent && alpha > 0.2) badges.push({ w, x, y })
+    }
+    if (!catDrawn) this.drawCat(t)
+    for (const b of badges) this.drawAgentBadge(b.x, b.y, b.w, t)
+  }
+
+  /** Redraws, from the painting, each structure in front of a figure standing at (x, y), within the figure's box. */
+  private occludeFigure(x: number, y: number): void {
+    const image = this.image
+    if (!image) return
+    const ctx = this.ctx
+    const bx0 = x - FIGURE_HALF_WIDTH
+    const bx1 = x + FIGURE_HALF_WIDTH
+    const by0 = y - PERSON_HEIGHT - FIGURE_HEADROOM
+    const by1 = y + FIGURE_FOOTROOM
+    const sx = image.naturalWidth / DISTRICT_IMAGE_WIDTH
+    const sy = image.naturalHeight / DISTRICT_IMAGE_HEIGHT
+    for (const o of this.occluders) {
+      if (o.x1 < bx0 || o.x0 > bx1 || o.y1 < by0 || o.y0 > by1) continue
+      if (y >= baseAt(o.base, x)) continue
+      const cx0 = Math.max(bx0, o.x0)
+      const cy0 = Math.max(by0, o.y0)
+      const cx1 = Math.min(bx1, o.x1)
+      const cy1 = Math.min(by1, o.y1)
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(cx0, cy0, cx1 - cx0, cy1 - cy0)
+      ctx.clip()
+      ctx.clip(o.path)
+      // The same smooth scaling as the full painting; the source box is padded so its edge filtering stays outside the clip.
+      ctx.imageSmoothingEnabled = true
+      ctx.imageSmoothingQuality = "high"
+      const px0 = Math.max(0, cx0 - 4)
+      const py0 = Math.max(0, cy0 - 4)
+      const pw = Math.min(DISTRICT_IMAGE_WIDTH, cx1 + 4) - px0
+      const ph = Math.min(DISTRICT_IMAGE_HEIGHT, cy1 + 4) - py0
+      ctx.drawImage(image, px0 * sx, py0 * sy, pw * sx, ph * sy, px0, py0, pw, ph)
+      ctx.restore()
     }
   }
 
   private paintWalker(x: number, y: number, w: Walker, t: number): void {
-    const look: PersonLook =
-      w.kind === "agent" && w.agent
-        ? agentLook(w.agent.workplace)
-        : { hair: w.hair, skin: w.skin, shirt: w.shirt, pants: w.pants, agent: false }
+    const look: PersonLook = w.kind === "agent" && w.agent ? agentLook(w.agent.workplace) : townsfolkLook(w.id)
     drawPerson(this.ctx, x, y, w.dir, w.moving, t, look)
   }
 
@@ -700,8 +798,11 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     })
     const pulse = (Math.sin(t * 3 + x) + 1) / 2
     ctx.globalAlpha = fade * (0.28 + pulse * 0.2)
-    ctx.fillStyle = NOVA_CYAN
-    ctx.fillRect(x - 6, y, 12, 2)
+    ctx.strokeStyle = NOVA_CYAN
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.ellipse(x, y - 1, 13, 5, 0, 0, Math.PI * 2)
+    ctx.stroke()
     ctx.globalAlpha = fade
   }
 
@@ -723,27 +824,32 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
 
   private drawCat(t: number): void {
     const ctx = this.ctx
-    const { x, y } = CAT_SPOT
+    // Nova sits on the bench's seat, a little above the spot where the bench stands.
+    const x = CAT_SPOT.x
+    const y = CAT_SPOT.y - CAT_SEAT_LIFT
+    const top = y - CAT_HEIGHT
     const presence = this.state.presence
-    paintCat(ctx, x, y, presence === "offline" && Math.floor(t * 1.5) % 2 === 0)
+    // Asleep while Nova is offline; otherwise a short blink every few seconds.
+    paintCat(ctx, x, y, presence === "offline" || t % 4.2 < 0.16)
     if (presence === "offline") {
       const z = Math.floor(t * 1.2) % 3
-      for (let i = 0; i <= z; i++) draw5(ctx, "Z", x + 8 + i * 5, y - 16 - i * 6, "#e8e4f8")
+      for (let i = 0; i <= z; i++) draw5(ctx, "Z", x + 8 + i * 5, top - 2 - i * 6, "#e8e4f8")
       return
     }
     if (presence === "thinking" || presence === "speaking") {
       ctx.fillStyle = "#14101c"
-      ctx.fillRect(x + 6, y - 22, 12, 8)
+      ctx.fillRect(x + 6, top - 8, 12, 8)
       ctx.fillStyle = NOVA_CYAN
-      ctx.fillRect(x + 6, y - 22, 12, 1)
+      ctx.fillRect(x + 6, top - 8, 12, 1)
       if (presence === "thinking") {
         const dots = 1 + (Math.floor(t * 2.5) % 3)
         ctx.fillStyle = "#e8e4f8"
-        for (let i = 0; i < dots; i++) ctx.fillRect(x + 8 + i * 3, y - 18, 2, 2)
+        for (let i = 0; i < dots; i++) ctx.fillRect(x + 8 + i * 3, top - 4, 2, 2)
       } else {
         ctx.fillStyle = "#ffc24a"
-        ctx.fillRect(x + 10, y - 20, 2, 5)
+        ctx.fillRect(x + 10, top - 6, 2, 5)
       }
     }
   }
+
 }

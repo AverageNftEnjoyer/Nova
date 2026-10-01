@@ -105,8 +105,10 @@ export type CitySceneHit =
 
 /** What the scene component needs from the city renderer. */
 export interface CitySceneRenderer {
-  /** Canvas size in device pixels. */
+  /** Canvas size in device pixels (the viewport the camera looks through). */
   resize(width: number, height: number): void
+  /** Camera: `scale` device pixels per plan pixel, plan point (`x`, `y`) at the canvas's top-left corner. */
+  setCamera(scale: number, x: number, y: number): void
   setState(state: CitySceneState): void
   render(timeSeconds: number): void
   hotspots(): Partial<Record<CityPlaceId, CityRect>>

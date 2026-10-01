@@ -21,10 +21,18 @@ import { SettingsLocalDataPanel } from "@/components/settings/panels/settings-lo
 interface SettingsModalProps {
   isOpen: boolean
   onClose: () => void
+  /** Section shown when the modal opens (e.g. "skills" from a Nova City quest). Default: Profile. */
+  initialSection?: SettingsSectionId
 }
 
-export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const [activeSection, setActiveSection] = useState<SettingsSectionId>("profile")
+export function SettingsModal({ isOpen, onClose, initialSection = "profile" }: SettingsModalProps) {
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>(initialSection)
+  // Each time the modal opens, start on the requested section.
+  const [openedFor, setOpenedFor] = useState<{ isOpen: boolean; section: SettingsSectionId }>({ isOpen, section: initialSection })
+  if (openedFor.isOpen !== isOpen || openedFor.section !== initialSection) {
+    setOpenedFor({ isOpen, section: initialSection })
+    if (isOpen) setActiveSection(initialSection)
+  }
   const { theme } = useTheme()
   const isLight = theme === "light"
   const spotlightScopeRef = useRef<HTMLDivElement | null>(null)
