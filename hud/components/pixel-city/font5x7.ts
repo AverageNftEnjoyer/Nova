@@ -1,4 +1,4 @@
-/** 5x7 bitmap font for signs painted over the District image (sign names, ticker, meter). */
+/** 5x7 bitmap font for signs painted over the District image (sign names, meter). */
 
 const G: Readonly<Record<string, readonly string[]>> = {
   A: ["01110", "10001", "10001", "11111", "10001", "10001", "10001"],
@@ -52,12 +52,7 @@ const G: Readonly<Record<string, readonly string[]>> = {
 
 export const FONT5_HEIGHT = 7
 
-/** Width in pixels of `text` at `scale` (5 px glyphs, 1 px gaps, all multiplied by scale). */
-export function measure5(text: string, scale = 1): number {
-  return text.length === 0 ? 0 : (text.length * 6 - 1) * scale
-}
-
-/** Paints text with fillRect; `clip` limits drawing to a horizontal band (ticker windows). */
+/** Paints text with fillRect. */
 export function draw5(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -65,21 +60,17 @@ export function draw5(
   y: number,
   color: string,
   scale = 1,
-  clip?: { x0: number; x1: number },
 ): void {
   ctx.fillStyle = color
   const upper = text.toUpperCase()
   for (let i = 0; i < upper.length; i++) {
     const rows = G[upper[i]] ?? G["?"]
     const gx = Math.round(x) + i * 6 * scale
-    if (clip && (gx + 5 * scale < clip.x0 || gx > clip.x1)) continue
     for (let r = 0; r < 7; r++) {
       const row = rows[r]
       for (let c = 0; c < 5; c++) {
         if (row[c] !== "1") continue
-        const px = gx + c * scale
-        if (clip && (px < clip.x0 || px + scale > clip.x1)) continue
-        ctx.fillRect(px, Math.round(y) + r * scale, scale, scale)
+        ctx.fillRect(gx + c * scale, Math.round(y) + r * scale, scale, scale)
       }
     }
   }

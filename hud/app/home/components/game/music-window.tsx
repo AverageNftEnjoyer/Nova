@@ -45,8 +45,20 @@ function projectProgressMs(snapshot: ProgressSnapshot, now: number): number {
   return Math.max(0, Math.min(snapshot.durationMs, projected))
 }
 
-/** The music popup opened from the HUD: every Spotify control the old footer bar had (connect, setup, shuffle-from-favorites, previous, play/pause, next, repeat, seek, launch, errors). */
-export function MusicWindow({
+/** The music popup opened from the HUD: the Spotify player in a window. */
+export function MusicWindow({ onClose, ...player }: MusicWindowProps) {
+  return (
+    <PixelWindow place="Music" role="Spotify" theme="default" size="sm" onClose={onClose}>
+      <MusicPlayer {...player} />
+    </PixelWindow>
+  )
+}
+
+/**
+ * Every Spotify control the old footer bar had (connect, setup, shuffle-from-favorites, previous, play/pause, next,
+ * repeat, seek, launch, errors). Shown in the HUD's music window and in the Records building room.
+ */
+export function MusicPlayer({
   connected,
   connecting,
   nowPlaying,
@@ -59,8 +71,7 @@ export function MusicWindow({
   onPrevious,
   onPlaySmart,
   onSeek,
-  onClose,
-}: MusicWindowProps) {
+}: Omit<MusicWindowProps, "onClose">) {
   const [repeatTrack, setRepeatTrack] = useState(false)
   const [seekDragPct, setSeekDragPct] = useState<number | null>(null)
   const barRef = useRef<HTMLDivElement>(null)
@@ -169,113 +180,111 @@ export function MusicWindow({
   const art = nowPlaying?.albumArtUrl || ""
 
   return (
-    <PixelWindow place="Music" role="Spotify" theme="default" size="sm" onClose={onClose}>
-      <div className="flex flex-col gap-4 p-4">
-        <div className="flex items-center gap-3">
-          <div className="pixel-card relative h-20 w-20 shrink-0 overflow-hidden p-0!">
-            {art ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={art} alt="Album art" className="h-full w-full object-cover [image-rendering:pixelated]" />
-            ) : (
-              <SpotifyIcon className="absolute inset-0 m-auto h-8 w-8" />
-            )}
-          </div>
-          {!connected ? (
-            <div className="min-w-0">
-              <p className="pixel-label pixel-label--off">Spotify disconnected</p>
-              <p className="font-pixel mt-1.5 text-[15px] leading-snug text-(--px-muted)">{error || "Connect Spotify to play music over the city."}</p>
-            </div>
+    <div className="flex flex-col gap-4 p-4">
+      <div className="flex items-center gap-3">
+        <div className="pixel-card relative h-20 w-20 shrink-0 overflow-hidden p-0!">
+          {art ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={art} alt="Album art" className="h-full w-full object-cover [image-rendering:pixelated]" />
           ) : (
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <EqualizerBars isPlaying={playing} className="h-3 shrink-0" barStyle={{ backgroundColor: "var(--px-accent-2)", borderRadius: 0 }} />
-                <p className="font-pixel truncate text-[17px] leading-tight text-(--px-text)">{nowPlaying?.trackName || "No active track"}</p>
-              </div>
-              <p className="font-pixel mt-1 truncate text-[14px] leading-tight text-(--px-muted)">
-                {timedOut ? "Reconnecting Spotify..." : nowPlaying?.artistName || "Start playback on a Spotify device."}
-              </p>
-            </div>
+            <SpotifyIcon className="absolute inset-0 m-auto h-8 w-8" />
           )}
         </div>
-
         {!connected ? (
-          <div className="flex gap-2">
-            <button type="button" onClick={onConnectSpotify} disabled={connecting} className="pixel-btn pixel-btn--teal">
-              {connecting ? "Opening..." : "Connect"}
-            </button>
-            <button type="button" onClick={onOpenIntegrations} className="pixel-btn pixel-btn--ghost">
-              Setup
-            </button>
+          <div className="min-w-0">
+            <p className="pixel-label pixel-label--off">Spotify disconnected</p>
+            <p className="font-pixel mt-1.5 text-[15px] leading-snug text-(--px-muted)">{error || "Connect Spotify to play music over the city."}</p>
           </div>
         ) : (
-          <>
-            <div className="flex items-center justify-center gap-2">
-              <button type="button" onClick={onPlaySmart} disabled={busy} className="pixel-btn pixel-btn--ghost pixel-btn--icon" aria-label="Play from favorite playlist" title="Play from favorite playlist">
-                <Shuffle className="h-4 w-4" />
-              </button>
-              <button type="button" onClick={onPrevious} disabled={busy} className="pixel-btn pixel-btn--ghost pixel-btn--icon" aria-label="Previous track">
-                <SkipBack className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={onTogglePlayPause}
-                disabled={busy && !deviceUnavailable}
-                data-active="true"
-                className="pixel-btn pixel-btn--teal pixel-btn--icon game-play"
-                aria-label={deviceUnavailable ? "Launch Spotify" : playing ? "Pause Spotify" : "Play Spotify"}
-                title={deviceUnavailable ? "Launch Spotify" : undefined}
-              >
-                {deviceUnavailable ? <SpotifyIcon className="h-5 w-5" /> : playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
-              </button>
-              <button type="button" onClick={onNext} disabled={busy} className="pixel-btn pixel-btn--ghost pixel-btn--icon" aria-label="Next track">
-                <SkipForward className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setRepeatTrack((value) => !value)}
-                data-active={repeatTrack}
-                className="pixel-btn pixel-btn--ghost pixel-btn--icon"
-                aria-label={repeatTrack ? "Disable repeat" : "Repeat song"}
-                title={repeatTrack ? "Repeat: on" : "Repeat: off"}
-              >
-                <RefreshCw className="h-4 w-4" />
-              </button>
-            </div>
-
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span ref={timeRef} className="font-pixel w-10 shrink-0 text-right text-[14px] tabular-nums text-(--px-muted)" />
-              <div
-                ref={barRef}
-                role="slider"
-                tabIndex={0}
-                aria-label="Seek"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                // Initial value; the live position is written to this attribute once a second by paint().
-                aria-valuenow={nowPlaying && nowPlaying.durationMs > 0 ? Math.round((nowPlaying.progressMs / nowPlaying.durationMs) * 100) : 0}
-                onPointerDown={handleSeekDown}
-                onKeyDown={handleSeekKey}
-                data-dragging={seekDragPct !== null}
-                className="game-seek min-w-0 flex-1 select-none"
-              >
-                <div ref={fillRef} className="game-seek-fill" />
-                <div ref={thumbRef} className="game-seek-thumb" />
-              </div>
-              <span className="font-pixel w-10 shrink-0 text-[14px] tabular-nums text-(--px-muted)">{formatTime(nowPlaying?.durationMs || 0)}</span>
+              <EqualizerBars isPlaying={playing} className="h-3 shrink-0" barStyle={{ backgroundColor: "var(--px-accent-2)", borderRadius: 0 }} />
+              <p className="font-pixel truncate text-[17px] leading-tight text-(--px-text)">{nowPlaying?.trackName || "No active track"}</p>
             </div>
-
-            {deviceUnavailable ? (
-              <a href="spotify:" className="pixel-btn pixel-btn--teal self-start">
-                Launch Spotify
-              </a>
-            ) : error && !timedOut ? (
-              <p className="game-error font-pixel text-[14px]" title={error}>
-                {error}
-              </p>
-            ) : null}
-          </>
+            <p className="font-pixel mt-1 truncate text-[14px] leading-tight text-(--px-muted)">
+              {timedOut ? "Reconnecting Spotify..." : nowPlaying?.artistName || "Start playback on a Spotify device."}
+            </p>
+          </div>
         )}
       </div>
-    </PixelWindow>
+
+      {!connected ? (
+        <div className="flex gap-2">
+          <button type="button" onClick={onConnectSpotify} disabled={connecting} className="pixel-btn pixel-btn--teal">
+            {connecting ? "Opening..." : "Connect"}
+          </button>
+          <button type="button" onClick={onOpenIntegrations} className="pixel-btn pixel-btn--ghost">
+            Setup
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center justify-center gap-2">
+            <button type="button" onClick={onPlaySmart} disabled={busy} className="pixel-btn pixel-btn--ghost pixel-btn--icon" aria-label="Play from favorite playlist" title="Play from favorite playlist">
+              <Shuffle className="h-4 w-4" />
+            </button>
+            <button type="button" onClick={onPrevious} disabled={busy} className="pixel-btn pixel-btn--ghost pixel-btn--icon" aria-label="Previous track">
+              <SkipBack className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onTogglePlayPause}
+              disabled={busy && !deviceUnavailable}
+              data-active="true"
+              className="pixel-btn pixel-btn--teal pixel-btn--icon game-play"
+              aria-label={deviceUnavailable ? "Launch Spotify" : playing ? "Pause Spotify" : "Play Spotify"}
+              title={deviceUnavailable ? "Launch Spotify" : undefined}
+            >
+              {deviceUnavailable ? <SpotifyIcon className="h-5 w-5" /> : playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+            </button>
+            <button type="button" onClick={onNext} disabled={busy} className="pixel-btn pixel-btn--ghost pixel-btn--icon" aria-label="Next track">
+              <SkipForward className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setRepeatTrack((value) => !value)}
+              data-active={repeatTrack}
+              className="pixel-btn pixel-btn--ghost pixel-btn--icon"
+              aria-label={repeatTrack ? "Disable repeat" : "Repeat song"}
+              title={repeatTrack ? "Repeat: on" : "Repeat: off"}
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span ref={timeRef} className="font-pixel w-10 shrink-0 text-right text-[14px] tabular-nums text-(--px-muted)" />
+            <div
+              ref={barRef}
+              role="slider"
+              tabIndex={0}
+              aria-label="Seek"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              // Initial value; the live position is written to this attribute once a second by paint().
+              aria-valuenow={nowPlaying && nowPlaying.durationMs > 0 ? Math.round((nowPlaying.progressMs / nowPlaying.durationMs) * 100) : 0}
+              onPointerDown={handleSeekDown}
+              onKeyDown={handleSeekKey}
+              data-dragging={seekDragPct !== null}
+              className="game-seek min-w-0 flex-1 select-none"
+            >
+              <div ref={fillRef} className="game-seek-fill" />
+              <div ref={thumbRef} className="game-seek-thumb" />
+            </div>
+            <span className="font-pixel w-10 shrink-0 text-[14px] tabular-nums text-(--px-muted)">{formatTime(nowPlaying?.durationMs || 0)}</span>
+          </div>
+
+          {deviceUnavailable ? (
+            <a href="spotify:" className="pixel-btn pixel-btn--teal self-start">
+              Launch Spotify
+            </a>
+          ) : error && !timedOut ? (
+            <p className="game-error font-pixel text-[14px]" title={error}>
+              {error}
+            </p>
+          ) : null}
+        </>
+      )}
+    </div>
   )
 }

@@ -85,7 +85,7 @@ const EMBLEM_FILL: Readonly<Record<string, string>> = {
 }
 
 /** The building's 9x9 pixel emblem, drawn as crisp SVG squares in the theme's colours. */
-function PixelEmblem({ theme }: { theme: PixelWindowTheme }) {
+export function PixelEmblem({ theme }: { theme: PixelWindowTheme }) {
   const rows = theme.emblem
   const width = rows.reduce((max, row) => Math.max(max, row.length), 0)
   return (

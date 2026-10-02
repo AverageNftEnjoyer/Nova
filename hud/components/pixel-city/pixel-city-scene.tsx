@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { LocateFixed, Minus, Plus } from "lucide-react"
 import { cn } from "@/lib/shared/utils"
+import { DISTRICT_SEA_COLOR } from "./district/image-plan"
 import { ImageDistrictRenderer } from "./district/image-renderer"
 import {
   camerasClose,
@@ -10,10 +11,10 @@ import {
   easeCamera,
   initialCamera,
   panBy,
-  revealRect,
-  toView,
   zoomAround,
   zoomLimits,
+  revealRect,
+  toView,
   type Camera,
   type CameraView,
   type CameraViewport,
@@ -67,7 +68,7 @@ interface CameraApi {
 }
 
 interface StoredCamera {
-  /** Zoom relative to the window's cover zoom, so it carries across window sizes. */
+  /** Zoom relative to the window's closest zoom, so it carries across window sizes. */
   zr: number
   cx: number
   cy: number
@@ -78,8 +79,9 @@ function loadStoredCamera(vp: CameraViewport): Camera | null {
     const raw = window.sessionStorage.getItem(CAMERA_STORAGE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw) as Partial<StoredCamera>
-    if (typeof parsed.zr !== "number" || typeof parsed.cx !== "number" || typeof parsed.cy !== "number") return null
-    return clampCamera({ zoom: parsed.zr * zoomLimits(vp).cover, cx: parsed.cx, cy: parsed.cy }, vp)
+    if (typeof parsed.cx !== "number" || typeof parsed.cy !== "number") return null
+    const zr = typeof parsed.zr === "number" ? parsed.zr : 1
+    return clampCamera({ zoom: zr * zoomLimits(vp).max, cx: parsed.cx, cy: parsed.cy }, vp)
   } catch {
     return null
   }
@@ -87,7 +89,7 @@ function loadStoredCamera(vp: CameraViewport): Camera | null {
 
 function storeCamera(cam: Camera, vp: CameraViewport): void {
   try {
-    const value: StoredCamera = { zr: cam.zoom / zoomLimits(vp).cover, cx: cam.cx, cy: cam.cy }
+    const value: StoredCamera = { zr: cam.zoom / zoomLimits(vp).max, cx: cam.cx, cy: cam.cy }
     window.sessionStorage.setItem(CAMERA_STORAGE_KEY, JSON.stringify(value))
   } catch {
     // Storage blocked (private window, previews): the camera just starts from the default framing next time.
@@ -102,7 +104,8 @@ function sameView(a: CameraView | null, b: CameraView): boolean {
  * Home's Nova City: the painted daytime city on a canvas at screen resolution, live characters and effects on top,
  * and every place as a focusable button that opens its popup. Animates at 20 fps only while `active`.
  *
- * A game-like camera frames it: drag (mouse or touch) to pan, wheel / pinch to zoom, arrows and +/- when focused.
+ * A game-like camera frames it: drag (mouse or touch) to pan, wheel / pinch / +- to zoom out (the default view is the
+ * closest zoom), arrow keys to pan.
  * The canvas is the viewport (device resolution); the renderer draws the plan through the camera transform, and the
  * buttons and resident tag are placed with the same transform. Every resident is also a focusable button that
  * follows its figure (placed imperatively each frame, so React does not re-render 20 times a second).
@@ -603,13 +606,14 @@ export function PixelCityScene({
       tabIndex={0}
       role="application"
       aria-roledescription="city map"
-      aria-label="Nova City. Drag or use the arrow keys to look around, scroll or press plus and minus to zoom, 0 to recenter."
+      aria-label="Nova City. Drag or use the arrow keys to look around, scroll or press minus and plus to zoom out and back in, 0 to recenter."
       className={cn("pixel-camera absolute inset-0 overflow-clip", className)}
+      style={{ backgroundColor: DISTRICT_SEA_COLOR }}
       data-scene="city"
       data-agent-hover={agentHover ? "true" : undefined}
       data-dragging={dragging ? "true" : undefined}
     >
-      <canvas ref={canvasRef} aria-hidden="true" className="absolute inset-0 h-full w-full" />
+      <canvas ref={canvasRef} aria-hidden="true" className="absolute inset-0 h-full w-full [image-rendering:pixelated]" />
       {placedHotspots.map(({ spot, r }) => (
         <button
           key={spot.id}

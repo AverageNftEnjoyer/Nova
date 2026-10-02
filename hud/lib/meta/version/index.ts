@@ -10,6 +10,20 @@
  *
  * Version History:
  *
+ * - V.85 Alpha (2026-10-02): Building rooms and a game camera on the high-res map
+ *     - Building rooms (`hud/app/home/components/rooms/`): every clickable building opens its own room instead of the shared popup or the /integrations page. One `BuildingRoom` shell; the typed registry `room-registry.ts` lists each room's place, integration, tabs, accent and background picture (`hud/public/pixel-city/rooms/<room id>.webp` or `.png`, 1600x900; a themed checker pattern until one is uploaded; file list in `docs/frontend/nova-city-rooms.md`). Data tabs reuse the Home modules; integration rooms add a Connect & settings tab with the real setup panel, and the AI rooms can make their provider Nova's live model. Quest / tutorial Go buttons, Town Hall's building list and resident cards open the matching room. The Depot opens a deployments room with a New deployment button.
+ *     - Integrations: the connect / settings state moved out of `/integrations/page.tsx` into `useIntegrationsController` (`hud/app/integrations/modules/hooks/`), shared by the page and every room, so saving, testing, OAuth and secret masking exist once.
+ *     - Map: Home draws the high-resolution map (`map.webp`, from `raw/map-5000x3760.png`), which holds the old painting at 3.02x with mountains and sea around it (`DISTRICT_MAP` in `image-plan.ts`); every hotspot, walk route and occluder keeps its plan coordinates. The map is drawn nearest-neighbour once a map pixel covers a device pixel, smoothly below that.
+ *     - Camera: the default view is the closest zoom (the city just covers the window, 1.12x); wheel / pinch / +- zoom out until the whole map fits, with the bay's sea colour beside it. Panning never goes past the map's edges.
+ *     - Removed: the crypto ticker strip above the Bank (prices stay in the Bank room). The tutorial bubble stays bottom-left instead of jumping sides, and the target highlight is four gold corner brackets instead of a dashed box.
+ *     - Docs: old frontend concept docs and round screenshots removed from `docs/frontend/` (the day UI spec and the rooms doc remain).
+ *
+ * - V.84 Alpha (2026-10-01): Nova City Day, real residents and the game HUD
+ *     - Residents: walkers are exactly one per agent task plus one worker per connected integration (the anonymous townsfolk crowd is gone). Clicking one opens a resident card: an agent's task, or a worker's integration status and building level, with rename (`GET/POST /api/town/residents`, `kv_state` namespace `town-residents`). The agent card keeps its buttons in place and calls Cancel "Stop".
+ *     - Day map: Home is a bright daytime island (`background.webp`, 1536x1024) with hotspots, walk routes, building lamps and boats in the bay for active deployment runs rebuilt for it; night-only effects removed.
+ *     - Game HUD: portrait, name, level and XP top-left, round Quests and Music buttons down the left edge, XP and weather chips top-right, Settings bottom-right. The Spotify footer is replaced by a Music popup and the version label is hidden on Home. Quests open Settings on Skills.
+ *     - Day theme (`pixel-ui.css`, `docs/frontend/nova-city-day-ui.md`): riveted slate frames, purple cards, outlined caps, round close button, teal primary buttons; PixelWindow rebuilt on it. The Integrations page (building cards) and Chat page (Nova the cat, parchment and purple bubbles) use the same theme with unchanged behaviour.
+ *
  * - V.83 Alpha (2026-10-01): Nova City becomes a game
  *     - Progression: `GET /api/town` / `POST /api/town/ack` (`hud/lib/town/`) turn real Nova activity into XP, levels (Hamlet -> Village -> Town -> City -> Metropolis -> Megacity -> Skyline Capital), building levels 0-3 per integration, population, and quests: an 8-step tutorial, milestone series, per-integration quests and daily quests in the viewer's time zone. Counts never go down; what was already celebrated, quest completion times and tutorial state live in `kv_state` namespace `town-progress`. `npm run smoke:town` covers the XP math, events, tutorial and daily rollover.
  *     - Game UI (`hud/app/home/components/game/`): level badge and XP bar beside the wordmark, a Quests chip and quest log (Tutorial / Daily / Milestones / Buildings, each quest with a Go button), a first-run tutorial where Nova points at the building to use and follows the camera, one-time level-up banners and quest toasts, and a Progress tab in the Town Hall. Quests that teach skills open Settings on Skills.
@@ -545,7 +559,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.83 Alpha"
+export const NOVA_VERSION = "V.85 Alpha"
 
 
 

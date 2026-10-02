@@ -10,8 +10,23 @@ import type { CityIntegration, CityPlaceId, CityRect, CityWorkplace } from "../t
 export const DISTRICT_IMAGE_SRC = "/pixel-city/town/background.webp"
 export const DISTRICT_IMAGE_WIDTH = 1536
 export const DISTRICT_IMAGE_HEIGHT = 1024
-/** The sea beyond the painting's edges (sampled from its open water): the camera may show past the image when zoomed out. */
-export const DISTRICT_SEA_COLOR = "#01a8d9"
+/** The map's open water (sampled from the bay): painted behind the map so a sub-pixel gap at an edge reads as sea. */
+export const DISTRICT_SEA_COLOR = "#01a5d4"
+
+/**
+ * The high-resolution map the city actually draws (`raw/map-5000x3760.png`, served as `map.webp`). It contains the
+ * 1536x1024 painting above at 3.02x and adds mountains and sea around it, so every coordinate in this file stays in
+ * the painting's plan pixels and the map's rect starts left of and above the plan origin. The camera never shows
+ * past this rect.
+ */
+const MAP_SCALE = 3.02
+export const DISTRICT_MAP = {
+  src: "/pixel-city/town/map.webp",
+  x: -158 / MAP_SCALE,
+  y: -552 / MAP_SCALE,
+  w: 5000 / MAP_SCALE,
+  h: 3760 / MAP_SCALE,
+} as const
 
 export interface SignRect {
   x: number
@@ -472,8 +487,6 @@ export const HQ_PANEL: SignRect = { x: 202, y: 94, w: 18, h: 60 }
 /** The gate's round window: it glows while an agent is working. */
 export const HQ_SIGN: SignRect = { x: 137, y: 123, w: 60, h: 107 }
 
-/** Live crypto ticker: a strip on the paving above the Bank's bridge hall. */
-export const TICKER_BOARD: SignRect = { x: 1088, y: 410, w: 84, h: 12 }
 /** The noticeboard's face on the glasshouse lawn: one paper per note. */
 export const NOTICE_FACE: SignRect = { x: 276, y: 628, w: 32, h: 20 }
 export const FOUNTAIN = { x: 644, y: 395, basinY: 432 }

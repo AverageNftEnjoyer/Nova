@@ -11,15 +11,12 @@ import {
   type CityPresence,
   type CitySceneState,
   type CityTaskLight,
-  type CityTickerItem,
   type CityWorker,
 } from "@/components/pixel-city"
 import type { AgentTask, AgentTaskStatus } from "@/lib/agents/types"
 import { integrationLabel } from "@/lib/town/quests"
 import type { ResidentNames } from "@/lib/town/residents"
 import type { NovaState } from "@/lib/chat/hooks/useNovaState"
-import { formatPct, formatUsdCompact, orderCryptoAssets } from "../components/crypto-prices-module"
-import type { HomeCryptoAsset } from "./use-home-crypto-market"
 
 const TASK_FLOORS = 5
 /** The city animates at most this many tasks; live and waiting work comes first, then the newest outcomes. */
@@ -92,23 +89,12 @@ export function workersFor(connected: readonly CityIntegration[], names?: Readon
   })
 }
 
-export function tickerFor(assets: readonly HomeCryptoAsset[]): CityTickerItem[] {
-  return orderCryptoAssets(assets)
-    .filter((asset) => asset.price > 0)
-    .map((asset) => ({
-      label: asset.symbol,
-      value: `${formatUsdCompact(asset.price)} ${formatPct(asset.changePct)}`,
-      up: asset.changePct >= 0,
-    }))
-}
-
 interface CitySceneInput {
   weatherCode: number | null
   connected: boolean
   novaState: NovaState | undefined
   tasks: readonly AgentTask[]
   activeRuns: number
-  cryptoAssets: readonly HomeCryptoAsset[]
   notesCount: number
   connectedIntegrations: readonly CityIntegration[]
   /** Resident names the user chose (resident id -> name); empty until loaded: everyone keeps the default name. */
@@ -120,10 +106,8 @@ export function useCitySceneState(input: CitySceneInput): CitySceneState {
   const taskLights = taskLightsFor(input.tasks)
   const agents = agentsFor(input.tasks, input.residentNames)
   const workers = workersFor(input.connectedIntegrations, input.residentNames)
-  const ticker = tickerFor(input.cryptoAssets)
   const taskKey = taskLights.join(",")
   const agentsKey = agents.map((agent) => `${agent.id}:${agent.status}:${agent.workplace}:${agent.name}`).join("|")
-  const tickerKey = ticker.map((item) => `${item.label}${item.value}`).join("|")
   const connectedKey = input.connectedIntegrations.join(",")
   const presence = presenceFor(input.connected, input.novaState)
   const weather = cityWeatherFromCode(input.weatherCode)
@@ -135,14 +119,13 @@ export function useCitySceneState(input: CitySceneInput): CitySceneState {
       presence,
       taskLights: taskKey ? (taskKey.split(",") as CityTaskLight[]) : [],
       activeRuns: input.activeRuns,
-      ticker: tickerKey ? ticker : [],
       notesCount: input.notesCount,
       agents: agentsKey ? agents : [],
       connectedIntegrations: connectedKey ? (connectedKey.split(",") as CityIntegration[]) : [],
       workers: workersKey ? workers : [],
     }),
-    // `ticker`, `agents`, and `workers` are rebuilt each render; their content is captured by the keys.
+    // `agents` and `workers` are rebuilt each render; their content is captured by the keys.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [weather, presence, taskKey, agentsKey, input.activeRuns, tickerKey, input.notesCount, connectedKey, workersKey],
+    [weather, presence, taskKey, agentsKey, input.activeRuns, input.notesCount, connectedKey, workersKey],
   )
 }

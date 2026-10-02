@@ -1,6 +1,6 @@
 import type { ResidentId } from "@/lib/town/residents"
 import { drawWeatherOverlay } from "../effects"
-import { draw5, measure5 } from "../font5x7"
+import { draw5 } from "../font5x7"
 import { cellNoise } from "../random"
 import {
   EMPTY_CITY_STATE,
@@ -18,8 +18,8 @@ import {
 import {
   CAT_SPOT,
   DISTRICT_IMAGE_HEIGHT,
-  DISTRICT_IMAGE_SRC,
   DISTRICT_IMAGE_WIDTH,
+  DISTRICT_MAP,
   DISTRICT_OCCLUDERS,
   DISTRICT_PLACES,
   DISTRICT_SEA_COLOR,
@@ -30,7 +30,6 @@ import {
   HQ_SIGN,
   INTEGRATION_DOOR,
   NOTICE_FACE,
-  TICKER_BOARD,
   WALK_EDGES,
   WALK_NODES,
   WORKPLACE_DOOR,
@@ -43,7 +42,7 @@ import { CAT_HEIGHT, PERSON_HEIGHT, agentLook, drawCat as paintCat, drawPerson, 
 /**
  * The District view: the painted daytime city, brought to life. The image is drawn at its native size and every live
  * element is painted on top in image pixels (the scene component scales the canvas to cover the screen):
- * status badges on the integration buildings, task floors on Nova HQ, the noticeboard's notes, the crypto ticker, the
+ * status badges on the integration buildings, task floors on Nova HQ, the noticeboard's notes, the
  * fountain's spray, boats for active deployment runs, and the people from `people.ts`: only real residents (one figure
  * per agent task, one worker per connected integration), so a city with nothing deployed or connected has empty streets.
  */
@@ -230,7 +229,7 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
       this.ready = true
       this.render(performance.now() / 1000)
     }
-    img.src = DISTRICT_IMAGE_SRC
+    img.src = DISTRICT_MAP.src
     loadPeopleArt()
   }
 
@@ -437,30 +436,38 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     const t = timeSeconds
     const dt = this.lastT === 0 ? 0 : Math.min(0.25, Math.max(0, t - this.lastT))
     this.lastT = t
-    // Clear first: when the camera shows past the painting's edge (zoomed out, or panned to reveal what the HUD
-    // covers) those pixels must not keep the previous frame.
+    // Zoomed far out the map is narrower than the window: the sea colour fills the sides.
     ctx.setTransform(1, 0, 0, 1, 0, 0)
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
-    // The sea continues past the painting's edges, so zooming out or panning shows open water, never a hole.
     ctx.fillStyle = DISTRICT_SEA_COLOR
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
     ctx.setTransform(this.k, 0, 0, this.k, -this.camX * this.k, -this.camY * this.k)
     if (!this.ready || !this.image) return
-    // The painting is scaled smoothly (from its full source resolution); sprites and signs stay pixel-sharp.
-    ctx.imageSmoothingEnabled = true
-    ctx.imageSmoothingQuality = "high"
-    ctx.drawImage(this.image, 0, 0, DISTRICT_IMAGE_WIDTH, DISTRICT_IMAGE_HEIGHT)
+    this.setMapSmoothing()
+    ctx.drawImage(this.image, DISTRICT_MAP.x, DISTRICT_MAP.y, DISTRICT_MAP.w, DISTRICT_MAP.h)
     ctx.imageSmoothingEnabled = false
     this.drawBadges(t)
     this.drawHq(t)
     this.drawNotices()
-    this.drawTicker(t)
     this.drawFountain(t)
     this.drawBoats(t)
     this.stepWalkers(t, dt)
     // People and Nova the cat, back to front; structures in front of a walker are redrawn over it.
     this.drawWalkers(t)
-    drawWeatherOverlay(ctx, this.state.weather, DISTRICT_IMAGE_WIDTH, DISTRICT_IMAGE_HEIGHT, t, DISTRICT_IMAGE_HEIGHT * 0.3, 1.5)
+    ctx.save()
+    ctx.translate(DISTRICT_MAP.x, DISTRICT_MAP.y)
+    drawWeatherOverlay(ctx, this.state.weather, DISTRICT_MAP.w, DISTRICT_MAP.h, t, DISTRICT_MAP.h * 0.3, 1.5)
+    ctx.restore()
+  }
+
+  /**
+   * Zoomed in far enough that one map pixel covers a device pixel or more, the map is drawn nearest-neighbour (crisp
+   * pixels). Below that it is scaled smoothly: nearest-neighbour would drop pixels and shimmer while panning.
+   */
+  private setMapSmoothing(): void {
+    const image = this.image
+    const crisp = image ? (this.k * DISTRICT_MAP.w) / image.naturalWidth >= 1 : false
+    this.ctx.imageSmoothingEnabled = !crisp
+    this.ctx.imageSmoothingQuality = "high"
   }
 
   /**
@@ -563,29 +570,6 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
       ctx.fillRect(x + 1, y + 5, 4, 1)
       ctx.fillStyle = "#e03a3a"
       ctx.fillRect(x + 3, y, 2, 2)
-    }
-  }
-
-  private drawTicker(t: number): void {
-    const ctx = this.ctx
-    const b = TICKER_BOARD
-    ctx.fillStyle = INK
-    ctx.fillRect(b.x - 1, b.y - 1, b.w + 2, b.h + 2)
-    ctx.fillStyle = "#101c28"
-    ctx.fillRect(b.x, b.y, b.w, b.h)
-    const items = this.state.ticker.length > 0 ? this.state.ticker : [{ label: "NOVA", value: "MARKETS", up: true }]
-    const gap = 14
-    const segments = items.map((it) => ({ text: `${it.label} ${it.value}`, up: it.up }))
-    const total = segments.reduce((sum, s) => sum + measure5(s.text) + gap, 0)
-    const offset = Math.floor((t * 16) % total)
-    const clip = { x0: b.x + 1, x1: b.x + b.w - 1 }
-    for (let pass = 0; pass < 2; pass++) {
-      let x = b.x + 2 - offset + pass * total
-      for (const s of segments) {
-        if (x > clip.x1) break
-        draw5(ctx, s.text, x, b.y + 3, s.up ? "#7dffb0" : "#ff7a7a", 1, clip)
-        x += measure5(s.text) + gap
-      }
     }
   }
 
@@ -737,8 +721,8 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
     const bx1 = x + FIGURE_HALF_WIDTH
     const by0 = y - PERSON_HEIGHT - FIGURE_HEADROOM
     const by1 = y + FIGURE_FOOTROOM
-    const sx = image.naturalWidth / DISTRICT_IMAGE_WIDTH
-    const sy = image.naturalHeight / DISTRICT_IMAGE_HEIGHT
+    const sx = image.naturalWidth / DISTRICT_MAP.w
+    const sy = image.naturalHeight / DISTRICT_MAP.h
     for (const o of this.occluders) {
       if (o.x1 < bx0 || o.x0 > bx1 || o.y1 < by0 || o.y0 > by1) continue
       if (y >= baseAt(o.base, x)) continue
@@ -751,14 +735,13 @@ export class ImageDistrictRenderer implements CitySceneRenderer {
       ctx.rect(cx0, cy0, cx1 - cx0, cy1 - cy0)
       ctx.clip()
       ctx.clip(o.path)
-      // The same smooth scaling as the full painting; the source box is padded so its edge filtering stays outside the clip.
-      ctx.imageSmoothingEnabled = true
-      ctx.imageSmoothingQuality = "high"
-      const px0 = Math.max(0, cx0 - 4)
-      const py0 = Math.max(0, cy0 - 4)
-      const pw = Math.min(DISTRICT_IMAGE_WIDTH, cx1 + 4) - px0
-      const ph = Math.min(DISTRICT_IMAGE_HEIGHT, cy1 + 4) - py0
-      ctx.drawImage(image, px0 * sx, py0 * sy, pw * sx, ph * sy, px0, py0, pw, ph)
+      // The same scaling as the full map; the source box is padded so its edge filtering stays outside the clip.
+      this.setMapSmoothing()
+      const px0 = Math.max(DISTRICT_MAP.x, cx0 - 4)
+      const py0 = Math.max(DISTRICT_MAP.y, cy0 - 4)
+      const pw = Math.min(DISTRICT_MAP.x + DISTRICT_MAP.w, cx1 + 4) - px0
+      const ph = Math.min(DISTRICT_MAP.y + DISTRICT_MAP.h, cy1 + 4) - py0
+      ctx.drawImage(image, (px0 - DISTRICT_MAP.x) * sx, (py0 - DISTRICT_MAP.y) * sy, pw * sx, ph * sy, px0, py0, pw, ph)
       ctx.restore()
     }
   }

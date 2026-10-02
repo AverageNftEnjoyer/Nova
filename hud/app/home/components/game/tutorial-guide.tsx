@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react"
 import { DISTRICT_PLACES, type CityHotspot, type CityPlaceId } from "@/components/pixel-city"
 import type { TownProgress, TownQuest } from "@/lib/town/types"
-import { cn } from "@/lib/shared/utils"
 import { GameBar } from "./game-bar"
 import { NovaPortrait } from "./nova-portrait"
 import { formatXp, hasQuestTarget, questPlace, questRatio, SKILLS_TARGET } from "./town-ui"
@@ -139,21 +138,19 @@ export function TutorialGuide({ progress, assistantName, hotspots, minimized, on
     )
   }
 
-  // The bubble sits on the side away from the building it points at, so it never covers the target.
-  const targetOnLeft = rect ? rect.left + rect.width / 2 < window.innerWidth / 2 : false
   const arrowTop = rect ? Math.max(TOP_CLEARANCE, rect.top - 6) : 0
 
   return (
     <>
       {rect ? (
         <>
-          <div className="game-target-ring" style={{ left: rect.left - 3, top: rect.top - 3, width: rect.width + 6, height: rect.height + 6 }} aria-hidden="true" />
+          <div className="game-target-ring" style={{ left: rect.left - 6, top: rect.top - 6, width: rect.width + 12, height: rect.height + 12 }} aria-hidden="true" />
           <div className="game-arrow" style={{ left: rect.left + rect.width / 2, top: arrowTop }} aria-hidden="true" />
         </>
       ) : null}
 
       <section
-        className={cn("game-tutorial pixel-ui", targetOnLeft ? "game-tutorial--right right-4" : "left-4")}
+        className="game-tutorial pixel-ui left-4"
         aria-label={`${assistantName}'s tutorial`}
         aria-live="polite"
       >

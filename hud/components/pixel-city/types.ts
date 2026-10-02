@@ -10,12 +10,6 @@ export type CityPresence = "online" | "listening" | "thinking" | "speaking" | "o
 /** One lit floor of Nova HQ's tower, most urgent task first. */
 export type CityTaskLight = "running" | "queued" | "paused" | "failed" | "completed"
 
-export interface CityTickerItem {
-  label: string
-  value: string
-  up: boolean
-}
-
 /** Integration keys, matching the integration setup keys Home already uses. */
 export type CityIntegration =
   | "telegram"
@@ -70,8 +64,6 @@ export interface CitySceneState {
   taskLights: CityTaskLight[]
   /** Active deployment runs; each one is a boat sailing in the harbour bay (capped by the renderer). */
   activeRuns: number
-  /** Crypto ticker above the Bank. */
-  ticker: CityTickerItem[]
   /** Pinned papers on the noticeboard by the glasshouse (capped by the renderer). */
   notesCount: number
   /** Agents on the streets (capped by the renderer). */
@@ -113,7 +105,6 @@ export const EMPTY_CITY_STATE: CitySceneState = {
   presence: "online",
   taskLights: [],
   activeRuns: 0,
-  ticker: [],
   notesCount: 0,
   agents: [],
   connectedIntegrations: [],

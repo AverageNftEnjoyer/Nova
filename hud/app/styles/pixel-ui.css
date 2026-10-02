@@ -998,10 +998,6 @@
   filter: drop-shadow(0 4px 0 var(--px-shadow));
 }
 
-.game-tutorial--right {
-  bottom: 84px;
-}
-
 /* The bubble's tail: a stepped triangle under the guide's portrait (outline layer, then frame layer). */
 .game-tutorial::before,
 .game-tutorial::after {
@@ -1066,20 +1062,33 @@
   z-index: 60;
 }
 
-/* The ring sits on the target building: gold dashes with a dark keyline on both sides so it reads on any ground. */
+/* Four gold corner brackets around the target building (dark keyline so they read on any ground), breathing in and
+   out in two steps. Only the corners are drawn, so the building itself stays fully visible. */
 .game-target-ring {
+  --len: calc(16px * var(--hud-s, 1));
+  --thick: calc(4px * var(--hud-s, 1));
+  --gold: linear-gradient(var(--px-accent), var(--px-accent));
   position: fixed;
   z-index: 55;
   pointer-events: none;
-  border: calc(3px * var(--hud-s, 1)) dashed var(--px-accent);
-  box-shadow:
-    0 0 0 calc(3px * var(--hud-s, 1)) var(--px-frame-line),
-    inset 0 0 0 calc(3px * var(--hud-s, 1)) var(--px-frame-line);
-  animation: game-march 0.8s steps(2) infinite;
+  background:
+    var(--gold) left top / var(--len) var(--thick),
+    var(--gold) left top / var(--thick) var(--len),
+    var(--gold) right top / var(--len) var(--thick),
+    var(--gold) right top / var(--thick) var(--len),
+    var(--gold) left bottom / var(--len) var(--thick),
+    var(--gold) left bottom / var(--thick) var(--len),
+    var(--gold) right bottom / var(--len) var(--thick),
+    var(--gold) right bottom / var(--thick) var(--len);
+  background-repeat: no-repeat;
+  filter:
+    drop-shadow(2px 0 0 var(--px-frame-line)) drop-shadow(-2px 0 0 var(--px-frame-line))
+    drop-shadow(0 2px 0 var(--px-frame-line)) drop-shadow(0 -2px 0 var(--px-frame-line));
+  animation: game-brackets 1s steps(2) infinite;
 }
 
-@keyframes game-march {
-  50% { border-color: var(--px-text); }
+@keyframes game-brackets {
+  50% { transform: scale(1.025); }
 }
 
 /* A stepped down-arrow (24x24, gold with a dark outline); left/top place its tip. The element is not clipped: the
@@ -3375,3 +3384,296 @@ button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); out
   .pc-menu { zoom: 2; }
 }
 /* ===== end Chat page ===== */
+
+/* ===== Building rooms ===== */
+/* BuildingRoom (hud/app/home/components/rooms/building-room.tsx): every building in Nova City opens its own room, a
+   large pixel window. Along the top runs the room's vista: its uploaded picture (hud/public/pixel-city/rooms/,
+   docs/frontend/nova-city-rooms.md) over a themed pixel backdrop that shows when no picture exists, with the
+   building's live status on plaques. Below it, the room's tabs and a solid --px-bg panel, so text never sits on the
+   picture. --room-accent / --room-accent-2 come from the room registry. Hard pixels only: no blur, no glow. */
+
+.room-window {
+  width: min(1180px, calc(100vw - 32px));
+  height: min(760px, calc(100dvh - 120px));
+}
+
+.room-body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Vista: the picture (or the backdrop) and the status plaques ── */
+.room-vista {
+  position: relative;
+  flex: none;
+  height: clamp(84px, 24%, 190px);
+  overflow: hidden;
+  border-bottom: var(--px-unit) solid var(--px-frame-line);
+  box-shadow: 0 2px 0 0 var(--room-accent, var(--px-border-hi));
+}
+
+/* The themed backdrop: the building's colour over the indigo, a 2-tone dither of its second colour and a darker floor
+   band, all hard-edged. Always drawn, so a missing or loading picture never leaves a hole. */
+.room-backdrop {
+  position: absolute;
+  inset: 0;
+  background-color: color-mix(in srgb, var(--room-accent, var(--px-accent)) 26%, var(--px-bg));
+  background-image:
+    linear-gradient(to bottom, transparent 68%, color-mix(in srgb, var(--px-text-line) 55%, transparent) 68%),
+    repeating-conic-gradient(color-mix(in srgb, var(--room-accent-2, var(--px-accent-2)) 22%, transparent) 0 25%, transparent 0 50%);
+  background-size: 100% 100%, 8px 8px;
+  image-rendering: pixelated;
+}
+
+.room-backdrop-picture {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 40%;
+  image-rendering: pixelated;
+  opacity: 0;
+}
+
+.room-backdrop-picture[data-loaded="true"] {
+  opacity: 1;
+}
+
+.room-status {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  left: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.room-status-plaque {
+  min-height: 28px;
+  font-size: 12px;
+}
+
+.room-status-level {
+  gap: 8px;
+}
+
+.room-status-bar {
+  width: 96px;
+}
+
+/* Connection lamp: lit green when connected, red when not (the city's building lamps use the same meaning). */
+.room-lamp {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  background: var(--px-red);
+  border: 2px solid var(--px-text-line);
+}
+
+.room-lamp[data-on="true"] {
+  background: var(--px-green);
+}
+
+.room-plaque-icon {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Tabs and the content panel ── */
+.room-tabs {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 8px 0;
+}
+
+.room-tabs .game-tab[data-active="true"] {
+  box-shadow: inset 0 0 0 2px var(--room-accent, var(--px-accent));
+}
+
+.room-panel {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--px-frame-hi) var(--px-frame-lo);
+}
+
+/* Modules that fill their window (tasks, notes, live lines) fill the panel the same way. */
+.room-panel[data-kind="data"] > * {
+  min-height: 100%;
+}
+
+/* ── Small pieces: stat cards, lists ── */
+.room-card {
+  background: var(--px-bg-2);
+  border: var(--px-unit) solid var(--px-frame-line);
+  box-shadow:
+    inset 0 0 0 2px var(--px-border-hi),
+    inset 0 -4px 0 0 var(--px-text-line);
+}
+
+.room-stat {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 96px;
+  padding: 6px 10px 9px;
+}
+
+.room-card-value {
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  font-size: 18px;
+  color: var(--px-text);
+  text-shadow: var(--px-outline-1);
+}
+
+.room-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0 2px 4px 0;
+  list-style: none;
+}
+
+/* ── Setup section: the /integrations setup panels, skinned the way the Integrations page skins them ── */
+.room-setup-module {
+  height: auto;
+}
+
+.room-setup-status {
+  align-self: flex-start;
+  max-width: 100%;
+  white-space: normal;
+  text-transform: none;
+}
+
+.room-setup-status[data-tone="ok"] { box-shadow: inset 0 0 0 2px var(--px-green), inset 0 -5px 0 0 var(--px-text-line); }
+.room-setup-status[data-tone="bad"] { box-shadow: inset 0 0 0 2px var(--px-pink), inset 0 -5px 0 0 var(--px-text-line); }
+
+.room-setup .home-spotlight-card.home-border-glow::after,
+.room-setup .home-global-spotlight {
+  display: none !important;
+}
+
+.room-setup [class*="backdrop-blur"] { backdrop-filter: none !important; }
+.room-setup [class*="shadow-"] { box-shadow: none !important; }
+
+.room-setup h2 {
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  color: var(--px-text);
+  text-shadow: var(--px-outline-2);
+}
+
+.room-setup .text-slate-100,
+.room-setup .text-slate-200,
+.room-setup .text-slate-300 { color: var(--px-text); }
+.room-setup .text-slate-400,
+.room-setup .text-slate-500 { color: var(--px-muted); }
+.room-setup .text-emerald-200,
+.room-setup .text-emerald-300,
+.room-setup .text-emerald-100 { color: var(--px-green); }
+.room-setup .text-rose-200,
+.room-setup .text-rose-300 { color: var(--px-pink); }
+.room-setup .text-amber-200,
+.room-setup .text-amber-300 { color: var(--px-accent); }
+.room-setup .bg-slate-400 { background-color: var(--px-muted); }
+.room-setup .bg-emerald-400 { background-color: var(--px-green); }
+.room-setup .bg-rose-400 { background-color: var(--px-red); }
+
+.room-setup input,
+.room-setup textarea,
+.room-setup select {
+  border: var(--px-unit) solid var(--px-frame-line) !important;
+  background-color: var(--px-text-line) !important;
+  box-shadow: inset 0 var(--px-unit) 0 0 var(--px-bg) !important;
+  color: var(--px-text) !important;
+  font-family: var(--font-pixel), ui-monospace, monospace;
+}
+
+.room-setup input::placeholder,
+.room-setup textarea::placeholder {
+  color: var(--px-muted);
+  opacity: 0.8;
+}
+
+.room-setup input:focus,
+.room-setup textarea:focus,
+.room-setup select:focus {
+  border-color: var(--px-accent) !important;
+  outline: none;
+}
+
+.room-setup button {
+  font-family: var(--font-pixel), ui-monospace, monospace;
+  transition: none;
+}
+
+.room-setup button.pixel-btn {
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+}
+
+.room-setup .ig-panel .pixel-btn {
+  min-height: 34px;
+  padding: 0 12px 3px;
+  font-size: 12px;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.15;
+}
+
+.room-setup .ig-panel .pixel-btn.ig-btn-sm {
+  min-height: 28px;
+  padding: 0 8px 3px;
+  font-size: 10px;
+}
+
+.room-setup button:not(.pixel-btn):not(.pixel-close):not(.pixel-card):focus-visible {
+  outline: 2px solid var(--px-accent);
+  outline-offset: 1px;
+}
+
+.room-setup [class*="bg-black/20"] {
+  background: var(--px-text-line);
+  border: 2px solid var(--px-frame-line);
+  color: var(--px-text);
+}
+
+.room-setup .home-subpanel-surface,
+.room-setup .home-module-surface {
+  background: var(--px-bg-2) !important;
+  border-color: var(--px-frame-line) !important;
+}
+
+.room-setup section > div.flex.items-center.justify-between {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.room-setup section > div.flex.items-center.justify-between > :first-child {
+  min-width: min(100%, 220px);
+  flex: 1 1 0;
+}
+
+.room-setup section > div.flex.items-center.justify-between > :last-child {
+  flex-shrink: 0;
+}
+
+/* Short windows (1024x768): a thinner vista leaves the panel more room. */
+@media (max-height: 820px) {
+  .room-vista { height: clamp(72px, 18%, 120px); }
+}
+/* ===== end Building rooms ===== */

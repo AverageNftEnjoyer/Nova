@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react"
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { ExternalLink } from "lucide-react"
 import {
@@ -24,6 +24,7 @@ import { DISTRICT_PLACES, PixelCityScene, type CityHotspot, type CityHotspotId, 
 import { SettingsModal } from "@/components/settings/settings-modal"
 import type { SettingsSectionId } from "@/components/settings/settings-nav"
 import type { ResidentId } from "@/lib/town/residents"
+import type { IntegrationSetupKey } from "@/lib/integrations/navigation"
 import { isRunActive, useDeploymentsData } from "@/app/deployments/hooks/use-deployments-data"
 import { LazyNewDeploymentModal, preloadNewDeploymentModal } from "@/app/deployments/components/new-deployment-modal-lazy"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
@@ -40,7 +41,7 @@ import { ResidentCard } from "./game/resident-card"
 import { TownGameLayer } from "./game/town-game-layer"
 import { TownHallBody } from "./game/town-hall-panel"
 import { GameHud } from "./game/game-hud"
-import { MusicWindow } from "./game/music-window"
+import { MusicPlayer, MusicWindow } from "./game/music-window"
 import { useQuestNews } from "./game/town-hud"
 import { useQuestNavigator } from "./game/use-quest-navigator"
 import { AgentTasksHomeModule } from "./agent-tasks-home-module"
@@ -53,7 +54,9 @@ import { PolymarketLiveLinesModule } from "./polymarket-live-lines-module"
 import { ScheduleBriefing } from "./schedule-briefing"
 import { WeatherLocationPopup } from "./weather-location-popup"
 import { YouTubeHomeModule } from "./youtube-home-module"
-import { PixelWindow } from "./pixel/pixel-window"
+import { BuildingRoom } from "./rooms/building-room"
+import { RoomDeploymentsPanel } from "./rooms/room-deployments-panel"
+import { ROOMS, roomForIntegration, roomForPlace, type RoomDefinition, type RoomId, type RoomPanelId, type RoomSectionId } from "./rooms/room-registry"
 
 /** Modules inside pixel windows get these instead of Home's old glass panels. */
 const PIXEL_PANEL = "pixel-panel h-full"
@@ -61,7 +64,7 @@ const PIXEL_SUBPANEL = "pixel-subpanel"
 const NO_PANEL_STYLE: CSSProperties | undefined = undefined
 /**
  * The camera's insets. The HUD is four small corner clusters (game/game-hud.tsx), not a band, so the city may run
- * nearly edge to edge: a thin margin keeps the framed map off the top strip and the Settings / zoom row.
+ * nearly edge to edge: a thin margin keeps the framed map off the top strip and the Settings / recenter row.
  */
 const SAFE_TOP = 16
 const SAFE_BOTTOM = 16
@@ -85,7 +88,6 @@ export function HomeMainScreen() {
   const notesState = useHomeNotes()
   const summaryState = useHomeAnalyticsSummary()
 
-  const [openPlace, setOpenPlace] = useState<CityHotspotId | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [weatherPopupOpen, setWeatherPopupOpen] = useState(false)
   const [musicOpen, setMusicOpen] = useState(false)
@@ -146,7 +148,6 @@ export function HomeMainScreen() {
     novaState: home.novaState,
     tasks,
     activeRuns,
-    cryptoAssets: home.cryptoAssets,
     notesCount: notesState.notes.length,
     connectedIntegrations: integrationNodes.filter((node) => node.connected).map((node) => node.setup as CityIntegration),
   })
@@ -175,33 +176,45 @@ export function HomeMainScreen() {
     hotspots.push({ id: place.id, label: `${place.name} · ${node.label}`, detail: node.connected ? "Connected" : "Not connected · click to set up" })
   }
 
+  // Every building opens its own room (rooms/room-registry.ts). An integration's setup opens in its building's room;
+  // an integration with no building (News) keeps the /integrations page.
+  // `seq` remounts the room on every open, so asking for a section of the room already open switches to it.
+  const [openRoom, setOpenRoomState] = useState<{ id: RoomId; section?: RoomSectionId; seq: number } | null>(null)
+  const setOpenRoom = useCallback((next: { id: RoomId; section?: RoomSectionId } | null) => {
+    setOpenRoomState((previous) => (next ? { ...next, seq: (previous?.seq ?? 0) + 1 } : null))
+  }, [])
   const openHotspot = useCallback(
     (id: CityPlaceId) => {
-      if (id === "deploy") {
-        home.openTaskDeployment()
-        return
-      }
-      if (id.startsWith("integration-")) {
-        // An integration's building opens what Home offers for it, or that integration's setup.
-        const setup = id.slice("integration-".length) as CityIntegration
-        if (setup === "gmail-calendar") setOpenPlace("schedule")
-        else if (setup === "phantom") setOpenPlace("crypto")
-        else home.goToIntegrations(setup)
-        return
-      }
-      setOpenPlace(id as CityHotspotId)
+      const room = roomForPlace(id)
+      if (room) setOpenRoom({ id: room.id })
     },
-    [home],
+    [setOpenRoom],
   )
-  const closePlace = useCallback(() => setOpenPlace(null), [])
+  const goToIntegrations = home.goToIntegrations
+  const openSetup = useCallback(
+    (setup: IntegrationSetupKey) => {
+      const room = roomForIntegration(setup)
+      if (room) setOpenRoom({ id: room.id, section: "setup" })
+      else goToIntegrations(setup)
+    },
+    [goToIntegrations, setOpenRoom],
+  )
+  const closeRoom = useCallback(() => setOpenRoom(null), [setOpenRoom])
 
   // Clicking a resident in the city (an agent, or an integration's worker) opens its card (game/resident-card.tsx), built from live data.
   const [residentCardId, setResidentCardId] = useState<ResidentId | null>(null)
   const closeResidentCard = useCallback(() => setResidentCardId(null), [])
   const openAgentTasks = useCallback(() => {
     setResidentCardId(null)
-    setOpenPlace("tasks")
-  }, [])
+    setOpenRoom({ id: "nova-hq" })
+  }, [setOpenRoom])
+  const openResidentSetup = useCallback(
+    (setup: IntegrationSetupKey) => {
+      setResidentCardId(null)
+      openSetup(setup)
+    },
+    [openSetup],
+  )
 
   const [questLogOpen, setQuestLogOpen] = useState(false)
   const closeQuestLog = useCallback(() => setQuestLogOpen(false), [])
@@ -212,8 +225,7 @@ export function HomeMainScreen() {
     setSettingsSection("skills")
     setSettingsOpen(true)
   }, [])
-  const goToQuest = useQuestNavigator({ openPlace: openHotspot, goToIntegrations: home.goToIntegrations, openSettings })
-
+  const goToQuest = useQuestNavigator({ openPlace: openHotspot, goToIntegrations: openSetup, openSettings })
 
   const pageAction = (label: string, onClick: () => void) => (
     <button type="button" onClick={onClick} className="pixel-chip h-7! px-2! text-[13px]!" title={label}>
@@ -222,122 +234,167 @@ export function HomeMainScreen() {
     </button>
   )
 
-  const windowContent = useMemo(() => {
-    switch (openPlace) {
+  /** A room's link to its full page (room-registry.ts `page`); integration rooms without one link to their setup page. */
+  const roomPageAction = (room: RoomDefinition) => {
+    switch (room.page) {
+      case "deployments":
+        return pageAction("Deployments", home.openMissions)
+      case "calendar":
+        return pageAction("Calendar", home.openCalendar)
+      case "analytics":
+        return pageAction("Dashboard", home.openAnalytics)
+      case "chat":
+        return pageAction("Chat", home.openChat)
+      case "polymarket":
+        return pageAction("Polymarket", () => router.push("/polymarket"))
+      case "integrations":
+        return pageAction("Integrations", home.openIntegrations)
+      default: {
+        const integration = room.integration
+        return integration ? pageAction("Integrations", () => home.goToIntegrations(integration)) : undefined
+      }
+    }
+  }
+
+  /** A room's data section: the module this place has always shown, unchanged. */
+  const renderRoomPanel = (panel: RoomPanelId): ReactNode => {
+    switch (panel) {
       case "tasks":
         return (
-          <PixelWindow place={names.tasks} theme="tasks" role="Agent tasks" size="lg" onClose={closePlace} actions={pageAction("Deployments", home.openMissions)}>
-            <AgentTasksHomeModule
-              isLight={isLight}
-              panelClass={PIXEL_PANEL}
-              subPanelClass={PIXEL_SUBPANEL}
-              panelStyle={NO_PANEL_STYLE}
-              className="h-full"
-              agentTasks={agentTasks}
-              onOpenMissions={home.openMissions}
-              onCreateDeployment={() => {
-                setOpenPlace(null)
-                home.openTaskDeployment()
-              }}
-              onPrefetchDeployment={preloadNewDeploymentModal}
-            />
-          </PixelWindow>
+          <AgentTasksHomeModule
+            isLight={isLight}
+            panelClass={PIXEL_PANEL}
+            subPanelClass={PIXEL_SUBPANEL}
+            panelStyle={NO_PANEL_STYLE}
+            className="h-full"
+            agentTasks={agentTasks}
+            onOpenMissions={home.openMissions}
+            onCreateDeployment={() => {
+              setOpenRoom(null)
+              home.openTaskDeployment()
+            }}
+            onPrefetchDeployment={preloadNewDeploymentModal}
+          />
+        )
+      case "deployments":
+        return (
+          <RoomDeploymentsPanel
+            deployments={deployments}
+            onNewDeployment={() => {
+              setOpenRoom(null)
+              home.openTaskDeployment()
+            }}
+            onPrefetchDeployment={preloadNewDeploymentModal}
+            onOpenDeployments={home.openMissions}
+          />
         )
       case "schedule":
-        return (
-          <PixelWindow place={names.schedule} theme="schedule" role="Schedule" size="md" onClose={closePlace} actions={pageAction("Calendar", home.openCalendar)}>
-            <ScheduleBriefing isLight={isLight} panelClass={PIXEL_PANEL} subPanelClass={PIXEL_SUBPANEL} panelStyle={NO_PANEL_STYLE} onOpenCalendar={home.openCalendar} />
-          </PixelWindow>
-        )
+        return <ScheduleBriefing isLight={isLight} panelClass={PIXEL_PANEL} subPanelClass={PIXEL_SUBPANEL} panelStyle={NO_PANEL_STYLE} onOpenCalendar={home.openCalendar} />
       case "crypto":
-        return (
-          <PixelWindow place={names.crypto} theme="crypto" role="Crypto prices" size="md" onClose={closePlace}>
-            <CryptoPricesModule isLight={isLight} subPanelClass={PIXEL_SUBPANEL} assets={home.cryptoAssets} range={home.cryptoRange} onRangeChange={home.setCryptoRange} />
-          </PixelWindow>
-        )
+        return <CryptoPricesModule isLight={isLight} subPanelClass={PIXEL_SUBPANEL} assets={home.cryptoAssets} range={home.cryptoRange} onRangeChange={home.setCryptoRange} />
       case "polymarket":
         return (
-          <PixelWindow place={names.polymarket} theme="polymarket" role="Polymarket" size="md" onClose={closePlace} actions={pageAction("Polymarket", () => router.push("/polymarket"))}>
-            <PolymarketLiveLinesModule
-              isLight={isLight}
-              panelClass={PIXEL_PANEL}
-              subPanelClass={PIXEL_SUBPANEL}
-              panelStyle={NO_PANEL_STYLE}
-              className="h-full"
-              onOpenIntegrations={home.openIntegrations}
-              onOpenPolymarket={() => router.push("/polymarket")}
-            />
-          </PixelWindow>
+          <PolymarketLiveLinesModule
+            isLight={isLight}
+            panelClass={PIXEL_PANEL}
+            subPanelClass={PIXEL_SUBPANEL}
+            panelStyle={NO_PANEL_STYLE}
+            className="h-full"
+            onOpenIntegrations={() => openSetup("polymarket")}
+            onOpenPolymarket={() => router.push("/polymarket")}
+          />
         )
       case "youtube":
         return (
-          <PixelWindow place={names.youtube} theme="youtube" role="YouTube" size="lg" onClose={closePlace}>
-            <YouTubeHomeModule
-              isLight={isLight}
-              panelClass={PIXEL_PANEL}
-              subPanelClass={PIXEL_SUBPANEL}
-              panelStyle={NO_PANEL_STYLE}
-              className="h-full"
-              connected={home.youtubeConnected}
-              onOpenIntegrations={home.openIntegrations}
-            />
-          </PixelWindow>
+          <YouTubeHomeModule
+            isLight={isLight}
+            panelClass={PIXEL_PANEL}
+            subPanelClass={PIXEL_SUBPANEL}
+            panelStyle={NO_PANEL_STYLE}
+            className="h-full"
+            connected={home.youtubeConnected}
+            onOpenIntegrations={() => openSetup("youtube")}
+          />
         )
       case "analytics":
         return (
-          <PixelWindow place={names.analytics} theme="analytics" role="Analytics" size="sm" onClose={closePlace} actions={pageAction("Dashboard", home.openAnalytics)}>
-            <AnalyticsHomeModule
-              isLight={isLight}
-              subPanelClass={PIXEL_SUBPANEL}
-              summaryState={summaryState}
-              onOpenAnalytics={home.openAnalytics}
-              onOpenBudgets={() => router.push("/analytics#budgets")}
-              onOpenDevLogs={home.openDevLogs}
-            />
-          </PixelWindow>
+          <AnalyticsHomeModule
+            isLight={isLight}
+            subPanelClass={PIXEL_SUBPANEL}
+            summaryState={summaryState}
+            onOpenAnalytics={home.openAnalytics}
+            onOpenBudgets={() => router.push("/analytics#budgets")}
+            onOpenDevLogs={home.openDevLogs}
+          />
         )
       case "notes":
+        return <NotesHomeModule isLight={isLight} panelClass={PIXEL_PANEL} subPanelClass={PIXEL_SUBPANEL} panelStyle={NO_PANEL_STYLE} className="h-full" notesState={notesState} />
+      case "town":
         return (
-          <PixelWindow place={names.notes} theme="notes" role="Notes" size="md" onClose={closePlace}>
-            <NotesHomeModule isLight={isLight} panelClass={PIXEL_PANEL} subPanelClass={PIXEL_SUBPANEL} panelStyle={NO_PANEL_STYLE} className="h-full" notesState={notesState} />
-          </PixelWindow>
+          <TownHallBody
+            town={town}
+            integrations={integrationNodes}
+            onSetup={openSetup}
+            integrationsGrid={<IntegrationsGridModule isLight={isLight} subPanelClass={PIXEL_SUBPANEL} nodes={integrationNodes} onOpen={openSetup} />}
+          />
         )
-      case "integrations":
+      case "chats":
         return (
-          <PixelWindow place={names.integrations} theme="integrations" role="Town progress" size="md" onClose={closePlace} actions={pageAction("Integrations", home.openIntegrations)}>
-            <TownHallBody
-              town={town}
-              integrations={integrationNodes}
-              onSetup={home.goToIntegrations}
-              integrationsGrid={<IntegrationsGridModule isLight={isLight} subPanelClass={PIXEL_SUBPANEL} nodes={integrationNodes} onOpen={home.goToIntegrations} />}
-            />
-          </PixelWindow>
+          <ChatHistoryModule
+            isLight={isLight}
+            subPanelClass={PIXEL_SUBPANEL}
+            conversations={home.conversations}
+            onSelect={(id) => {
+              void home.handleSelectConvo(id)
+            }}
+            onNewChat={() => {
+              void home.handleNewChat()
+            }}
+            onRename={home.handleRenameConvo}
+            onArchive={home.handleArchiveConvo}
+            onDelete={home.handleDeleteConvo}
+          />
         )
-      case "chat":
+      case "music":
         return (
-          <PixelWindow place={assistantName} theme="chat" role="Chats" size="sm" onClose={closePlace} actions={pageAction("Chat", home.openChat)}>
-            <ChatHistoryModule
-              isLight={isLight}
-              subPanelClass={PIXEL_SUBPANEL}
-              conversations={home.conversations}
-              onSelect={(id) => {
-                void home.handleSelectConvo(id)
-              }}
-              onNewChat={() => {
-                void home.handleNewChat()
-              }}
-              onRename={home.handleRenameConvo}
-              onArchive={home.handleArchiveConvo}
-              onDelete={home.handleDeleteConvo}
-            />
-          </PixelWindow>
+          <MusicPlayer
+            connected={home.spotifyConnected}
+            connecting={home.spotifyConnecting}
+            nowPlaying={home.spotifyNowPlaying}
+            error={home.spotifyError}
+            busyAction={home.spotifyBusyAction}
+            onConnectSpotify={() => {
+              void home.connectSpotify()
+            }}
+            onOpenIntegrations={() => openSetup("spotify")}
+            onTogglePlayPause={home.toggleSpotifyPlayback}
+            onNext={home.spotifyNextTrack}
+            onPrevious={home.spotifyPreviousTrack}
+            onPlaySmart={home.spotifyPlaySmart}
+            onSeek={home.seekSpotify}
+          />
         )
-      default:
-        return null
     }
-    // pageAction and integrationNodes are rebuilt each render from the values listed here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openPlace, isLight, home, agentTasks, notesState, summaryState, assistantName, names, closePlace, router, town])
+  }
+
+  const activeRoom = openRoom ? ROOMS[openRoom.id] : null
+  const activeRoomNode = activeRoom?.integration ? integrationNodes.find((node) => node.setup === activeRoom.integration) : undefined
+  const activeRoomOwnLot = Boolean(activeRoom?.place.startsWith("integration-"))
+  const roomWindow = activeRoom ? (
+    <BuildingRoom
+      key={`${activeRoom.id}:${openRoom?.seq ?? 0}`}
+      room={activeRoom}
+      initialSection={openRoom?.section}
+      // An integration's own building says "Connected" on its lamp plaque; civic places also show their live tag.
+      detail={activeRoomOwnLot ? "" : activeRoom.place === "deploy" && !activeRuns ? "No boats out" : (hotspots.find((spot) => spot.id === activeRoom.place)?.detail ?? "")}
+      connected={activeRoomNode ? activeRoomNode.connected : null}
+      building={activeRoom.integration ? (town.progress?.buildings.find((candidate) => candidate.integration === activeRoom.integration) ?? null) : null}
+      icon={activeRoomOwnLot ? activeRoomNode?.icon : undefined}
+      renderPanel={renderRoomPanel}
+      actions={roomPageAction(activeRoom)}
+      onClose={closeRoom}
+    />
+  ) : null
 
   const weather = home.homeWeather
   return (
@@ -363,7 +420,7 @@ export function HomeMainScreen() {
         weatherTitle={home.homeWeatherError || (home.preferredWeatherCity ? weather?.conditionLabel || "Loading weather" : "Set your city")}
         weatherAriaLabel={home.preferredWeatherCity ? `Change city from ${home.preferredWeatherCity}` : "Set your city"}
         onHome={() => router.push("/home")}
-        onOpenTownHall={() => setOpenPlace("integrations")}
+        onOpenTownHall={() => setOpenRoom({ id: "town-hall" })}
         onOpenQuests={() => setQuestLogOpen(true)}
         onOpenMusic={() => setMusicOpen(true)}
         onOpenWeather={() => setWeatherPopupOpen(true)}
@@ -387,7 +444,10 @@ export function HomeMainScreen() {
           onConnectSpotify={() => {
             void home.connectSpotify()
           }}
-          onOpenIntegrations={() => home.goToIntegrations("spotify")}
+          onOpenIntegrations={() => {
+            setMusicOpen(false)
+            openSetup("spotify")
+          }}
           onTogglePlayPause={home.toggleSpotifyPlayback}
           onNext={home.spotifyNextTrack}
           onPrevious={home.spotifyPreviousTrack}
@@ -397,7 +457,7 @@ export function HomeMainScreen() {
         />
       ) : null}
 
-      {windowContent}
+      {roomWindow}
       {residentCardId ? (
         <ResidentCard
           residentId={residentCardId}
@@ -409,7 +469,7 @@ export function HomeMainScreen() {
           onAction={agentTasks.runAction}
           onRaiseBudget={agentTasks.raiseBudget}
           onOpenTasks={openAgentTasks}
-          onSetup={home.goToIntegrations}
+          onSetup={openResidentSetup}
         />
       ) : null}
       <TownGameLayer town={town} assistantName={assistantName} hotspots={hotspots} questLogOpen={questLogOpen} onCloseQuestLog={closeQuestLog} onGo={goToQuest} />
