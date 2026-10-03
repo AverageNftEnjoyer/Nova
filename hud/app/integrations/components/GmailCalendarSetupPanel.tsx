@@ -61,7 +61,7 @@ export function GmailCalendarSetupPanel({
             Google Calendar Setup
           </h2>
           <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
-            Connect Google Calendar using your existing Gmail OAuth credentials. Set exactly what Nova can do with events.
+            Connect Google Calendar using your existing Gmail OAuth credentials. Set exactly what U.B Agents can do with events.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -189,7 +189,7 @@ export function GmailCalendarSetupPanel({
             <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
               <div>
                 <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Add Events</p>
-                <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to create new calendar events.</p>
+                <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow U.B Agents to create new calendar events.</p>
               </div>
               <NovaSwitch
                 size="sm"
@@ -201,7 +201,7 @@ export function GmailCalendarSetupPanel({
             <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
               <div>
                 <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Edit Events</p>
-                <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to update time, title, or details.</p>
+                <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow U.B Agents to update time, title, or details.</p>
               </div>
               <NovaSwitch
                 size="sm"
@@ -213,7 +213,7 @@ export function GmailCalendarSetupPanel({
             <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
               <div>
                 <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Delete Events</p>
-                <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to remove calendar events.</p>
+                <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow U.B Agents to remove calendar events.</p>
               </div>
               <NovaSwitch
                 size="sm"
@@ -223,7 +223,7 @@ export function GmailCalendarSetupPanel({
               />
             </div>
             <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>
-              Nova can read event metadata for scheduling and cannot access Gmail message content from this connection.
+              U.B Agents can read event metadata for scheduling and cannot access Gmail message content from this connection.
             </p>
             {!canManageEvents && (
               <p className={cn("text-[11px]", isLight ? "text-amber-700" : "text-amber-300")}>
@@ -243,7 +243,7 @@ export function GmailCalendarSetupPanel({
           <li>Configure Gmail OAuth credentials in the Gmail Setup panel.</li>
           <li>Click <strong className={isLight ? "text-s-80" : "text-slate-200"}>Connect</strong> — uses the same Google app and requests calendar event management access.</li>
           <li>Approve calendar access in the Google consent screen.</li>
-          <li>Nova will include your Google Calendar events on the calendar view.</li>
+          <li>U.B Agents will include your Google Calendar events on the calendar view.</li>
         </ol>
       </div>
     </section>

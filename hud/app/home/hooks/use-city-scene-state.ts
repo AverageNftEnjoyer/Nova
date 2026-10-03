@@ -101,7 +101,7 @@ interface CitySceneInput {
   residentNames: Readonly<ResidentNames>
 }
 
-/** Home's live data, reduced to what Nova City draws. Memoised on content so the scene only updates on change. */
+/** Home's live data, reduced to what U.B Agents City draws. Memoised on content so the scene only updates on change. */
 export function useCitySceneState(input: CitySceneInput): CitySceneState {
   const taskLights = taskLightsFor(input.tasks)
   const agents = agentsFor(input.tasks, input.residentNames)

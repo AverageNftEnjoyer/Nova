@@ -1,5 +1,5 @@
 /**
- * Nova City progression rules: XP weights, the level curve, level titles, and building thresholds.
+ * U.B Agents City progression rules: XP weights, the level curve, level titles, and building thresholds.
  *
  * Pure and free of `server-only` / `@/` runtime imports so plain Node smokes can transpile and run it
  * (scripts/smoke/town). Every input is a real, persisted count (see stats.ts); nothing here is random.
@@ -25,7 +25,7 @@ export interface TownLifetimeCounts {
   notes: number
   /** chat threads. */
   conversations: number
-  /** messages the user sent to Nova. */
+  /** messages the user sent to U.B Agents. */
   chatMessages: number
   /** tool_runs with status "success". */
   toolRuns: number
@@ -84,7 +84,7 @@ export const XP_RULES: readonly XpRule[] = [
   { id: "skills", label: "Skills added", weight: 50, count: "skills" },
   { id: "notes", label: "Notes written", weight: 10, count: "notes" },
   { id: "conversations", label: "Conversations started", weight: 15, count: "conversations" },
-  { id: "chat-messages", label: "Messages sent to Nova", weight: 2, count: "chatMessages" },
+  { id: "chat-messages", label: "Messages sent to U.B Agents", weight: 2, count: "chatMessages" },
   { id: "tool-runs", label: "Tool calls made", weight: 1, count: "toolRuns" },
 ]
 

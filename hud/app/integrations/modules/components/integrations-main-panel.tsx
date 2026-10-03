@@ -58,7 +58,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
       : "Approval-gated Polymarket preparation is disabled.",
   ]
   const phantomHardLimits = [
-    !phantomSetup.providerSupportedContext ? "Phantom cannot connect inside this embedded Nova desktop/webview context. Open Nova in a real browser first." : "",
+    !phantomSetup.providerSupportedContext ? "Phantom cannot connect inside this embedded U.B Agents desktop/webview context. Open U.B Agents in a real browser first." : "",
     phantomSetup.providerSupportedContext && !phantomSetup.providerInstalled ? "Phantom cannot connect until the extension is installed in that browser profile." : "",
     phantomCanConnectHere && !phantomSetup.providerReady && !settings.phantom.connected ? "Phantom cannot sign until the wallet is unlocked and a Solana account is selected." : "",
     "Phantom cannot trade autonomously, export private keys, or bypass your explicit approval.",
@@ -333,7 +333,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                         <li>1. Go to <span className="font-mono">api.slack.com/apps</span> and create or select an app.</li>
                         <li>2. Under <span className="font-mono">Incoming Webhooks</span>, activate and add a new webhook to a channel.</li>
                         <li>3. Copy the webhook URL and paste it into <span className="font-mono">Webhook URL</span> above.</li>
-                        <li>4. Click <span className="font-mono">Save</span> — Nova will send a test message to verify the connection.</li>
+                        <li>4. Click <span className="font-mono">Save</span> — U.B Agents will send a test message to verify the connection.</li>
                       </ol>
                     </div>
                   </div>
@@ -405,7 +405,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                       <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Create Brave API Key</p>
                       <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
                         <li>1. Open <span className="font-mono">api.search.brave.com</span> and sign in to your Brave Search API account.</li>
-                        <li>2. Create a new key for this Nova workspace and give it a clear label (for example: <span className="font-mono">Nova Desktop - Personal</span>).</li>
+                        <li>2. Create a new key for this U.B Agents workspace and give it a clear label (for example: <span className="font-mono">U.B Agents Desktop - Personal</span>).</li>
                         <li>3. Copy the key immediately and keep it private. Treat it like a password.</li>
                       </ol>
                     </div>
@@ -416,7 +416,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                         "ig-tile",
                       )}
                     >
-                      <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Save and Enable in Nova</p>
+                      <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Save and Enable in U.B Agents</p>
                       <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
                         <li>1. Paste the key into <span className="font-mono">API Key</span> and click <span className="font-mono">Save</span>.</li>
                         <li>2. Confirm you see a masked server value (for example: <span className="font-mono">BSAI****ABCD</span>).</li>
@@ -701,7 +701,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                       <div>
                         <p className={cn("text-sm font-medium", isLight ? "text-s-80" : "text-slate-200")}>Transaction Consent Granted</p>
                         <p className={cn("text-[11px] mt-1 leading-4", isLight ? "text-s-50" : "text-slate-400")}>
-                          Controls whether Nova can read transaction-level history for reports like weekly PnL.
+                          Controls whether U.B Agents can read transaction-level history for reports like weekly PnL.
                         </p>
                       </div>
                       <NovaSwitch
@@ -853,7 +853,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     </button>
                   </div>
                   <p className={cn("mt-2 text-[11px] leading-4", isLight ? "text-s-50" : "text-slate-400")}>
-                    Paste the private key secret exactly as downloaded from Coinbase. Keep line breaks if present. If Coinbase also shows an extra passphrase/secret string, Nova does not use that field in this panel.
+                    Paste the private key secret exactly as downloaded from Coinbase. Keep line breaks if present. If Coinbase also shows an extra passphrase/secret string, U.B Agents does not use that field in this panel.
                   </p>
                 </div>
 
@@ -891,7 +891,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                           , create a new API key (Advanced Trade / Coinbase App).
                         </li>
                         <li>2. In Advanced Settings, choose <span className="font-mono">ECDSA</span> for SDK compatibility; direct API supports ECDSA and Ed25519.</li>
-                        <li>3. For Nova v1, set permissions to read-only (Portfolio View). Leave Trade/Transfer off unless you explicitly need execution flows.</li>
+                        <li>3. For U.B Agents v1, set permissions to read-only (Portfolio View). Leave Trade/Transfer off unless you explicitly need execution flows.</li>
                         <li>4. If you enable IP allowlist, include the real client/server IPs (and IPv6 if your network uses it), or calls will fail.</li>
                         <li>5. Copy the API key value and private key immediately, then store them securely.</li>
                         <li>6. If you see three values in Coinbase, use only the secret API key + secret (private key) here; ignore extra passphrase/secret-string fields for now.</li>
@@ -904,12 +904,12 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                         "ig-tile",
                       )}
                     >
-                      <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Save and Enable in Nova</p>
+                      <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Save and Enable in U.B Agents</p>
                       <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
                         <li>1. Paste Coinbase value into <span className="font-mono">Secret API Key</span>.</li>
                         <li>2. Paste Coinbase private key into <span className="font-mono">Secret</span> and click <span className="font-mono">Save</span>.</li>
                         <li>3. Confirm both values show masked on server, then click <span className="font-mono">Connect</span>.</li>
-                        <li>4. Nova only needs this key + secret pair here. OAuth client ID/secret are not required in this Coinbase panel.</li>
+                        <li>4. U.B Agents only needs this key + secret pair here. OAuth client ID/secret are not required in this Coinbase panel.</li>
                         <li>5. Do not paste nickname labels or extra passphrase/secret-string values into these fields.</li>
                         <li>6. Click <span className="font-mono">Sync</span> to run the live probe and update sync/freshness status.</li>
                       </ol>
@@ -928,7 +928,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     Phantom Setup
                   </h2>
                   <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
-                    Launch Nova in your external desktop browser, verify wallet ownership with a signed message, and control exactly what verified Phantom context Nova can use.
+                    Launch U.B Agents in your external desktop browser, verify wallet ownership with a signed message, and control exactly what verified Phantom context U.B Agents can use.
                   </p>
                 </div>
 	                <div className="flex flex-wrap items-center gap-2">
@@ -1036,7 +1036,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                           <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
                             <div>
                               <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Agent Wallet Context</p>
-                              <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Let Nova runtime and tools read the verified Solana wallet label and address.</p>
+                              <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Let U.B Agents runtime and tools read the verified Solana wallet label and address.</p>
                             </div>
                             <NovaSwitch
                               size="sm"
@@ -1048,7 +1048,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                           <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
                             <div>
                               <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>EVM Readiness Context</p>
-                              <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Let Nova read Phantom&apos;s EVM address and chain as safe readiness metadata.</p>
+                              <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Let U.B Agents read Phantom&apos;s EVM address and chain as safe readiness metadata.</p>
                             </div>
                             <NovaSwitch
                               size="sm"
@@ -1060,7 +1060,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                           <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
                             <div>
                               <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Approval-Gated Polymarket Prep</p>
-                              <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to prepare future Polymarket actions that still require your explicit approval.</p>
+                              <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow U.B Agents to prepare future Polymarket actions that still require your explicit approval.</p>
                             </div>
                             <NovaSwitch
                               size="sm"
@@ -1107,10 +1107,10 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                 <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
                   <p className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-200")}>Desktop Connect Path</p>
                   <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
-                    <li>1. If you are in the Nova desktop HUD or another embedded view, click <span className="font-mono">Open in Browser</span>. Nova now asks the local machine to open your external browser directly and prefers Chrome on Windows when available.</li>
-                    <li>2. In that browser, click <span className="font-mono">Install Phantom</span> if the extension is missing, then unlock Phantom and select the wallet you want Nova to use.</li>
-                    <li>3. Back in the browser tab running Nova, click <span className="font-mono">Connect</span> and approve account access.</li>
-                    <li>4. Approve the signed wallet verification message. Nova stores only wallet metadata and your saved Phantom settings, never a seed phrase or private key.</li>
+                    <li>1. If you are in the U.B Agents desktop HUD or another embedded view, click <span className="font-mono">Open in Browser</span>. U.B Agents now asks the local machine to open your external browser directly and prefers Chrome on Windows when available.</li>
+                    <li>2. In that browser, click <span className="font-mono">Install Phantom</span> if the extension is missing, then unlock Phantom and select the wallet you want U.B Agents to use.</li>
+                    <li>3. Back in the browser tab running U.B Agents, click <span className="font-mono">Connect</span> and approve account access.</li>
+                    <li>4. Approve the signed wallet verification message. U.B Agents stores only wallet metadata and your saved Phantom settings, never a seed phrase or private key.</li>
                   </ol>
                 </div>
 
@@ -1192,7 +1192,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                         <div className="flex items-center justify-between gap-3">
                           <div>
                             <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Live Trading</p>
-                            <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova&apos;s Polymarket workspace to submit live wallet-approved orders.</p>
+                            <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow U.B Agents&apos; Polymarket workspace to submit live wallet-approved orders.</p>
                           </div>
                           <NovaSwitch
                             size="sm"
@@ -1205,8 +1205,8 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                       <div className={cn("rounded-lg border p-3", "ig-note ig-note--ok")}>
                         <p className={cn("text-[11px] font-medium uppercase tracking-[0.14em]", isLight ? "text-emerald-800" : "text-emerald-200")}>Runtime Exposure</p>
                         <ul className={cn("mt-2 space-y-1 text-[11px] leading-4", isLight ? "text-emerald-900" : "text-emerald-100")}>
-                          <li>- Nova stores the Polymarket wallet binding, profile address, and live-trading toggle per user.</li>
-                          <li>- Order signing still happens in Phantom. Nova does not custody keys or bypass explicit wallet approval.</li>
+                          <li>- U.B Agents stores the Polymarket wallet binding, profile address, and live-trading toggle per user.</li>
+                          <li>- Order signing still happens in Phantom. U.B Agents does not custody keys or bypass explicit wallet approval.</li>
                           <li>- If Phantom EVM readiness disappears, reconnect in the dedicated workspace before trading again.</li>
                         </ul>
                       </div>
@@ -1235,7 +1235,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     Spotify Setup
                   </h2>
                   <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
-                    Connect your Spotify account so Nova can use Spotify tools in chat and workflows.
+                    Connect your Spotify account so U.B Agents can use Spotify tools in chat and workflows.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1273,9 +1273,9 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                       </a>{" "}
                       and create an app.
                     </li>
-                    <li>2. Copy the app <span className="font-mono">Client ID</span> into Nova.</li>
-                    <li>3. In Spotify app settings, add Nova callback URL as a redirect URI.</li>
-                    <li>4. Save app settings in Spotify before running OAuth connect from Nova.</li>
+                    <li>2. Copy the app <span className="font-mono">Client ID</span> into U.B Agents.</li>
+                    <li>3. In Spotify app settings, add U.B Agents callback URL as a redirect URI.</li>
+                    <li>4. Save app settings in Spotify before running OAuth connect from U.B Agents.</li>
                   </ol>
                 </div>
 
@@ -1345,8 +1345,8 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                   <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
                     <li>1. Enter Client ID and Redirect URI, then click <span className="font-mono">Save</span>.</li>
                     <li>2. Click <span className="font-mono">Connect</span> and complete Spotify OAuth in the popup.</li>
-                    <li>3. After redirect back to Nova, click <span className="font-mono">Test</span> to verify token and scope.</li>
-                    <li>4. Use the same top button to <span className="font-mono">Disconnect</span> when you want to revoke Nova access.</li>
+                    <li>3. After redirect back to U.B Agents, click <span className="font-mono">Test</span> to verify token and scope.</li>
+                    <li>4. Use the same top button to <span className="font-mono">Disconnect</span> when you want to revoke U.B Agents access.</li>
                   </ol>
                 </div>
 
@@ -1382,7 +1382,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                     YouTube Setup
                   </h2>
                   <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
-                    Connect YouTube with your Google OAuth account. Nova keeps Home playback muted and respects your per-user permissions.
+                    Connect YouTube with your Google OAuth account. U.B Agents keeps Home playback muted and respects your per-user permissions.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1447,7 +1447,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                       <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
                         <div>
                           <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Home Feed</p>
-                          <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to load personalized or source-weighted YouTube feed results.</p>
+                          <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow U.B Agents to load personalized or source-weighted YouTube feed results.</p>
                         </div>
                         <NovaSwitch
                           size="sm"
@@ -1459,7 +1459,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                       <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
                         <div>
                           <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Search</p>
-                          <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to search YouTube videos and channels for this user.</p>
+                          <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow U.B Agents to search YouTube videos and channels for this user.</p>
                         </div>
                         <NovaSwitch
                           size="sm"
@@ -1471,7 +1471,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                       <div className={cn("flex items-center justify-between gap-3 rounded-lg border px-3 py-2", "ig-tile")}>
                         <div>
                           <p className={cn("text-xs font-medium", isLight ? "text-s-90" : "text-slate-100")}>Video Details</p>
-                          <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow Nova to fetch metadata such as duration, views, and channel details.</p>
+                          <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Allow U.B Agents to fetch metadata such as duration, views, and channel details.</p>
                         </div>
                         <NovaSwitch
                           size="sm"
@@ -1494,7 +1494,7 @@ export function IntegrationsMainPanel(props: IntegrationsMainPanelProps) {
                   <ol className={cn("mt-1 space-y-1 text-[11px] leading-4", isLight ? "text-s-60" : "text-slate-400")}>
                     <li>1. Configure Gmail OAuth client credentials in Gmail Setup.</li>
                     <li>2. Click <span className="font-mono">Connect</span> and approve YouTube read access in Google OAuth.</li>
-                    <li>3. Keep Home playback muted while browsing Nova.</li>
+                    <li>3. Keep Home playback muted while browsing U.B Agents.</li>
                     <li>4. Use permissions above to restrict feed/search/details behavior per user.</li>
                   </ol>
                 </div>

@@ -7,7 +7,7 @@ import { resolveDataDir, resolveUserContextRoot } from "../db/paths.js";
 const DEFAULT_CONFIG_PATH = path.join(os.homedir(), ".myagent", "config.json");
 const RESERVED_SRC_USER_ENTRY = ".user";
 const RESERVED_SRC_USER_SENTINEL = [
-  "Reserved path: Nova user state must live at /.user, never at /src/.user.",
+  "Reserved path: U.B Agents user state must live at /.user, never at /src/.user.",
   "Do not replace this file with a directory.",
   "",
 ].join("\n");
@@ -64,7 +64,7 @@ function assertNotUnderReservedSrcUserPath(candidatePath: string, workspaceRoot:
   const resolvedPath = path.resolve(candidatePath);
   const reservedSrcUserPath = resolveReservedSrcUserPath(workspaceRoot);
   if (isReservedPathOrChild(resolvedPath, reservedSrcUserPath)) {
-    throw new Error(`${label} may not resolve under ${reservedSrcUserPath}. Nova user state must stay under ${path.join(workspaceRoot, ".user")}.`);
+    throw new Error(`${label} may not resolve under ${reservedSrcUserPath}. U.B Agents user state must stay under ${path.join(workspaceRoot, ".user")}.`);
   }
   return resolvedPath;
 }
@@ -205,7 +205,7 @@ function pickEnum<T extends string>(value: string | undefined, allowed: readonly
 
 function resolveEnvOverrides(base: Config): Partial<Config> {
   const env = process.env;
-  // Nova-only environment overrides.
+  // U.B Agents-only environment overrides.
   return {
     agent: {
       ...base.agent,

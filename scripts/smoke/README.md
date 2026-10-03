@@ -55,7 +55,7 @@ Helpers in `scripts/smoke/lib/` (`isolated-data-dir`, `seed-runtime-integrations
 | `agent-tasks/` (6 files) | `smoke:agent-tasks` | Agent task runtime, provider contract, store, execution context, UI source check, file drop. |
 | `token-efficiency/token-regression-gate.mjs` | `smoke:token-gate` | Offline prompt, tool-schema, and cache-prefix gate. Uses `token-baseline-harness.mjs`. |
 | `token-efficiency/` usage, cost, caps, routing, budgets, plus `providers/retired-model-aliases-smoke.mjs` and `analytics/analytics-real-writers-smoke.mjs` | `smoke:token-deep` | Optional detail beyond the token gate. |
-| `town/town-progress-smoke.mjs` | `smoke:town` | Nova City progression (hud/lib/town): XP math, level curve, quests, buildings, once-only events and ack, tutorial skip, daily rollover, cache, index use. |
+| `town/town-progress-smoke.mjs` | `smoke:town` | U.B Agents City progression (hud/lib/town): XP math, level curve, quests, buildings, once-only events and ack, tutorial skip, daily rollover, cache, index use. |
 | `quality/src-prompt-budget-smoke.mjs` | `smoke:src-prompt` | Prompt budget. |
 | `quality/src-mission-quality-smoke.mjs`, mission output contract, agent runtime, TypeScript checks, legacy audit | `smoke:src-missions` | Mission behavior. |
 | `scheduler/` stability, core performance, execution tick, plus the job ledger | `smoke:src-scheduler` | Scheduler. |

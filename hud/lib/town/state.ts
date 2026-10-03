@@ -1,5 +1,5 @@
 /**
- * Persisted Nova City progression state: kv_state namespace "town-progress", key "state", per user.
+ * Persisted U.B Agents City progression state: kv_state namespace "town-progress", key "state", per user.
  *
  * Holds only what cannot be recomputed from nova.db: high-water marks (so pruned tool runs / LLM rows or deleted
  * notes never lower XP), integrations ever connected, when each quest was first completed, daily quest XP already

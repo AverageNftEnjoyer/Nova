@@ -140,7 +140,7 @@ export function TownUnavailable({ town }: { town: TownProgressState }) {
     <div className="flex h-full min-h-40 flex-col items-center justify-center gap-3 px-6 text-center" role="status">
       <span className="pixel-label pixel-label--common">{town.loading ? "Loading progress" : "Progress unavailable"}</span>
       <p className="max-w-80 font-pixel text-[13px] leading-snug text-(--px-muted)">
-        {town.loading ? "Counting up your work in Nova…" : town.error || "Nova City could not load your progress."}
+        {town.loading ? "Counting up your work in U.B Agents…" : town.error || "U.B Agents City could not load your progress."}
       </p>
       {!town.loading ? (
         <button type="button" onClick={town.refresh} className="pixel-btn pixel-btn--teal game-sm">

@@ -138,7 +138,7 @@ function IntegrationsPageContent() {
                   <span className={cn("h-2.5 w-2.5 shrink-0", presence.dotClassName)} aria-hidden="true" />
                   {presence.label}
                 </span>
-                <span className="pixel-plaque pixel-plaque--frame ig-version">NovaAIO {NOVA_VERSION}</span>
+                <span className="pixel-plaque pixel-plaque--frame ig-version">U.B Agents {NOVA_VERSION}</span>
               </div>
               <div className="ig-head-title">
                 <h1 id="ig-title" className="pixel-title ig-title">Integrations</h1>
@@ -166,7 +166,7 @@ function IntegrationsPageContent() {
           <section ref={connectivitySectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
             <div className="flex items-center gap-2 text-s-80">
               <Blocks className="w-4 h-4 text-accent" />
-              <h2 className="text-sm uppercase tracking-[0.22em] font-semibold">Nova City Buildings</h2>
+              <h2 className="text-sm uppercase tracking-[0.22em] font-semibold">U.B Agents City Buildings</h2>
             </div>
 
             <div className="ig-buildings-scroll mt-3 min-h-0 flex-1 overflow-y-auto no-scrollbar">

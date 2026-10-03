@@ -16,7 +16,7 @@ export async function POST(req: Request) {
   try {
     const now = new Date().toISOString()
     const results = await sendDiscordMessage({
-      text: `Nova Discord integration test successful at ${now}`,
+      text: `U.B Agents Discord integration test successful at ${now}`,
     })
     const redactedResults = results.map((result) => ({
       webhookId: result.webhookId,

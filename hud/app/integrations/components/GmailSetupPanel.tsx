@@ -67,7 +67,7 @@ export function GmailSetupPanel({
             Gmail Setup
           </h2>
           <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
-            Connect one or more Gmail accounts for Nova workflows and chat-triggered inbox automations.
+            Connect one or more Gmail accounts for U.B Agents workflows and chat-triggered inbox automations.
           </p>
         </div>
         <div className="grid grid-cols-[repeat(2,max-content)] gap-2 w-full lg:w-auto">
@@ -220,7 +220,7 @@ export function GmailSetupPanel({
             </button>
           </div>
           <p className={cn("mt-2 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
-            Inbox summaries and email actions run via Nova chat prompts or mission workflow steps, not from this setup panel.
+            Inbox summaries and email actions run via U.B Agents chat prompts or mission workflow steps, not from this setup panel.
           </p>
         </div>
 

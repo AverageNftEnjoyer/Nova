@@ -1,5 +1,5 @@
 /**
- * GLSL shaders for the Nova 3D orb.
+ * GLSL shaders for the U.B Agents 3D orb.
  * All shaders support uSpeaking (0–1) and uThinking (0–1) uniforms for animated state transitions.
  */
 

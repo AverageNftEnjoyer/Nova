@@ -109,7 +109,7 @@ export function GameHud(props: GameHudProps) {
           <div className="game-hud-id">
             <div className="game-hud-wordmark select-none">
               <button type="button" onClick={props.onHome} className="pixel-wordmark game-hud-logo" aria-label="Home">
-                NovaAIO
+                U.B Agents
               </button>
               <p className="game-hud-presence">
                 <span className={cn("h-2 w-2 shrink-0", presence.dotClassName)} aria-hidden="true" />

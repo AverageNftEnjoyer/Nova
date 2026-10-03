@@ -156,7 +156,7 @@ export function MessageList({
           <div className="pc-bubble pc-bubble--nova pc-bubble--center">
             <div className="pc-bubble-body text-center">
               <p className="pc-empty-title">
-                Hi, my name is Nova
+                Hi, my name is U.B Agents
               </p>
               <p className="pc-empty-sub">
                 What can I help you with today?

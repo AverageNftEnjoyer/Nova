@@ -238,9 +238,9 @@ export function usePhantomSetup({
       target.toString(),
       "nova-phantom-browser-connect",
       {
-        success: "Opened Nova in your external browser. Finish Phantom connect there.",
-        fallback: "Opened Nova in a browser window. Finish Phantom connect there.",
-        failure: "Allow popups or open Nova in a standard browser window to connect Phantom.",
+        success: "Opened U.B Agents in your external browser. Finish Phantom connect there.",
+        fallback: "Opened U.B Agents in a browser window. Finish Phantom connect there.",
+        failure: "Allow popups or open U.B Agents in a standard browser window to connect Phantom.",
       },
     )
   }, [openExternalBrowser])

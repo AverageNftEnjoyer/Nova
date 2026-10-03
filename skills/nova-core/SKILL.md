@@ -1,13 +1,13 @@
 ---
 name: nova-core
-description: Default execution policy for Nova runtime and cross-file implementation work. Use for planning, verification, bug fixing, and maintaining session/provider correctness.
+description: Default execution policy for U.B Agents runtime and cross-file implementation work. Use for planning, verification, bug fixing, and maintaining session/provider correctness.
 user-invokable: false
 metadata:
   read_when:
     - Work spans runtime behavior, multi-file refactors, or behavior-sensitive bug fixes.
 ---
 
-# Nova Core Skill
+# U.B Agents Core Skill
 
 ## Activation
 Use this skill when work involves:

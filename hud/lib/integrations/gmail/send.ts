@@ -37,7 +37,7 @@ function buildRawMessage(input: GmailSendMessageInput): string {
 async function sendCore(input: GmailSendMessageInput): Promise<GmailSendMessageResult> {
   const to = String(input.to || "").trim().toLowerCase()
   if (!to) throw gmailError("gmail.no_recipients", "Missing recipient for Gmail send.", { status: 400 })
-  const subject = String(input.subject || "").trim() || "Nova Mission Report"
+  const subject = String(input.subject || "").trim() || "U.B Agents Mission Report"
   const text = String(input.text || "").trim()
   if (!text) throw gmailError("gmail.invalid_request", "Notification text is required.", { status: 400 })
 

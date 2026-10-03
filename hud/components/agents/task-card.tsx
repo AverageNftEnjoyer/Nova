@@ -107,7 +107,7 @@ const RESUME_NOTE_SHORT = "Resume restarts the task; side effects are not repeat
 const SPENT_NOTE_SHORT = "Budget spent: raising it restarts the task."
 const UNPRICED_NOTE = "Unpriced model: the cost budget cannot stop it."
 const UNPRICED_HINT =
-  "Nova records this model's calls at $0, so a cost-only budget never trips. The task is not blocked. " +
+  "U.B Agents records this model's calls at $0, so a cost-only budget never trips. The task is not blocked. " +
   "Set a token budget (Settings, Agent budgets, or when creating a task) to cap it."
 const MAX_COST_BUDGET_USD = 100
 const MAX_TOKEN_BUDGET = 10_000_000

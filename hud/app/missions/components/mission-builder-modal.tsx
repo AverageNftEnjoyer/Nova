@@ -941,7 +941,7 @@ export function MissionBuilderModal(props: MissionBuilderModalProps) {
                               )}
                             >
                               <Sparkles className="w-3.5 h-3.5" />
-                              {novaSuggestingByStepId[step.id] ? "Nova Suggesting..." : "Nova Suggest"}
+                              {novaSuggestingByStepId[step.id] ? "U.B Agents Suggesting..." : "U.B Agents Suggest"}
                             </button>
                           </div>
                         </div>

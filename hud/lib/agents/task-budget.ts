@@ -85,7 +85,7 @@ export function budgetFraction(spend: AgentTaskBudgetSpend, budget: AgentTaskEff
 }
 
 /**
- * Mirrors isCostBudgetBlind in budget-settings: the only limit is cost and Nova has no price for the model, so the
+ * Mirrors isCostBudgetBlind in budget-settings: the only limit is cost and U.B Agents has no price for the model, so the
  * budget can never stop the task (its calls are recorded at $0). The task still runs; the card says so.
  */
 export function isCostBudgetBlind(budget: AgentTaskEffectiveBudget | undefined, model: string): boolean {

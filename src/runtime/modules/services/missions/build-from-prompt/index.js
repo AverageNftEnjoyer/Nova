@@ -96,7 +96,7 @@ export async function runBuildMissionFromPrompt(prompt, options = {}, dependenci
   })();
 
   const systemText = [
-    "You are Nova's mission architect. Output only strict JSON - no markdown, no explanation.",
+    "You are U.B Agents' mission architect. Output only strict JSON - no markdown, no explanation.",
     "Build production-grade automation workflows using native MissionNode types.",
     "For agent missions, enforce this command spine: operator -> council -> domain-manager -> worker -> audit -> operator.",
     "Use provider-selector as a separate execution rail and never as a manager role.",

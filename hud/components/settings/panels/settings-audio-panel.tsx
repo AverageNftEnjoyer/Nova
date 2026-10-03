@@ -24,7 +24,7 @@ export function SettingsAudioPanel({ isLight, settings, updateApp }: Props) {
 
       <SettingToggle
         label="Voice Responses"
-        description="Enable Nova's voice synthesis"
+        description="Enable U.B Agents' voice synthesis"
         checked={settings.app.voiceEnabled}
         onChange={(v) => {
           updateApp("voiceEnabled", v)
@@ -42,7 +42,7 @@ export function SettingsAudioPanel({ isLight, settings, updateApp }: Props) {
       {/* TTS Voice */}
       <div className={cn(getSettingsCardClass(isLight), "p-4")}>
         <p className={cn("text-sm mb-1", isLight ? "text-s-70" : "text-slate-200")}>TTS Voice</p>
-        <p className={cn("text-xs mb-3", isLight ? "text-s-30" : "text-slate-500")}>Choose Nova&apos;s speaking voice</p>
+        <p className={cn("text-xs mb-3", isLight ? "text-s-30" : "text-slate-500")}>Choose U.B Agents&apos; speaking voice</p>
         <FluidSelect
           value={settings.app.ttsVoice}
           isLight={isLight}

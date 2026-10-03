@@ -1,6 +1,6 @@
 /**
- * Nova City progression: the contract between the server (`GET /api/town`, `POST /api/town/ack`) and Home.
- * Every number here is derived from real, persisted Nova activity in nova.db and the workspace docs. Nothing is
+ * U.B Agents City progression: the contract between the server (`GET /api/town`, `POST /api/town/ack`) and Home.
+ * Every number here is derived from real, persisted U.B Agents activity in nova.db and the workspace docs. Nothing is
  * invented, nothing is random, and nothing resets on reload.
  */
 
@@ -36,7 +36,7 @@ export interface TownQuest {
   id: string
   category: TownQuestCategory
   title: string
-  /** One sentence telling the user what to do in Nova. */
+  /** One sentence telling the user what to do in U.B Agents. */
   description: string
   status: TownQuestStatus
   /** Progress toward the goal, from real data. */

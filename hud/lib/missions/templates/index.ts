@@ -668,7 +668,7 @@ const AGENT_INCIDENT_COMMAND: MissionTemplate = makeTemplate(
   "agent-incident-command",
   "Agent Incident Command",
   "Multi-agent incident workflow that triages an outage signal, records state, audits policy, and dispatches an ops update.",
-  "Use Nova's native mission agents for production incident triage with explicit routing and scoped audit trails.",
+  "Use U.B Agents' native mission agents for production incident triage with explicit routing and scoped audit trails.",
   "devops",
   ["agents", "incident", "operations", "slack", "audit"],
   "ShieldAlert",

@@ -393,7 +393,7 @@ export function buildMultiTopicAiPrompt(topics: DetectedTopic[], userPrompt = ""
     return [
       normalizedIntent ? `User request: ${normalizedIntent}` : "",
       "Create one combined message with two parts:",
-      "1) A custom motivational speech written by Nova (4-6 short sentences, original wording, energetic but not cringe).",
+      "1) A custom motivational speech written by U.B Agents (4-6 short sentences, original wording, energetic but not cringe).",
       "2) The top news story from yesterday from fetched sources (headline + 2 sentence summary + one-line why it matters).",
       "If news evidence is weak, say that briefly and still provide the motivational speech.",
       "Do not include raw URLs in the body text.",

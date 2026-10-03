@@ -259,7 +259,7 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
                 disabled={!muteHydrated}
                 className={cn("pixel-btn pixel-btn--icon pc-btn", isMuted && "pc-btn--muted", !muteHydrated && "pc-btn--hidden")}
                 data-muted={isMuted ? "true" : "false"}
-                aria-label={!muteHydrated ? "Syncing mute state" : isMuted ? "Unmute Nova" : "Mute Nova"}
+                aria-label={!muteHydrated ? "Syncing mute state" : isMuted ? "Unmute U.B Agents" : "Mute U.B Agents"}
               >
                 {!muteHydrated ? null : isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
               </button>

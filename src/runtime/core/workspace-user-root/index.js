@@ -3,7 +3,7 @@ import path from "node:path";
 
 export const RESERVED_SRC_USER_ENTRY = ".user";
 export const RESERVED_SRC_USER_SENTINEL = [
-  "Reserved path: Nova user state must live at /.user, never at /src/.user.",
+  "Reserved path: U.B Agents user state must live at /.user, never at /src/.user.",
   "Do not replace this file with a directory.",
   "",
 ].join("\n");
@@ -51,7 +51,7 @@ export function resolveReservedSrcUserPath(workspaceRoot) {
 export function assertPathIsNotUnderReservedSrcUserPath(candidatePath, workspaceRoot, label = "path") {
   const reservedPath = resolveReservedSrcUserPath(workspaceRoot);
   if (isSamePathOrChild(candidatePath, reservedPath)) {
-    throw new Error(`${label} may not resolve under ${reservedPath}. Nova user state must stay under ${path.join(path.resolve(workspaceRoot), ".user")}.`);
+    throw new Error(`${label} may not resolve under ${reservedPath}. U.B Agents user state must stay under ${path.join(path.resolve(workspaceRoot), ".user")}.`);
   }
 }
 

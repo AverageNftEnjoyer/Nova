@@ -1,5 +1,5 @@
 /**
- * Nova Structured Logger
+ * U.B Agents Structured Logger
  * Produces consistent JSON-lines log output for server-side events.
  * Sensitive fields (tokens, emails, credentials) are redacted via the
  * telemetry sanitizer before emission.

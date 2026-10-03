@@ -8,7 +8,7 @@ import type { TownProgress } from "@/lib/town/types"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-/** GET /api/town?tz=Area/City → Nova City progression (level, XP sources, quests, buildings, pending events). */
+/** GET /api/town?tz=Area/City → U.B Agents City progression (level, XP sources, quests, buildings, pending events). */
 export async function GET(req: Request) {
   try {
     const { userId } = await requireLocalUser()

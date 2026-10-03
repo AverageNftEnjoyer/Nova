@@ -69,7 +69,7 @@ function applyAckLocally(progress: TownProgress, request: TownAckRequest): TownP
 }
 
 /**
- * Nova City progression (level, XP, quests, tutorial, celebrations) from GET /api/town?tz=<viewer zone>. Polls every 15 s while the
+ * U.B Agents City progression (level, XP, quests, tutorial, celebrations) from GET /api/town?tz=<viewer zone>. Polls every 15 s while the
  * page is visible, refetches when the window regains focus or the tab becomes visible, and resets on a user switch.
  */
 export function useTownProgress(): TownProgressState {

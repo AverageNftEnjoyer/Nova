@@ -132,7 +132,7 @@ export function MissionsMainPanels({
         <div className={cn("mt-3 rounded-xl border p-3.5 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
           <div className="flex items-center gap-2">
             <WandSparkles className="w-3.5 h-3.5 text-accent" />
-            <h3 className={cn("text-xs uppercase tracking-[0.18em] font-semibold", isLight ? "text-s-80" : "text-slate-200")}>Nova Mission Generator</h3>
+            <h3 className={cn("text-xs uppercase tracking-[0.18em] font-semibold", isLight ? "text-s-80" : "text-slate-200")}>U.B Agents Mission Generator</h3>
           </div>
           <p className={cn("mt-1 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
             Uses your connected {AI_PROVIDER_LABELS[integrationsSettings.activeLlmProvider]} model to build a ready-to-review mission draft.

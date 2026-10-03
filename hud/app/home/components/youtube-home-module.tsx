@@ -579,7 +579,7 @@ export function YouTubeHomeModule({
                   <p className={cn("text-[10px] uppercase tracking-[0.16em]", isLight ? "text-s-50" : "text-slate-400")}>YouTube Link</p>
                   <h3 className={cn("mt-1 text-base font-semibold", isLight ? "text-s-90" : "text-slate-100")}>Play a Video in the Module</h3>
                   <p className={cn("mt-1 text-sm leading-5", isLight ? "text-s-60" : "text-slate-300")}>
-                    Paste any public YouTube URL and Nova will pin it in the player without changing the module size.
+                    Paste any public YouTube URL and U.B Agents will pin it in the player without changing the module size.
                   </p>
                 </div>
                 <button
@@ -745,7 +745,7 @@ export function YouTubeHomeModule({
                 {loading
                   ? "Loading YouTube feed..."
                   : !hasWatchRequest
-                    ? "Ask Nova what to watch to start YouTube."
+                    ? "Ask U.B Agents what to watch to start YouTube."
                     : (error || "Waiting for a video...")}
               </div>
             )}

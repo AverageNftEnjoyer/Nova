@@ -151,7 +151,7 @@ export default function HistoryPage() {
               <MessageSquare className="w-12 h-12 mb-4 opacity-30" />
               <p className="text-lg">No conversations yet</p>
               <p className="text-sm mt-1 text-s-20">
-                Start chatting with Nova to see your history here
+                Start chatting with U.B Agents to see your history here
               </p>
               <button
                 onClick={handleNewChat}

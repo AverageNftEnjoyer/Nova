@@ -83,7 +83,7 @@ export function DeploymentsScreen() {
               <div className="min-w-0 leading-tight">
                 <div className="flex items-baseline gap-3">
                   <h1 className={cn("text-[30px] font-semibold leading-none tracking-tight", isLight ? "text-s-90" : "text-white")}>
-                    NovaAIO
+                    U.B Agents
                   </h1>
                   <p className="font-mono text-[11px] text-accent">{NOVA_VERSION}</p>
                 </div>

@@ -33,7 +33,7 @@ export async function executeCoinbaseProviderTool(runtimeTools, availableTools, 
       ok: false,
       errorCode: "TOOL_RUNTIME_UNAVAILABLE",
       safeMessage: "I couldn't verify Coinbase data because the tool runtime is unavailable.",
-      guidance: "Retry after Nova runtime initializes tools.",
+      guidance: "Retry after U.B Agents runtime initializes tools.",
     };
   }
   const exists = Array.isArray(availableTools) && availableTools.some((tool) => String(tool?.name || "") === toolName);
@@ -42,7 +42,7 @@ export async function executeCoinbaseProviderTool(runtimeTools, availableTools, 
       ok: false,
       errorCode: "TOOL_NOT_ENABLED",
       safeMessage: `I couldn't verify Coinbase data because ${toolName} is not enabled.`,
-      guidance: "Enable Coinbase tools in NOVA_ENABLED_TOOLS and restart Nova.",
+      guidance: "Enable Coinbase tools in NOVA_ENABLED_TOOLS and restart U.B Agents.",
     };
   }
   try {

@@ -83,7 +83,7 @@ function IntegrationWorkerCard({
   const next = building?.nextLevelUses ?? null
 
   return (
-    <PixelWindow place="Nova worker" theme="integrations" role={label} size="md" onClose={onClose}>
+    <PixelWindow place="U.B Agents worker" theme="integrations" role={label} size="md" onClose={onClose}>
       <div className="flex h-full min-h-0 flex-col gap-2">
         <div className="game-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
           <div className="flex gap-3">

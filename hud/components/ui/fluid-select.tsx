@@ -24,6 +24,9 @@ interface FluidSelectProps {
   optionClassName?: string
   optionActiveClassName?: string
   disabled?: boolean
+  /** Pixel Day look (Settings modal): hard-bordered trough and menu, styled by pixel-ui.css ".st-select*". */
+  pixel?: boolean
+  ariaLabel?: string
 }
 
 export function FluidSelect({
@@ -38,6 +41,8 @@ export function FluidSelect({
   optionClassName,
   optionActiveClassName,
   disabled = false,
+  pixel = false,
+  ariaLabel,
 }: FluidSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [hoveredValue, setHoveredValue] = useState<string | null>(null)
@@ -129,19 +134,24 @@ export function FluidSelect({
             if (!disabled) setIsOpen((v) => !v)
           }}
           className={cn(
-            "h-9 w-full rounded-md border px-3 text-left text-sm transition-colors inline-flex items-center justify-between",
+            pixel
+              ? "st-select"
+              : cn(
+                  "h-9 w-full rounded-md border px-3 text-left text-sm transition-colors inline-flex items-center justify-between",
+                  isLight
+                    ? "border-[#d5dce8] bg-[#f4f7fd] text-s-90 hover:bg-[#eef3fb]"
+                    : "border-white/12 bg-white/6 text-slate-100 backdrop-blur-md hover:bg-white/10",
+                ),
             disabled && "cursor-not-allowed opacity-55",
-            isLight
-              ? "border-[#d5dce8] bg-[#f4f7fd] text-s-90 hover:bg-[#eef3fb]"
-              : "border-white/12 bg-white/6 text-slate-100 backdrop-blur-md hover:bg-white/10",
             buttonClassName,
           )}
+          aria-label={ariaLabel}
           aria-expanded={isOpen}
           aria-haspopup="listbox"
         >
           <span className="truncate">{selected?.label ?? placeholder ?? options[0]?.label ?? ""}</span>
-          <motion.div animate={{ rotate: isOpen ? 180 : 0 }} transition={{ duration: 0.16 }}>
-            <ChevronDown className={cn("h-4 w-4", isLight ? "text-s-50" : "text-slate-400")} />
+          <motion.div animate={{ rotate: isOpen ? 180 : 0 }} transition={{ duration: pixel ? 0 : 0.16 }}>
+            <ChevronDown className={cn("h-4 w-4", pixel ? "st-select-chevron" : isLight ? "text-s-50" : "text-slate-400")} />
           </motion.div>
         </button>
 
@@ -160,10 +170,14 @@ export function FluidSelect({
                   >
                     <motion.div
                       className={cn(
-                        "max-h-full overflow-hidden rounded-lg border p-1 shadow-lg backdrop-blur-xl",
-                        isLight
-                          ? "border-[#d5dce8] bg-[#f7faff]/95 shadow-[0_10px_30px_-18px_rgba(73,98,141,0.35)]"
-                          : "border-white/14 bg-white/8 shadow-[0_14px_36px_-20px_rgba(120,170,255,0.35)]",
+                        pixel
+                          ? "st-select-menu"
+                          : cn(
+                              "max-h-full overflow-hidden rounded-lg border p-1 shadow-lg backdrop-blur-xl",
+                              isLight
+                                ? "border-[#d5dce8] bg-[#f7faff]/95 shadow-[0_10px_30px_-18px_rgba(73,98,141,0.35)]"
+                                : "border-white/14 bg-white/8 shadow-[0_14px_36px_-20px_rgba(120,170,255,0.35)]",
+                            ),
                         menuClassName,
                       )}
                       initial={{ opacity: 0.95 }}
@@ -184,17 +198,22 @@ export function FluidSelect({
                           initial={{ opacity: 0, y: -6 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ duration: 0.16, delay: index * 0.03 }}
+                          data-selected={value === option.value ? "true" : undefined}
                           className={cn(
-                            "w-full rounded-md px-3 py-2 text-left text-sm transition-colors",
+                            pixel
+                              ? "st-select-option"
+                              : cn(
+                                  "w-full rounded-md px-3 py-2 text-left text-sm transition-colors",
+                                  !option.disabled && (isLight ? "hover:bg-[#eaf1fd]" : "hover:bg-white/12"),
+                                  (value === option.value || hoveredValue === option.value) && !option.disabled
+                                    ? isLight
+                                      ? "bg-[#eaf1fd] text-s-90"
+                                      : "bg-white/14 text-slate-100"
+                                    : isLight
+                                      ? "text-s-70"
+                                      : "text-slate-300",
+                                ),
                             option.disabled && "cursor-not-allowed opacity-45",
-                            !option.disabled && (isLight ? "hover:bg-[#eaf1fd]" : "hover:bg-white/12"),
-                            (value === option.value || hoveredValue === option.value) && !option.disabled
-                              ? isLight
-                                ? "bg-[#eaf1fd] text-s-90"
-                                : "bg-white/14 text-slate-100"
-                              : isLight
-                                ? "text-s-70"
-                                : "text-slate-300",
                             !option.disabled && optionClassName,
                             (value === option.value || hoveredValue === option.value) && !option.disabled && optionActiveClassName,
                           )}

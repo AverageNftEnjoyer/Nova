@@ -1,6 +1,6 @@
 # Local data, storage and secrets
 
-Nova is local-first: your data lives on your own machine and nothing is stored in a hosted service. This page says
+U.B Agents is local-first: your data lives on your own machine and nothing is stored in a hosted service. This page says
 exactly where it lives, how secrets are protected, and where that protection stops. The audited list of network calls
 is in [`outbound-calls.md`](outbound-calls.md).
 
@@ -49,7 +49,7 @@ Inside the data directory:
 
 User settings (profile, theme, notifications, personalization, calendar categories, home preferences) are mirrored into `nova.db` (`kv_state`, namespace `ui-storage`, allowlist in `hud/lib/settings/ui-storage/keys.ts`, via `/api/ui-storage`). Browser `localStorage` is only a fast cache of that mirror. Never secrets.
 
-**Electron browser profile.** Separately from the data directory, Electron keeps its own Chromium profile (Local Storage, IndexedDB, caches) in `%APPDATA%\nova-hud`. It holds nothing that is not also in `nova.db` or on disk (settings are mirrored in `nova.db`, custom background media is in `user-context/<userId>/assets/background/`), so it is safe to delete; Nova rebuilds it and re-hydrates settings from `nova.db`. It is not part of a backup.
+**Electron browser profile.** Separately from the data directory, Electron keeps its own Chromium profile (Local Storage, IndexedDB, caches) in `%APPDATA%\nova-hud`. It holds nothing that is not also in `nova.db` or on disk (settings are mirrored in `nova.db`, custom background media is in `user-context/<userId>/assets/background/`), so it is safe to delete; U.B Agents rebuilds it and re-hydrates settings from `nova.db`. It is not part of a backup.
 
 Schema is versioned with `PRAGMA user_version` plus a `migration:<n>` marker per applied migration in the `meta` table.
 Migrations live in `src/db/migrations/` and are append-only once merged.
@@ -76,7 +76,7 @@ DPAPI ties the key to your Windows login. This protects against: a copied `nova.
 the data folder, another Windows account on the same PC, and anyone who steals the disk without your login.
 
 It does **not** protect against: malware or any program running as **your** Windows user (it can ask DPAPI to unwrap
-the key exactly as Nova does), or someone who is logged in as you. The HUD rejects non-loopback hosts and cross-origin
+the key exactly as U.B Agents does), or someone who is logged in as you. The HUD rejects non-loopback hosts and cross-origin
 state-changing API requests, but requests from local non-browser processes without `Origin`/`Sec-Fetch-Site` headers
 remain allowed by design. Treat the running app as trusted-local, not as a boundary against programs running as the
 same Windows user. See the fixed and residual findings in `outbound-calls.md`.
@@ -86,7 +86,7 @@ entering keys in the app.
 
 ## Backup and restore
 
-- Stop Nova (so WAL is checkpointed), then copy **`nova.db` and `keys/` together**. A database without its
+- Stop U.B Agents (so WAL is checkpointed), then copy **`nova.db` and `keys/` together**. A database without its
   `master.key.dpapi` keeps your chats but every stored secret becomes unreadable.
 - Restore **only on the same Windows account** (same user, same PC profile). DPAPI cannot unwrap the key elsewhere.
 - Moving to a new PC or Windows account: copy the data, then delete `keys/master.key.dpapi` and re-enter your API
@@ -96,7 +96,7 @@ entering keys in the app.
 ## Purging data
 
 The in-app account-delete flow removes a user's rows (`purgeLocalUserData` in `src/db/index.js`), their
-`user-context/<id>/` folder (including its background media, purged explicitly via `purgeBackgroundAssets`) and managed `agent-task-files/<id>/` attachments. To wipe everything, close Nova and
+`user-context/<id>/` folder (including its background media, purged explicitly via `purgeBackgroundAssets`) and managed `agent-task-files/<id>/` attachments. To wipe everything, close U.B Agents and
 delete the data directory.
 
 ## Native module and packaging

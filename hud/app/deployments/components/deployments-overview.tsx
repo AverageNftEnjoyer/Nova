@@ -85,7 +85,7 @@ export function DeploymentsOverview({ isLight, panelClass, subPanelClass, panelS
               <Layers className={cn("h-7 w-7", mutedText)} />
               <p className={cn("text-sm font-medium", strongText)}>Nothing deployed yet</p>
               <p className={cn("max-w-sm text-xs leading-5", mutedText)}>
-                Describe an outcome and Nova plans it, or set up a one-off task or an automation yourself. Everything
+                Describe an outcome and U.B Agents plans it, or set up a one-off task or an automation yourself. Everything
                 you deploy is listed here with its latest run.
               </p>
               <button

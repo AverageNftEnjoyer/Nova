@@ -1,9 +1,9 @@
 import type { CityIntegration, CityPlaceId, CityRect, CityWorkplace } from "../types"
 
 /**
- * The District is one painted daytime image of Nova City (`/pixel-city/town/background.webp`, 1536x1024): a bright
+ * The District is one painted daytime image of U.B Agents City (`/pixel-city/town/background.webp`, 1536x1024): a bright
  * isometric island with tan paved streets, canals, a harbour and colourful domed buildings. This file maps it: which
- * building is which Nova place or integration, where the status badges sit, and where people walk. Coordinates are
+ * building is which U.B Agents place or integration, where the status badges sit, and where people walk. Coordinates are
  * image pixels ("plan pixels"); the renderer draws the image and everything live on top.
  */
 
@@ -57,7 +57,7 @@ const badge = (cx: number, cy: number): SignRect => ({ x: Math.round(cx - BADGE 
 
 export const DISTRICT_PLACES: readonly DistrictPlace[] = [
   // Civic places (always open).
-  { id: "tasks", name: "Nova HQ", hit: { x: 82, y: 0, w: 150, h: 250 }, signs: [] }, // the great arched gate
+  { id: "tasks", name: "U.B Agents HQ", hit: { x: 82, y: 0, w: 150, h: 250 }, signs: [] }, // the great arched gate
   { id: "deploy", name: "Depot", hit: { x: 12, y: 640, w: 135, h: 130 }, signs: [] }, // the harbour office on the pier
   { id: "analytics", name: "Power Plant", hit: { x: 1218, y: 422, w: 112, h: 140 }, signs: [] }, // the rocket tower
   { id: "notes", name: "Noticeboard", hit: { x: 255, y: 548, w: 110, h: 102 }, signs: [] }, // the glasshouse
@@ -94,7 +94,7 @@ export type WalkNodeId = string
  */
 export const WALK_NODES: Readonly<Record<WalkNodeId, readonly [number, number]>> = {
   // Doors: the paving in front of each building.
-  hq: [200, 258], // Nova HQ's gate stairs
+  hq: [200, 258], // U.B Agents HQ's gate stairs
   obs: [556, 115], // Observatory (red orb tower)
   lib: [800, 290], // Library (statue plaza)
   dis: [470, 282], // Arcade (blue spiked hall)
@@ -438,7 +438,7 @@ export const INTEGRATION_DOOR: Readonly<Record<CityIntegration, WalkNodeId>> = {
 }
 
 export const WORKPLACE_NAME: Readonly<Record<CityWorkplace, string>> = {
-  hq: "Nova HQ",
+  hq: "U.B Agents HQ",
   lab: "Lab",
   comms: "Telegraph",
   post: "Post Office",
@@ -490,7 +490,7 @@ export const HQ_SIGN: SignRect = { x: 137, y: 123, w: 60, h: 107 }
 /** The noticeboard's face on the glasshouse lawn: one paper per note. */
 export const NOTICE_FACE: SignRect = { x: 276, y: 628, w: 32, h: 20 }
 export const FOUNTAIN = { x: 644, y: 395, basinY: 432 }
-/** Nova the cat's seat beside the fountain. */
+/** U.B Agents the cat's seat beside the fountain. */
 export const CAT_SPOT = { x: 668, y: 450 }
 
 /**

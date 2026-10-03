@@ -1,11 +1,14 @@
 /**
- * Nova City's camera: pure math for panning and zooming the painted city inside the Home window. The default view is
- * also the closest zoom (`zoomLimits().max`); the user can zoom out until the whole map fits in the window.
+ * U.B Agents City's camera: pure math for panning and zooming the painted city inside the Home window. The map always
+ * COVERS the window (cover fit, never contain): the closest zoom (`zoomLimits().max`, also the default view) frames the
+ * city painting, and the furthest-out zoom (`min`) is the one where the map just fills the window on its tighter axis.
+ * The camera can never reveal anything outside the map.
  *
  * Coordinates: "plan" pixels are the painting's own pixels (DISTRICT_IMAGE_WIDTH x DISTRICT_IMAGE_HEIGHT); the drawn
  * map (DISTRICT_MAP) is larger and extends past them on every side. "Screen" pixels are CSS pixels inside the scene
- * host. Along an axis where the map is larger than the window it pans edge to edge, never past an edge; where it is smaller (zoomed far out) it is centred on the sea. The camera is a zoom (CSS pixels per plan pixel) plus the plan point
- * shown at the centre of the safe area, the band between the HUD bar and the footer player.
+ * host. The camera is a zoom (CSS pixels per plan pixel) plus the plan point shown at the centre of the safe area,
+ * the band between the HUD bar and the footer player. The PixiJS world (world/pixi-world.ts) drives pixi-viewport
+ * with exactly these limits; the static fallback view uses the same functions.
  */
 
 import { DISTRICT_IMAGE_HEIGHT, DISTRICT_IMAGE_WIDTH, DISTRICT_MAP } from "./district/image-plan"
@@ -39,7 +42,7 @@ export interface CameraView {
 export const CITY_FOCUS = { x: 768, y: 500 } as const
 
 export interface ZoomLimits {
-  /** Furthest out: the whole map fits in the window (contain fit); the spare sides are the sea colour. */
+  /** Furthest out: the map just covers the window (cover fit), so no edge of the map is ever visible. */
   min: number
   /** Closest in, and the default view. */
   max: number
@@ -55,11 +58,12 @@ function safeHeight(vp: CameraViewport): number {
 }
 
 /**
- * Zoom range for this window. min: the whole map fits in it. max (the default view): the city painting covers it, a
- * little closer (VIEW_ZOOM_BOOST); zooming in further only showed the painting's blur.
+ * Zoom range for this window. min: the map covers the window. max (the default view): the city painting covers it, a
+ * little closer (VIEW_ZOOM_BOOST); zooming in further only showed the painting's blur. When the window's aspect makes
+ * the cover fit already closer than that, max = min.
  */
 export function zoomLimits(vp: CameraViewport): ZoomLimits {
-  const min = Math.min(vp.width / DISTRICT_MAP.w, vp.height / DISTRICT_MAP.h)
+  const min = Math.max(vp.width / DISTRICT_MAP.w, vp.height / DISTRICT_MAP.h)
   const cityCover = Math.max(vp.width / DISTRICT_IMAGE_WIDTH, vp.height / DISTRICT_IMAGE_HEIGHT)
   return { min, max: Math.max(min, cityCover * VIEW_ZOOM_BOOST) }
 }
@@ -72,7 +76,7 @@ export function toView(cam: Camera, vp: CameraViewport): CameraView {
   }
 }
 
-function fromView(view: CameraView, vp: CameraViewport): Camera {
+export function fromView(view: CameraView, vp: CameraViewport): Camera {
   return {
     zoom: view.zoom,
     cx: (vp.width / 2 - view.offsetX) / view.zoom,
@@ -81,8 +85,8 @@ function fromView(view: CameraView, vp: CameraViewport): Camera {
 }
 
 /**
- * Keeps the zoom in range. Along an axis where the map is larger than the window it may be panned edge to edge, never
- * past an edge; along an axis where it is smaller it is centred.
+ * Keeps the zoom in range and the map covering the window: panned edge to edge, never past an edge. (The centring
+ * branch only guards floating-point ties at the cover zoom.)
  */
 export function clampCamera(cam: Camera, vp: CameraViewport): Camera {
   const limits = zoomLimits(vp)
@@ -127,18 +131,4 @@ export function revealRect(cam: Camera, rect: CityRect, vp: CameraViewport): Cam
   const bottom = top + rect.h * view.zoom
   if (left >= 0 && right <= vp.width && top >= vp.safeTop && bottom <= vp.height - vp.safeBottom) return null
   return clampCamera({ zoom: cam.zoom, cx: rect.x + rect.w / 2, cy: rect.y + rect.h / 2 }, vp)
-}
-
-/** Eases `from` towards `to`; `alpha` in 0..1. Zoom moves in log space so zooming feels even at every level. */
-export function easeCamera(from: Camera, to: Camera, alpha: number): Camera {
-  return {
-    zoom: Math.exp(Math.log(from.zoom) + (Math.log(to.zoom) - Math.log(from.zoom)) * alpha),
-    cx: from.cx + (to.cx - from.cx) * alpha,
-    cy: from.cy + (to.cy - from.cy) * alpha,
-  }
-}
-
-/** True when two cameras are within a fraction of a screen pixel of each other. */
-export function camerasClose(a: Camera, b: Camera): boolean {
-  return Math.abs(a.zoom - b.zoom) / b.zoom < 0.0005 && Math.abs(a.cx - b.cx) * b.zoom < 0.25 && Math.abs(a.cy - b.cy) * b.zoom < 0.25
 }

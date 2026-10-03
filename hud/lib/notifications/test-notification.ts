@@ -16,7 +16,7 @@ import { showNativeNotification, notifyTaskComplete, notifyMissionRun, notifyErr
 export async function testNotification(): Promise<void> {
   await showNativeNotification({
     title: "Test Notification",
-    body: "This is a test notification from Nova",
+    body: "This is a test notification from U.B Agents",
   })
   console.log("✓ Test notification sent")
 }

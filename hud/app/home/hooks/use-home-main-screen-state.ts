@@ -29,9 +29,9 @@ export function useHomeMainScreenState() {
     clearAgentMessages,
   } = nova
 
-  const [assistantName, setAssistantName] = useState("Nova")
+  const [assistantName, setAssistantName] = useState("U.B Agents")
   useEffect(() => {
-    const sync = () => setAssistantName(String(loadUserSettings().personalization?.assistantName || "").trim() || "Nova")
+    const sync = () => setAssistantName(String(loadUserSettings().personalization?.assistantName || "").trim() || "U.B Agents")
     sync()
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, sync as EventListener)
     return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, sync as EventListener)
@@ -87,10 +87,6 @@ export function useHomeMainScreenState() {
   }, [connected, setVoicePreference])
 
   const openMissions = useCallback(() => router.push("/deployments"), [router])
-  // "New deployment" is a popup over Home, not a page change; it shares Home's Nova connection.
-  const [newDeploymentOpen, setNewDeploymentOpen] = useState(false)
-  const openTaskDeployment = useCallback(() => setNewDeploymentOpen(true), [])
-  const closeNewDeployment = useCallback(() => setNewDeploymentOpen(false), [])
   const openCalendar = useCallback(() => router.push("/missions/calendar"), [router])
   const openIntegrations = useCallback(() => router.push("/integrations"), [router])
   const openDevLogs = useCallback(() => router.push("/dev-logs"), [router])
@@ -113,9 +109,6 @@ export function useHomeMainScreenState() {
     cryptoRange: cryptoMarket.cryptoRange,
     setCryptoRange: cryptoMarket.setCryptoRange,
     openMissions,
-    openTaskDeployment,
-    newDeploymentOpen,
-    closeNewDeployment,
     nova,
     openCalendar,
     openIntegrations,

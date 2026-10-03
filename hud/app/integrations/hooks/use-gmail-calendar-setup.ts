@@ -189,7 +189,7 @@ export function useGmailCalendarSetup({
           if (!tab) {
             setSaveStatus({
               type: "error",
-              message: "Popup was blocked. Allow popups for Nova to connect Google Calendar.",
+              message: "Popup was blocked. Allow popups for U.B Agents to connect Google Calendar.",
             })
           } else {
             setSaveStatus({

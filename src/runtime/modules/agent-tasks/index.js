@@ -524,7 +524,7 @@ async function executeTask(instanceId, task, handleInput, controller, onBudgetEv
         }
       },
       customInstructions:
-        "Execute this as an autonomous background task. Use available Nova integrations and tools when needed. " +
+        "Execute this as an autonomous background task. Use available U.B Agents integrations and tools when needed. " +
         "Return a clear final result describing completed work and any blockers.",
     }));
     const result = normalizeResult(rawResult);
@@ -624,7 +624,7 @@ export function startAgentTaskService({ handleInput, onBudgetEvent }) {
 
   return () => {
     clearInterval(timer);
-    for (const run of active.values()) run.controller.abort(new Error("Nova runtime is shutting down."));
+    for (const run of active.values()) run.controller.abort(new Error("U.B Agents runtime is shutting down."));
     active.clear();
   };
 }

@@ -232,7 +232,7 @@ export async function createGmailCalendarEvent(
 ): Promise<GmailCalendarEventItem> {
   const { accountId, calendarId = "primary", scope } = options ?? {}
   const accessToken = await getValidGmailCalendarAccessToken(accountId, false, scope)
-  const summary = String(event.summary || "").trim() || "Nova Automation"
+  const summary = String(event.summary || "").trim() || "U.B Agents Automation"
   const description = typeof event.description === "string" ? event.description.trim() : ""
   const timeZone = String(event.timeZone || "").trim() || "UTC"
 

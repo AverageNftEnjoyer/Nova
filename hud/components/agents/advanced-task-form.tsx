@@ -24,6 +24,8 @@ export interface AdvancedTaskFormProps {
   onCreate: (input: CreateAgentTaskInput) => Promise<{ ok: true } | { ok: false; error: string }>
   /** Called after a successful submit, once the form has been reset. */
   onCreated?: () => void
+  /** "holo": drawn on the Depot hologram screen; the pickers get hard-edged hologram classes (pixel-ui.css ".holo-select*"). */
+  tone?: "default" | "holo"
 }
 
 const PROMPT_MAX_LENGTH = 4000
@@ -58,7 +60,9 @@ function basename(filePath: string): string {
  * The Advanced one-off task form (provider, model, permissions, budget). Rendered inside the Deployments
  * composer; the caller decides what a created task becomes (a Deployment plus its first run).
  */
-export function AdvancedTaskForm({ isLight, onCreate, onCreated }: AdvancedTaskFormProps) {
+export function AdvancedTaskForm({ isLight, onCreate, onCreated, tone = "default" }: AdvancedTaskFormProps) {
+  const selectClasses =
+    tone === "holo" ? { buttonClassName: "holo-select", menuClassName: "holo-select-menu", optionClassName: "holo-select-option" } : {}
   const [agent, setAgent] = useState<AgentProvider>("openai")
   const [model, setModel] = useState("")
   const [providerOptions, setProviderOptions] = useState<AgentTaskProviderOption[]>([])
@@ -374,6 +378,7 @@ export function AdvancedTaskForm({ isLight, onCreate, onCreated }: AdvancedTaskF
               <div>
                 <span className={labelClass}>Provider</span>
                 <FluidSelect
+                  {...selectClasses}
                   value={agent}
                   options={providerSelectOptions}
                   onChange={handleAgentChange}
@@ -385,6 +390,7 @@ export function AdvancedTaskForm({ isLight, onCreate, onCreated }: AdvancedTaskF
               <div>
                 <span className={labelClass}>Model</span>
                 <FluidSelect
+                  {...selectClasses}
                   value={model}
                   options={modelOptions}
                   onChange={setModel}
@@ -423,6 +429,7 @@ export function AdvancedTaskForm({ isLight, onCreate, onCreated }: AdvancedTaskF
               <div>
                 <span className={labelClass}>Permission mode</span>
                 <FluidSelect
+                  {...selectClasses}
                   value={permissionMode}
                   options={PERMISSION_OPTIONS}
                   onChange={(value) => setPermissionMode(value as AgentPermissionMode)}
@@ -444,6 +451,7 @@ export function AdvancedTaskForm({ isLight, onCreate, onCreated }: AdvancedTaskF
               {!showNewContextInput ? (
                 <div className="flex gap-2">
                   <FluidSelect
+                    {...selectClasses}
                     value={selectedContext}
                     options={contextOptions}
                     onChange={setSelectedContext}

@@ -1,5 +1,5 @@
 /**
- * Nova Mission Retry Policy
+ * U.B Agents Mission Retry Policy
  *
  * Computes retry delay with exponential backoff and optional ±10% jitter.
  * Used by:

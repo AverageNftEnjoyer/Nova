@@ -135,7 +135,7 @@ export async function syncWorkspaceContextFiles(
 
   const resolvedTone = normalizeTone(rawInput.tone || "neutral")
   const input: WorkspaceContextSyncInput = {
-    assistantName: compactText(rawInput.assistantName || "Nova", 60) || "Nova",
+    assistantName: compactText(rawInput.assistantName || "U.B Agents", 60) || "U.B Agents",
     userName: compactText(rawInput.userName || "User", 80) || "User",
     nickname: compactText(rawInput.nickname, 80),
     occupation: compactText(rawInput.occupation, 120),
@@ -151,7 +151,7 @@ export async function syncWorkspaceContextFiles(
   const updatedFiles: string[] = []
 
   const userBlock = [
-    "## Synced From Nova Settings",
+    "## Synced From U.B Agents Settings",
     "",
     `- Assistant name: ${input.assistantName}`,
     `- Name: ${input.userName}`,

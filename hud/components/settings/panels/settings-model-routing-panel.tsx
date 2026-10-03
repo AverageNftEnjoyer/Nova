@@ -31,7 +31,7 @@ const MODE_OPTIONS: { id: ModelRoutingMode; label: string; description: string }
     id: "trivial",
     label: "Trivial calls only",
     description:
-      "Small helper calls use your provider's economy model: output-format fixes, empty-reply retries, Spotify command parsing, mission classify / extract steps, step suggestions and the Gmail digest. Your questions are still answered by your selected model. Nova keeps a call on your selected model when its prompt cache makes that cheaper. These calls are rare, so the saving is small.",
+      "Small helper calls use your provider's economy model: output-format fixes, empty-reply retries, Spotify command parsing, mission classify / extract steps, step suggestions and the Gmail digest. Your questions are still answered by your selected model. U.B Agents keeps a call on your selected model when its prompt cache makes that cheaper. These calls are rare, so the saving is small.",
   },
   {
     id: "cost-saving",
@@ -134,7 +134,7 @@ export function SettingsModelRoutingPanel({ isLight, onNavigateToAgentBudgets }:
   return (
     <div className="space-y-5">
       <p className={cn("text-xs leading-5", isLight ? "text-s-50" : "text-slate-400")}>
-        Nova can send some of its own model calls to your provider&apos;s economy model instead of your selected model.
+        U.B Agents can send some of its own model calls to your provider&apos;s economy model instead of your selected model.
         It never switches provider, so no other key is needed, and it only routes a call when that is estimated to be
         cheaper, counting what your selected model already has in its prompt cache. Mission generation always uses
         your selected model, and a mission step that names its own model always uses that one.

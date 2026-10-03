@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="hud/public/images/nova.svg" alt="NovaAIO" width="120" height="120">
+  <img src="hud/public/images/nova.svg" alt="U.B Agents" width="120" height="120">
 </p>
 
-<h1 align="center">NovaAIO</h1>
+<h1 align="center">U.B Agents</h1>
 
 <p align="center">
   <strong>A local-first AI agent desktop app: chat, voice, automations, and agent tasks in one place.</strong>
@@ -10,7 +10,7 @@
 
 <p align="center">
   <!-- TODO: swap in a real hero screenshot or a short GIF of the home screen -->
-  <img src="docs/screenshots/hero.png" alt="NovaAIO home screen" width="900">
+  <img src="docs/screenshots/hero.png" alt="U.B Agents home screen" width="900">
 </p>
 
 <p align="center">
@@ -21,11 +21,11 @@
 
 ## Overview
 
-NovaAIO is a personal AI assistant that runs on your own machine. You talk to it by text or voice, and it can do real work: read your email, check your calendar, search the web, run scheduled automations, track crypto and prediction markets, and run long agent tasks in the background.
+U.B Agents is a personal AI assistant that runs on your own machine. You talk to it by text or voice, and it can do real work: read your email, check your calendar, search the web, run scheduled automations, track crypto and prediction markets, and run long agent tasks in the background.
 
 I built it to answer a simple question: what does an AI assistant look like when it isn't a chat box in a browser tab, but a proper desktop application with tools, memory, a scheduler, and guardrails? Everything is stored locally. API keys are encrypted at rest, and no account or hosted backend is required.
 
-**Status:** Alpha (V.85). Actively developed and used daily by the author.
+**Status:** Alpha (V.87). Actively developed and used daily by the author.
 
 ---
 
@@ -36,12 +36,12 @@ I built it to answer a simple question: what does an AI assistant look like when
 | Home | Chat |
 | :---: | :---: |
 | <img src="docs/screenshots/home.png" alt="Home dashboard" width="440"> | <img src="docs/screenshots/chat.png" alt="Chat with tool use" width="440"> |
-| Nova City: a pixel-art island city you play. Every building opens its own room where you see its data, connect its integration and change its settings; agent tasks and connected integrations walk the streets, and real work earns XP, levels, quests and a guided tutorial | Streaming chat with tool calls and approvals |
+| U.B Agents City: a pixel-art island city you play. A boot screen plays while the city loads. Every building opens its own room where you see its data, connect its integration and change its settings; agent tasks and connected integrations walk the streets, and real work earns XP, levels, quests and a guided tutorial | Streaming chat with tool calls and approvals |
 
 | Deployments | Deployment Activity |
 | :---: | :---: |
 | <img src="docs/screenshots/missions-canvas.png" alt="Deployment automation canvas" width="440"> | <img src="docs/screenshots/agent-tasks.png" alt="Deployment task activity" width="440"> |
-| Simple Nova manager plus Advanced task and automation editors | One lifecycle for background tasks and scheduled automations |
+| Simple U.B Agents manager plus Advanced task and automation editors | One lifecycle for background tasks and scheduled automations |
 
 | Integrations | Voice |
 | :---: | :---: |
@@ -62,7 +62,7 @@ I built it to answer a simple question: what does an AI assistant look like when
 - Text-to-speech through Fish Audio with switchable voices.
 
 ### Deployments
-- **Simple** is a live Nova manager conversation: describe an outcome, review a validated task-or-automation plan, then launch it.
+- **Simple** is a live U.B Agents manager conversation: describe an outcome, review a validated task-or-automation plan, then launch it.
 - **Advanced** exposes connected provider/model selection, permissions, context/files, worktrees, budgets, and the guided Mission builder or graph canvas.
 - Every launch has a canonical DeploymentRun, immutable definition revision, replayable event history, idempotency key, and cancellation/review controls.
 
@@ -104,7 +104,7 @@ Skills are plain `SKILL.md` files the assistant discovers at startup. Included: 
 
 ## Architecture
 
-In development NovaAIO runs as two cooperating processes, started together by a single launcher (`nova.js`). In the packaged desktop app, Electron's main process hosts both halves in-process: the Next.js production server (API routes included) on a loopback port and the agent runtime (`hud/electron/production-server.js`).
+In development U.B Agents runs as two cooperating processes, started together by a single launcher (`nova.js`). In the packaged desktop app, Electron's main process hosts both halves in-process: the Next.js production server (API routes included) on a loopback port and the agent runtime (`hud/electron/production-server.js`).
 
 ```
 ┌──────────────────────────â”        WebSocket         ┌──────────────────────────â”
@@ -167,8 +167,8 @@ In development NovaAIO runs as two cooperating processes, started together by a 
 ### Install
 
 ```bash
-git clone https://github.com/AverageNftEnjoyer/Nova.git
-cd Nova
+git clone https://github.com/AverageNftEnjoyer/U.B Agents.git
+cd U.B Agents
 
 npm install
 npm run install:all      # installs the HUD dependencies
@@ -186,7 +186,7 @@ At minimum, set an LLM key:
 OPENAI_API_KEY=...        # and/or ANTHROPIC_API_KEY
 ```
 
-There is no encryption key to configure. Nova generates a random master key on first run and protects it with Windows DPAPI (current Windows user); API keys you enter in the app are encrypted with it before they are written to the local database. See [docs/security/local-data.md](docs/security/local-data.md) for details and limits.
+There is no encryption key to configure. U.B Agents generates a random master key on first run and protects it with Windows DPAPI (current Windows user); API keys you enter in the app are encrypted with it before they are written to the local database. See [docs/security/local-data.md](docs/security/local-data.md) for details and limits.
 
 Integrations (Gmail, Telegram, Discord, Spotify, and so on) are optional and can be set up from the in-app Integrations page.
 
@@ -208,7 +208,7 @@ cd hud
 npm run electron:build:win
 ```
 
-This builds the HUD with `npm run build:package` (a Next.js build that also writes Next's output-file trace), stages the agent runtime (`src/`, `dist/`, production-only runtime `node_modules`) with `electron:prepare-runtime`, and runs electron-builder. The packaged Next.js install is pruned to exactly the files that trace lists, and build-only files (typings, source maps, tests, docs) are left out. The installer is about 124 MB and is written to `hud/dist/`; `npm run package:size` (in `hud/`) shows where the megabytes go. The packaged app keeps its data in `%APPDATA%\Nova`, never in the install directory. Installed builds update themselves from GitHub Releases (see [docs/release/auto-update.md](docs/release/auto-update.md)). Closing the window (X) quits Nova; minimizing sends it to the taskbar and it keeps running.
+This builds the HUD with `npm run build:package` (a Next.js build that also writes Next's output-file trace), stages the agent runtime (`src/`, `dist/`, production-only runtime `node_modules`) with `electron:prepare-runtime`, and runs electron-builder. The packaged Next.js install is pruned to exactly the files that trace lists, and build-only files (typings, source maps, tests, docs) are left out. The installer is about 124 MB and is written to `hud/dist/`; `npm run package:size` (in `hud/`) shows where the megabytes go. The packaged app keeps its data in `%APPDATA%\Nova`, never in the install directory. Installed builds update themselves from GitHub Releases (see [docs/release/auto-update.md](docs/release/auto-update.md)). Closing the window (X) quits U.B Agents; minimizing sends it to the taskbar and it keeps running.
 
 To check a packaged build boots without clicking through the installer (from the repo root):
 

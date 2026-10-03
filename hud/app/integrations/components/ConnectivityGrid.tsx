@@ -20,7 +20,7 @@ interface ConnectivityGridProps {
 const LEVEL_PIPS: ReadonlyArray<1 | 2 | 3> = [1, 2, 3]
 
 /**
- * One Nova City building per integration: the painted building (or a pixel lot when the painting has none), its neon sign
+ * One U.B Agents City building per integration: the painted building (or a pixel lot when the painting has none), its neon sign
  * (lit while the integration is connected, a faulty flickering tube while it is not), connection state and building level.
  * Selecting a card opens that integration's setup, exactly like the old icon grid.
  */

@@ -529,7 +529,7 @@ function formatScanReply(query = "", results = []) {
     if (entry.snippet) lines.push(`  ${normalizeText(entry.snippet)}`);
     if (entry.url) lines.push(`  ${normalizeText(entry.url)}`);
   }
-  lines.push("For live trading, use Nova's Polymarket workspace with a connected Phantom EVM wallet.");
+  lines.push("For live trading, use U.B Agents' Polymarket workspace with a connected Phantom EVM wallet.");
   return lines.join("\n");
 }
 
@@ -539,7 +539,7 @@ function buildAlertMissionPrompt({ market, outcome, direction, threshold, delive
     ? `Use ${deliveryChannel}-output for delivery.`
     : "Use a connected output node for delivery.";
   return compactWhitespace([
-    "Create and deploy a Nova mission for a Polymarket alert.",
+    "Create and deploy a U.B Agents mission for a Polymarket alert.",
     `Use polymarket-price-trigger with tokenId '${normalizeText(outcome?.tokenId)}', marketSlug '${normalizeText(market?.slug)}', direction '${direction}', threshold ${clamp01(threshold).toFixed(4)}.`,
     `Alert when '${normalizeText(market?.title || market?.question)}' crosses ${thresholdPct}% ${direction}.`,
     outputHint,

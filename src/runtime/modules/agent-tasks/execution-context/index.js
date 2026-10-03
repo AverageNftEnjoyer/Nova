@@ -53,7 +53,7 @@ export async function resolveTaskWorkspace(task) {
     realpathCaseNormalized(task.worktree_path),
   ]);
   if (requested !== expected || !isPathInside(repositoryRoot, requested)) {
-    throw new Error("Task worktree path is outside Nova's managed worktree directory.");
+    throw new Error("Task worktree path is outside U.B Agents' managed worktree directory.");
   }
 
   const { stdout } = await execFileAsync("git", ["worktree", "list", "--porcelain"], {

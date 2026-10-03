@@ -93,7 +93,7 @@ export function buildEmailAssistantFailureReply(input: {
   const quippy = sarcastic || style === "casual" || style === "friendly" || tone === "relaxed" || tone === "enthusiastic"
   if (input.reason === "unauthorized") {
     if (quippy) return `${name}, I’m locked out of inbox access right now. Reconnect Gmail in Integrations and I’ll jump back in.`
-    return `${name}, I need your Nova session re-authenticated before I can read your inbox. Open Integrations and reconnect Gmail once.`
+    return `${name}, I need your U.B Agents session re-authenticated before I can read your inbox. Open Integrations and reconnect Gmail once.`
   }
   if (quippy) return `${name}, inbox check hit turbulence. Give me a second and try again.`
   return `${name}, I could not read your inbox right now. Try again in a moment.`

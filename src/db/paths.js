@@ -44,7 +44,7 @@ function canReadAndWrite(dir) {
 
 /**
  * Best-effort (Windows only): drop inherited permissions on `dir` and grant Full Control only to the current
- * user, SYSTEM and Administrators, so other local Windows accounts can neither read nor modify Nova's data
+ * user, SYSTEM and Administrators, so other local Windows accounts can neither read nor modify U.B Agents' data
  * (chat, notes, nova.db). Well-known accounts are granted by SID so it works on any Windows language.
  * Never throws and logs nothing; if the current user can no longer write afterwards, inheritance is restored.
  * Returns true when the restriction is in place.
@@ -87,7 +87,7 @@ export function resolveDataDir() {
   } else {
     dir = path.join(resolveWorkspaceRoot(), ".user");
   }
-  assertPathIsNotUnderReservedSrcUserPath(dir, resolveWorkspaceRoot(), "Nova data directory");
+  assertPathIsNotUnderReservedSrcUserPath(dir, resolveWorkspaceRoot(), "U.B Agents data directory");
   const existed = fs.existsSync(dir);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   // Only a directory this call created is locked down; an existing directory keeps the user's own permissions.

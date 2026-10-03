@@ -26,13 +26,13 @@ export type PersonalityChallengeLevel = "supportive" | "neutral" | "challenger"
 
 export interface Personalization {
   assistantName: string // What the user wants to call the assistant
-  nickname: string // What Nova should call the user
+  nickname: string // What U.B Agents should call the user
   occupation: string
   preferredCity: string // Preferred weather city for Home weather module
   interests: string[] // List of interests
   communicationStyle: "formal" | "casual" | "friendly" | "professional"
   tone: ResponseTone
-  customInstructions: string // Freeform instructions for Nova
+  customInstructions: string // Freeform instructions for U.B Agents
   characteristics: string // User personality traits to remember
   preferredLanguage: string
   // Behavior dimensions — seeded into personality engine via settings_sync
@@ -83,7 +83,7 @@ export interface UserSettings {
 
 const STORAGE_KEY_PREFIX = "nova_user_settings"
 export const USER_SETTINGS_UPDATED_EVENT = "nova:user-settings-updated"
-export const MAX_ASSISTANT_NAME_LENGTH = 8
+export const MAX_ASSISTANT_NAME_LENGTH = 16
 export const MAX_PREFERRED_CITY_LENGTH = 80
 const BLOCKED_ASSISTANT_NAME_PATTERNS: RegExp[] = [
   /^fuck(?:er|ing|ed|s)?$/i,
@@ -132,7 +132,7 @@ const DEFAULT_SETTINGS: UserSettings = {
     nlpEditHintsEnabled: true,
   },
   personalization: {
-    assistantName: "Nova",
+    assistantName: "U.B Agents",
     nickname: "",
     occupation: "",
     preferredCity: "",
@@ -186,7 +186,7 @@ const REMOVED_APP_SETTING_KEYS = [
   "bootMusicDataUrl",
   "bootMusicFileName",
   "bootMusicAssetId",
-  // The Harbour / District view switch; Home has one view (Nova City) again.
+  // The Harbour / District view switch; Home has one view (U.B Agents City) again.
   "homeScene",
 ] as const
 
@@ -347,8 +347,10 @@ export function extractPreferredCityCommand(value: unknown): string {
 }
 
 function clampAssistantName(value: unknown): string {
-  const trimmed = String(value || "").trim().slice(0, MAX_ASSISTANT_NAME_LENGTH)
-  if (isBlockedAssistantName(trimmed)) return "Nova"
+  const raw = String(value || "").trim()
+  if (!raw || raw === "Nova") return "U.B Agents"
+  const trimmed = raw.slice(0, MAX_ASSISTANT_NAME_LENGTH)
+  if (isBlockedAssistantName(trimmed)) return "U.B Agents"
   return trimmed
 }
 
@@ -487,7 +489,7 @@ export const ORB_COLORS: Record<
 
 // Available TTS voices
 export const TTS_VOICES = [
-  { id: "default", name: "Default Voice", description: "Nova's standard voice" },
+  { id: "default", name: "Default Voice", description: "U.B Agents' standard voice" },
   { id: "peter", name: "Peter", description: "Alternative male voice" },
   { id: "mord", name: "Mord", description: "Deep authoritative voice" },
   { id: "ultron", name: "Ultron", description: "Dark tone" },

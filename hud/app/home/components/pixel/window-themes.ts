@@ -24,7 +24,7 @@ export interface PixelWindowTheme {
 }
 
 export const PIXEL_WINDOW_THEMES: Readonly<Record<PixelWindowThemeId, PixelWindowTheme>> = {
-  // Nova HQ: the glass tower with the cyan N.
+  // U.B Agents HQ: the glass tower with the cyan N.
   tasks: { id: "tasks", accent: "#4fe0ee", accent2: "#c8f8ff", emblem: ["aaaaaaaaa", "a.......a", "a.b...b.a", "a.bb..b.a", "a.b.b.b.a", "a.b..bb.a", "a.b...b.a", "a.......a", "aaaaaaaaa"] },
   // Power Plant: red POWER neon.
   analytics: { id: "analytics", accent: "#ff8a6a", accent2: "#ffd34d", emblem: [".....aa..", "....aa...", "...aa....", "..aaaaaa.", "....aa...", "...aa....", "..aa.....", ".aa......", "a........"] },
@@ -44,7 +44,7 @@ export const PIXEL_WINDOW_THEMES: Readonly<Record<PixelWindowThemeId, PixelWindo
   youtube: { id: "youtube", accent: "#ff80c4", accent2: "#ffb04a", emblem: ["aaaaaaaaa", "a.a.a.a.a", "aaaaaaaaa", "a.......a", "a..bb...a", "a..bbb..a", "a..bb...a", "aaaaaaaaa", "a.a.a.a.a"] },
   // Quest log: the Town Hall's guild board, a gold star.
   quest: { id: "quest", accent: "#ffcf4a", accent2: "#9cbcff", emblem: ["....a....", "....a....", "...aaa...", "aaaaaaaaa", ".aaaaaaa.", "..aaaaa..", "..aa.aa..", ".aa...aa.", "........."] },
-  // An agent's card: Nova HQ's cyan visor.
+  // An agent's card: U.B Agents HQ's cyan visor.
   agent: { id: "agent", accent: "#4fe0ee", accent2: "#ffffff", emblem: ["..wwwww..", ".wwwwwww.", "wwaaaaaww", "wabbbbbaw", "wwaaaaaww", ".wwwwwww.", "..wwwww..", ".ww...ww.", "........."] },
   // Anything else: under the NOVA arch.
   default: { id: "default", accent: "#ffcf4a", accent2: "#27c4c4", emblem: [".........", "....a....", "...aba...", "..abbba..", ".abbbbba.", "..abbba..", "...aba...", "....a....", "........."] },

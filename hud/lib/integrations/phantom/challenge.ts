@@ -87,7 +87,7 @@ export function createPhantomAuthChallenge(params: {
   const origin = normalizePhantomOrigin(uri)
   const domain = extractDomainFromUri(uri)
   const statement =
-    "Sign in to Nova to verify wallet ownership. This signs a message only and does not authorize custody, transactions, or autonomous trading."
+    "Sign in to U.B Agents to verify wallet ownership. This signs a message only and does not authorize custody, transactions, or autonomous trading."
   const resources = [
     `${origin.replace(/\/+$/, "")}${buildIntegrationsHref("phantom")}`,
     `${origin.replace(/\/+$/, "")}/integrations#polymarket`,

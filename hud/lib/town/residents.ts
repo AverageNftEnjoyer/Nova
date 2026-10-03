@@ -1,5 +1,5 @@
 /**
- * Nova City residents: the contract between the server (`GET/POST /api/town/residents`) and Home's resident card.
+ * U.B Agents City residents: the contract between the server (`GET/POST /api/town/residents`) and Home's resident card.
  * A resident is an agent task or a connected integration worker; the only thing a user can change is its display
  * name (1-24 characters). A resident without a stored name keeps its default one.
  *

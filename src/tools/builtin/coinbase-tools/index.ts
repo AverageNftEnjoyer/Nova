@@ -771,13 +771,13 @@ function resolvePersonaMetaFromWorkspace(workspaceDir: string, userContextId: st
 } {
   const uid = toUserContextId(userContextId);
   const root = resolveWorkspaceRoot(workspaceDir);
-  if (!uid) return { assistantName: "Nova", tone: "neutral" };
+  if (!uid) return { assistantName: "U.B Agents", tone: "neutral" };
   const cacheKey = `${root}::${uid}`;
   const now = Date.now();
   const cached = personaMetaByWorkspaceAndUser.get(cacheKey);
   if (cached && now - cached.ts < PERSONA_META_CACHE_TTL_MS) return cached.value;
   const agentsPath = path.join(resolveUserContextRoot(), uid, "AGENTS.md");
-  let assistantName = "Nova";
+  let assistantName = "U.B Agents";
   let tone: "neutral" | "enthusiastic" | "calm" | "direct" | "relaxed" = "neutral";
   try {
     if (!fs.existsSync(agentsPath)) return { assistantName, tone };
@@ -821,7 +821,7 @@ export function createCoinbaseTools(params: { workspaceDir: string }): Tool[] {
           errorCode: "BAD_INPUT",
           message: "Missing userContextId.",
           safeMessage: "I couldn't verify Coinbase status because user context is missing.",
-          guidance: "Retry from an authenticated Nova chat session.",
+          guidance: "Retry from an authenticated U.B Agents chat session.",
           retryable: false,
           requiredScopes: [...COINBASE_REQUIRED_SCOPES],
         });
@@ -869,7 +869,7 @@ export function createCoinbaseTools(params: { workspaceDir: string }): Tool[] {
           errorCode: "BAD_INPUT",
           message: "Missing userContextId.",
           safeMessage: "I couldn't verify Coinbase price because user context is missing.",
-          guidance: "Retry from an authenticated Nova chat session.",
+          guidance: "Retry from an authenticated U.B Agents chat session.",
           retryable: false,
           requiredScopes: [...COINBASE_REQUIRED_SCOPES],
         });
@@ -939,7 +939,7 @@ export function createCoinbaseTools(params: { workspaceDir: string }): Tool[] {
           errorCode: "BAD_INPUT",
           message: "Missing userContextId.",
           safeMessage: "I couldn't verify Coinbase portfolio because user context is missing.",
-          guidance: "Retry from an authenticated Nova chat session.",
+          guidance: "Retry from an authenticated U.B Agents chat session.",
           retryable: false,
           requiredScopes: [...COINBASE_REQUIRED_SCOPES],
         });
@@ -1023,7 +1023,7 @@ export function createCoinbaseTools(params: { workspaceDir: string }): Tool[] {
           errorCode: "BAD_INPUT",
           message: "Missing userContextId.",
           safeMessage: "I couldn't verify Coinbase transactions because user context is missing.",
-          guidance: "Retry from an authenticated Nova chat session.",
+          guidance: "Retry from an authenticated U.B Agents chat session.",
           retryable: false,
           requiredScopes: [...COINBASE_REQUIRED_SCOPES],
         });
@@ -1099,7 +1099,7 @@ export function createCoinbaseTools(params: { workspaceDir: string }): Tool[] {
           errorCode: "BAD_INPUT",
           message: "Missing userContextId.",
           safeMessage: "I couldn't verify Coinbase report because user context is missing.",
-          guidance: "Retry from an authenticated Nova chat session.",
+          guidance: "Retry from an authenticated U.B Agents chat session.",
           retryable: false,
           requiredScopes: [...COINBASE_REQUIRED_SCOPES],
         });

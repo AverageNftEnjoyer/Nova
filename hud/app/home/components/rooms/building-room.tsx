@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react"
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import { cn } from "@/lib/shared/utils"
 import type { TownBuilding } from "@/lib/town/types"
 import { GameBar } from "../game/game-bar"
@@ -8,8 +8,10 @@ import { formatXp, INTEGRATION_LABELS } from "../game/town-ui"
 import { PixelEmblem } from "../pixel/pixel-window"
 import { PIXEL_WINDOW_THEMES } from "../pixel/window-themes"
 import { RoomBackdrop } from "./room-backdrop"
+import { useRoomPicture } from "./room-picture"
 import { RoomIntegrationSetup } from "./room-integration-setup"
-import { sectionId, type RoomDefinition, type RoomPanelId, type RoomSectionId } from "./room-registry"
+import { RoomStage } from "./room-stage"
+import { sectionId, type RoomDefinition, type RoomId, type RoomPanelId, type RoomSectionId } from "./room-registry"
 
 interface BuildingRoomProps {
   room: RoomDefinition
@@ -24,10 +26,23 @@ interface BuildingRoomProps {
   /** The integration's brand icon, shown on the title plaque instead of the pixel emblem. */
   icon?: ReactNode
   /** Draws a data section: Home's existing module for that panel. */
-  renderPanel: (panel: RoomPanelId) => ReactNode
+  renderPanel: (panel: RoomPanelId, variant: RoomPanelVariant, controls: RoomPanelControls) => ReactNode
+  /** Immersive rooms: the room's main action, on the painted portal (or under the picture when compact). */
+  stageAction?: { label: string; /** Switch the screen to this section of the room. */ section: RoomSectionId; onPrefetch?: () => void }
   /** Buttons on the frame's top strip (e.g. open the full page). */
   actions?: ReactNode
   onClose: () => void
+  /** Fast travel: open another room (immersive rooms' map). */
+  onTravel: (roomId: RoomId) => void
+}
+
+/** "window": the pixel window's solid panel. "holo": drawn on an immersive stage's hologram screen. */
+export type RoomPanelVariant = "window" | "holo"
+
+/** What a panel can ask of its room. */
+export interface RoomPanelControls {
+  /** Switch the room to another of its sections (e.g. to Runs after a launch). */
+  showSection: (section: RoomSectionId) => void
 }
 
 type RoomStyle = CSSProperties & Record<`--${string}`, string>
@@ -37,7 +52,7 @@ type RoomStyle = CSSProperties & Record<`--${string}`, string>
  * building's live status on plaques over it, and the room's sections as tabs on a solid panel below, so the picture
  * never sits behind text. Escape and the scrim close it; focus moves in on open and back out on close.
  */
-export function BuildingRoom({ room, initialSection, detail, connected, building, icon, renderPanel, actions, onClose }: BuildingRoomProps) {
+export function BuildingRoom({ room, initialSection, detail, connected, building, icon, renderPanel, stageAction, actions, onClose, onTravel }: BuildingRoomProps) {
   const titleId = useId()
   const tabsId = useId()
   const closeRef = useRef<HTMLButtonElement>(null)
@@ -46,19 +61,65 @@ export function BuildingRoom({ room, initialSection, detail, connected, building
     initialSection && sections.some((section) => sectionId(section) === initialSection) ? initialSection : sectionId(sections[0]),
   )
   const current = sections.find((section) => sectionId(section) === active) ?? sections[0]
+  const picture = useRoomPicture(room.stage ? room.backgrounds : [])
+  const immersive = Boolean(room.stage) && picture.status !== "none"
+  const currentIndex = sections.indexOf(current)
+  const stepSection = (step: number) => setActive(sectionId(sections[(currentIndex + step + sections.length) % sections.length]))
+  const showSection = useCallback(
+    (target: RoomSectionId) => {
+      if (sections.some((section) => sectionId(section) === target)) setActive(target)
+    },
+    [sections],
+  )
+  const controls: RoomPanelControls = { showSection }
+  // Sections marked keepAlive stay mounted (hidden) once visited, so their forms keep what was typed.
+  const [visited, setVisited] = useState<ReadonlySet<RoomSectionId>>(() => new Set([active]))
+  if (!visited.has(active)) setVisited(new Set([...visited, active]))
+  const activeRef = useRef(active)
+  useEffect(() => {
+    activeRef.current = active
+  }, [active])
+  const firstSection = sectionId(sections[0])
+
+  /** Draws every section's body: the current one, plus keepAlive sections already visited (hidden while not current). */
+  const renderBodies = (variant: RoomPanelVariant): ReactNode =>
+    sections.map((section) => {
+      const id = sectionId(section)
+      const isCurrent = id === sectionId(current)
+      if (!isCurrent && !(section.kind === "data" && section.keepAlive && visited.has(id))) return null
+      return (
+        <div key={id} className="room-section" hidden={!isCurrent}>
+          {section.kind === "setup" ? (
+            room.integration ? <RoomIntegrationSetup key={room.integration} setup={room.integration} /> : null
+          ) : (
+            renderPanel(section.panel, variant, controls)
+          )}
+        </div>
+      )
+    })
 
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
     closeRef.current?.focus()
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose()
+      if (event.key !== "Escape") return
+      // A picker's open menu, or the fullscreen automation canvas, takes Escape first.
+      if (document.querySelector('[aria-haspopup="listbox"][aria-expanded="true"], [data-escape-owner]')) return
+      // Leaving a keepAlive section (the creation view) goes back to the first one; the next Escape leaves the room.
+      const here = sections.find((section) => sectionId(section) === activeRef.current)
+      if (here?.kind === "data" && here.keepAlive && activeRef.current !== firstSection) {
+        setActive(firstSection)
+        return
+      }
+      onClose()
     }
-    window.addEventListener("keydown", onKey)
+    // Capture phase: runs before a picker's own Escape handler closes its menu, so the guard below still sees it open.
+    window.addEventListener("keydown", onKey, true)
     return () => {
-      window.removeEventListener("keydown", onKey)
+      window.removeEventListener("keydown", onKey, true)
       previous?.focus()
     }
-  }, [onClose])
+  }, [onClose, sections, firstSection])
 
   const style: RoomStyle = {
     "--pw-accent": room.accent,
@@ -66,6 +127,75 @@ export function BuildingRoom({ room, initialSection, detail, connected, building
     "--px-accent": room.accent,
     "--room-accent": room.accent,
     "--room-accent-2": room.accent2,
+  }
+
+  if (room.stage && immersive) {
+    const multi = sections.length > 1
+    const previousSection = sections[(currentIndex - 1 + sections.length) % sections.length]
+    const nextSection = sections[(currentIndex + 1) % sections.length]
+    const panel = (
+      <>
+        <div className="holo-head">
+          <h2 id={titleId} className="holo-title">
+            <span className="holo-name">{room.building}</span>
+            <span className="holo-role">{room.role}</span>
+          </h2>
+          <div className="holo-chips">
+            <RoomStatus room={room} detail={detail} connected={connected} building={building} />
+          </div>
+          {actions ? <div className="holo-actions">{actions}</div> : null}
+        </div>
+        {multi ? (
+          <div role="tablist" aria-label={`${room.building} sections`} className="holo-tabs">
+            {sections.map((section) => {
+              const id = sectionId(section)
+              return (
+                <button
+                  key={id}
+                  id={`${tabsId}-${id}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={id === sectionId(current)}
+                  aria-controls={`${tabsId}-panel`}
+                  onClick={() => setActive(id)}
+                  className="holo-tab"
+                  data-active={id === sectionId(current) ? "true" : undefined}
+                >
+                  {section.label}
+                </button>
+              )
+            })}
+          </div>
+        ) : null}
+        <div
+          id={`${tabsId}-panel`}
+          role={multi ? "tabpanel" : "region"}
+          aria-labelledby={multi ? `${tabsId}-${sectionId(current)}` : titleId}
+          className="holo-body"
+          data-kind={current.kind}
+        >
+          {renderBodies("holo")}
+        </div>
+      </>
+    )
+    return (
+      <RoomStage
+        stage={room.stage}
+        src={picture.status === "ready" ? picture.src : null}
+        titleId={titleId}
+        accent={room.accent}
+        roomId={room.id}
+        screen={panel}
+        onPrev={multi ? () => stepSection(-1) : undefined}
+        onNext={multi ? () => stepSection(1) : undefined}
+        prevLabel={multi ? `Previous page: ${previousSection.label}` : undefined}
+        nextLabel={multi ? `Next page: ${nextSection.label}` : undefined}
+        portal={stageAction ? { label: stageAction.label, onActivate: () => showSection(stageAction.section), onPrefetch: stageAction.onPrefetch } : undefined}
+        onBack={onClose}
+        onTravel={onTravel}
+        backRef={closeRef}
+      />
+    )
   }
 
   return (
@@ -109,13 +239,7 @@ export function BuildingRoom({ room, initialSection, detail, connected, building
               className="room-panel"
               data-kind={current.kind}
             >
-              {current.kind === "setup" ? (
-                room.integration ? (
-                  <RoomIntegrationSetup key={room.integration} setup={room.integration} />
-                ) : null
-              ) : (
-                renderPanel(current.panel)
-              )}
+              {renderBodies("window")}
             </div>
           </div>
         </div>

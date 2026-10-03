@@ -104,7 +104,7 @@ export async function POST(req: Request) {
     })
   } catch (error) {
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Nova could not build a deployment plan." },
+      { ok: false, error: error instanceof Error ? error.message : "U.B Agents could not build a deployment plan." },
       { status: 500 },
     )
   }

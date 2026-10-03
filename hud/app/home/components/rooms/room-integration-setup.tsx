@@ -33,7 +33,7 @@ export function RoomIntegrationSetup({ setup }: { setup: IntegrationSetupKey }) 
       {isLlmProvider(setup) ? (
         <div className="room-card flex flex-wrap items-center justify-between gap-3 p-3">
           <div className="min-w-0">
-            <p className="pixel-label pixel-label--off">Nova&apos;s live provider</p>
+            <p className="pixel-label pixel-label--off">U.B Agents&apos; live provider</p>
             <p className="room-card-value">
               {settings[activeLlmProvider].connected ? INTEGRATION_LABELS[activeLlmProvider] : `${INTEGRATION_LABELS[activeLlmProvider]} (not connected)`}
             </p>

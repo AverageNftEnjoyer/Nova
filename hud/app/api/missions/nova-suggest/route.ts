@@ -169,7 +169,7 @@ export async function POST(req: Request) {
     }
 
     const systemText = [
-      "You are Nova, an expert workflow automation prompt writer.",
+      "You are U.B Agents, an expert workflow automation prompt writer.",
       "Given a workflow step name, produce a single high-quality AI prompt for that step.",
       "The prompt must be concrete, concise, and production-ready.",
       "Write 2-3 sentences.",
@@ -218,7 +218,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, prompt, provider, model, debug: `${debugSelected}${routedDebug}` })
   } catch (error) {
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Nova suggest failed.", debug: debugSelected },
+      { ok: false, error: error instanceof Error ? error.message : "U.B Agents suggest failed.", debug: debugSelected },
       { status: 500 },
     )
   }

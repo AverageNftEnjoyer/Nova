@@ -1,13 +1,13 @@
 import type { ResidentId } from "@/lib/town/residents"
 
-/** Live data the Nova City scene draws. An empty state renders a calm, idle city: nobody walks unless real work or a real connection puts them there. */
+/** Live data the U.B Agents City scene draws. An empty state renders a calm, idle city: nobody walks unless real work or a real connection puts them there. */
 
 /** Weather overlay, derived from the Home weather snapshot's WMO code. */
 export type CityWeather = "clear" | "cloudy" | "fog" | "rain" | "storm" | "snow"
 
 export type CityPresence = "online" | "listening" | "thinking" | "speaking" | "offline"
 
-/** One lit floor of Nova HQ's tower, most urgent task first. */
+/** One lit floor of U.B Agents HQ's tower, most urgent task first. */
 export type CityTaskLight = "running" | "queued" | "paused" | "failed" | "completed"
 
 /** Integration keys, matching the integration setup keys Home already uses. */
@@ -60,7 +60,7 @@ export function agentResidentId(taskId: string): ResidentId {
 export interface CitySceneState {
   weather: CityWeather
   presence: CityPresence
-  /** Up to five task floors on Nova HQ's gate, lit from the top down. */
+  /** Up to five task floors on U.B Agents HQ's gate, lit from the top down. */
   taskLights: CityTaskLight[]
   /** Active deployment runs; each one is a boat sailing in the harbour bay (capped by the renderer). */
   activeRuns: number
@@ -127,16 +127,19 @@ export interface CityResidentAnchor {
   visible: boolean
 }
 
-/** What the scene component needs from the city renderer. */
+/**
+ * What the scene component needs from the city world (the PixiJS implementation is `world/pixi-world.ts`): the
+ * simulation queries behind the DOM overlay, plus state in.
+ */
 export interface CitySceneRenderer {
-  /** Canvas size in device pixels (the viewport the camera looks through). */
-  resize(width: number, height: number): void
-  /** Camera: `scale` device pixels per plan pixel, plan point (`x`, `y`) at the canvas's top-left corner. */
-  setCamera(scale: number, x: number, y: number): void
   setState(state: CitySceneState): void
-  render(timeSeconds: number): void
   hotspots(): Partial<Record<CityPlaceId, CityRect>>
   hitTest(x: number, y: number): CitySceneHit | null
   /** Every resident on the streets, with where they stand this frame. */
   residents(): CityResidentAnchor[]
+  /** The place under the pointer or keyboard focus gets a highlight in its footprint (null clears it). */
+  setHover(id: CityPlaceId | null): void
+  /** The world only animates and renders while active (Home on screen). */
+  setActive(active: boolean): void
+  destroy(): void
 }

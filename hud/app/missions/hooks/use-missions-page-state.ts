@@ -1208,7 +1208,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
   const generateMissionDraftFromPrompt = useCallback(async () => {
     const prompt = novaMissionPrompt.trim()
     if (!prompt) {
-      setStatus({ type: "error", message: "Enter a prompt for Nova to generate a mission." })
+      setStatus({ type: "error", message: "Enter a prompt for U.B Agents to generate a mission." })
       return
     }
 
@@ -1229,7 +1229,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
 
       const generatedMission = (data as { mission?: NativeMission }).mission
       const summary = data.workflow?.summary || (generatedMission ? missionToWorkflowSummaryForAutofix(generatedMission) : null)
-      if (!summary) throw new Error("Nova returned an invalid mission draft.")
+      if (!summary) throw new Error("U.B Agents returned an invalid mission draft.")
 
       const generatedTime = typeof summary.schedule?.time === "string" && /^\d{2}:\d{2}$/.test(summary.schedule.time) ? summary.schedule.time : "09:00"
       const generatedTimezone = typeof summary.schedule?.timezone === "string" && summary.schedule.timezone.trim()
@@ -1270,7 +1270,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         message: `Draft generated with ${providerLabel} (${modelLabel}). ${String(data.debug || "").trim() || ""} Review before saving.`.replace(/\s+/g, " ").trim(),
       })
     } catch (error) {
-      setStatus({ type: "error", message: error instanceof Error ? error.message : "Nova mission generation failed." })
+      setStatus({ type: "error", message: error instanceof Error ? error.message : "U.B Agents mission generation failed." })
     } finally {
       setNovaGeneratingMission(false)
     }
@@ -1293,18 +1293,18 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       })
       const data = response.data as NovaSuggestResponse
       if (!response.ok) {
-        throw new Error(data?.error || "Nova suggest request failed.")
+        throw new Error(data?.error || "U.B Agents suggest request failed.")
       }
 
       const suggestedPrompt = String(data?.prompt || "").trim()
-      if (!suggestedPrompt) throw new Error("Nova returned an empty suggestion.")
+      if (!suggestedPrompt) throw new Error("U.B Agents returned an empty suggestion.")
       updateWorkflowStepAi(stepId, {
         aiIntegration: provider,
         aiModel: model,
         aiPrompt: suggestedPrompt,
       })
     } catch (error) {
-      setStatus({ type: "error", message: error instanceof Error ? error.message : "Nova suggest failed." })
+      setStatus({ type: "error", message: error instanceof Error ? error.message : "U.B Agents suggest failed." })
     } finally {
       setNovaSuggestingByStepId((prev) => ({ ...prev, [stepId]: false }))
     }

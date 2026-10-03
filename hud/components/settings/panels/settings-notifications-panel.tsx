@@ -14,7 +14,7 @@ export function SettingsNotificationsPanel({ isLight, settings, updateNotificati
     <div className="space-y-5">
       <SettingToggle
         label="Enable Notifications"
-        description="Receive alerts from Nova"
+        description="Receive alerts from U.B Agents"
         checked={settings.notifications.enabled}
         onChange={(v) => updateNotifications("enabled", v)}
         isLight={isLight}

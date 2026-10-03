@@ -15,7 +15,7 @@
 // ("Embeddings", standard tier) on 2026-09-24.
 // Models with no verifiable rate are deliberately absent (cost is then null and logged once, see below).
 //
-// *_MODEL_PRICING_USD_PER_1M tables hold the CURRENT models offered in Nova's pickers.
+// *_MODEL_PRICING_USD_PER_1M tables hold the CURRENT models offered in U.B Agents' pickers.
 // LEGACY_MODEL_PRICING_USD_PER_1M holds models that still answer API calls (deprecated or superseded, but not
 // shut down) so cost stays correct for users whose stored configuration still names one. Retired models
 // (requests fail) are not priced.

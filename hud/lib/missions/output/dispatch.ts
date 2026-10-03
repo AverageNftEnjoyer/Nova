@@ -89,7 +89,7 @@ async function mirrorMissionOutputToGoogleCalendar(params: {
   if (Number.isNaN(startAt.getTime())) return
   const endAt = new Date(startAt.getTime() + GCALENDAR_MIRROR_EVENT_DURATION_MS)
 
-  const summary = String(target.missionLabel || "").trim() || "Nova Automation"
+  const summary = String(target.missionLabel || "").trim() || "U.B Agents Automation"
   const lines = [
     `Mission output channel: ${channel}`,
     `Mission id: ${String(target.missionId || "").trim() || "unknown"}`,

@@ -215,12 +215,12 @@ export function useYouTubeSetup({
           if (!tab) {
             setSaveStatus({
               type: "error",
-              message: "Popup was blocked. Allow popups for Nova to connect YouTube without leaving this screen.",
+              message: "Popup was blocked. Allow popups for U.B Agents to connect YouTube without leaving this screen.",
             })
           } else {
             setSaveStatus({
               type: "success",
-              message: "Opened YouTube auth in a new tab/window. Nova will stay open here.",
+              message: "Opened YouTube auth in a new tab/window. U.B Agents will stay open here.",
             })
           }
         } else {

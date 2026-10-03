@@ -20,13 +20,13 @@ import {
   YouTubeIcon,
   XAIIcon,
 } from "@/components/icons"
-import { DISTRICT_PLACES, PixelCityScene, type CityHotspot, type CityHotspotId, type CityIntegration, type CityPlaceId } from "@/components/pixel-city"
+import { DISTRICT_PLACES, PixelCityScene, cityBootRank, type CityBootPhase, type CityHotspot, type CityHotspotId, type CityIntegration, type CityPlaceId } from "@/components/pixel-city"
 import { SettingsModal } from "@/components/settings/settings-modal"
 import type { SettingsSectionId } from "@/components/settings/settings-nav"
 import type { ResidentId } from "@/lib/town/residents"
 import type { IntegrationSetupKey } from "@/lib/integrations/navigation"
 import { isRunActive, useDeploymentsData } from "@/app/deployments/hooks/use-deployments-data"
-import { LazyNewDeploymentModal, preloadNewDeploymentModal } from "@/app/deployments/components/new-deployment-modal-lazy"
+import { preloadNewDeploymentFlow } from "@/app/deployments/components/new-deployment-flow-lazy"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { usePageActive } from "@/lib/hooks/use-page-active"
 import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
@@ -40,6 +40,7 @@ import { useTownResidents } from "../hooks/use-town-residents"
 import { ResidentCard } from "./game/resident-card"
 import { TownGameLayer } from "./game/town-game-layer"
 import { TownHallBody } from "./game/town-hall-panel"
+import { CityBoot } from "./game/city-boot"
 import { GameHud } from "./game/game-hud"
 import { MusicPlayer, MusicWindow } from "./game/music-window"
 import { useQuestNews } from "./game/town-hud"
@@ -54,8 +55,9 @@ import { PolymarketLiveLinesModule } from "./polymarket-live-lines-module"
 import { ScheduleBriefing } from "./schedule-briefing"
 import { WeatherLocationPopup } from "./weather-location-popup"
 import { YouTubeHomeModule } from "./youtube-home-module"
-import { BuildingRoom } from "./rooms/building-room"
+import { BuildingRoom, type RoomPanelControls, type RoomPanelVariant } from "./rooms/building-room"
 import { RoomDeploymentsPanel } from "./rooms/room-deployments-panel"
+import { RoomNewDeployment } from "./rooms/room-new-deployment"
 import { ROOMS, roomForIntegration, roomForPlace, type RoomDefinition, type RoomId, type RoomPanelId, type RoomSectionId } from "./rooms/room-registry"
 
 /** Modules inside pixel windows get these instead of Home's old glass panels. */
@@ -68,7 +70,7 @@ const NO_PANEL_STYLE: CSSProperties | undefined = undefined
  */
 const SAFE_TOP = 16
 const SAFE_BOTTOM = 16
-/** What each place is called: its painted building in Nova City (components/pixel-city/district/image-plan.ts). */
+/** What each place is called: its painted building in U.B Agents City (components/pixel-city/district/image-plan.ts). */
 const PLACE_NAMES = Object.fromEntries(
   DISTRICT_PLACES.filter((place) => !place.id.startsWith("integration-")).map((place) => [place.id, place.name]),
 ) as Record<CityHotspotId, string>
@@ -89,11 +91,16 @@ export function HomeMainScreen() {
   const summaryState = useHomeAnalyticsSummary()
 
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [bootPhase, setBootPhase] = useState<CityBootPhase>("charts")
+  const [booting, setBooting] = useState(true)
+  const onBoot = useCallback((phase: CityBootPhase) => {
+    setBootPhase((current) => (cityBootRank(phase) > cityBootRank(current) ? phase : current))
+  }, [])
   const [weatherPopupOpen, setWeatherPopupOpen] = useState(false)
   const [musicOpen, setMusicOpen] = useState(false)
   const [profileName, setProfileName] = useState("User")
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null)
-  // Nova City is one daytime pixel theme: Home and its popups never follow the app's light / dark setting.
+  // U.B Agents City is one daytime pixel theme: Home and its popups never follow the app's light / dark setting.
   const isLight = false
   const assistantName = home.assistantName
 
@@ -134,7 +141,7 @@ export function HomeMainScreen() {
   const connectedCount = integrationNodes.filter((node) => node.connected).length
   const activeConversations = home.conversations.filter((conversation) => !conversation.archived).length
 
-  // Nova City progression: level, quests, tutorial and celebrations (components/game). The streets hold only real residents:
+  // U.B Agents City progression: level, quests, tutorial and celebrations (components/game). The streets hold only real residents:
   // one per agent task and one per connected integration, named by the user.
   const town = useTownProgress()
   const residents = useTownResidents()
@@ -157,7 +164,7 @@ export function HomeMainScreen() {
   const names = PLACE_NAMES
   const hotspots: CityHotspot[] = [
     { id: "tasks", label: names.tasks, detail: runningTasks || waitingTasks ? `${runningTasks} running · ${waitingTasks} waiting` : "Agent tasks · idle" },
-    { id: "deploy", label: names.deploy, detail: activeRuns ? `${activeRuns} deployment${activeRuns === 1 ? "" : "s"} on the road` : "New deployment" },
+    { id: "deploy", label: names.deploy, detail: activeRuns ? `${activeRuns} deployment${activeRuns === 1 ? "" : "s"} at sea` : "New deployment" },
     { id: "schedule", label: names.schedule, detail: "Schedule" },
     { id: "crypto", label: names.crypto, detail: btc && btc.price > 0 ? `BTC ${formatUsdCompact(btc.price)}` : "Crypto prices" },
     { id: "polymarket", label: names.polymarket, detail: home.polymarketConnected ? "Polymarket live lines" : "Polymarket · not connected" },
@@ -199,7 +206,13 @@ export function HomeMainScreen() {
     },
     [goToIntegrations, setOpenRoom],
   )
-  const closeRoom = useCallback(() => setOpenRoom(null), [setOpenRoom])
+  // Creating and running U.B Agents tasks happens on the Depot's hologram screen (its "New" section), never in a popup over the city.
+  const [launchNote, setLaunchNote] = useState("")
+  const openNewDeployment = useCallback(() => setOpenRoom({ id: "depot", section: "new-deployment" }), [setOpenRoom])
+  const closeRoom = useCallback(() => {
+    setLaunchNote("")
+    setOpenRoom(null)
+  }, [setOpenRoom])
 
   // Clicking a resident in the city (an agent, or an integration's worker) opens its card (game/resident-card.tsx), built from live data.
   const [residentCardId, setResidentCardId] = useState<ResidentId | null>(null)
@@ -219,7 +232,7 @@ export function HomeMainScreen() {
   const [questLogOpen, setQuestLogOpen] = useState(false)
   const closeQuestLog = useCallback(() => setQuestLogOpen(false), [])
   const questNews = useQuestNews(town.progress, questLogOpen)
-  // Quests only open Settings for skills ("Teach Nova a skill"); the HUD gear opens it on Profile.
+  // Quests only open Settings for skills ("Teach U.B Agents a skill"); the HUD gear opens it on Profile.
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>("profile")
   const openSettings = useCallback(() => {
     setSettingsSection("skills")
@@ -257,7 +270,7 @@ export function HomeMainScreen() {
   }
 
   /** A room's data section: the module this place has always shown, unchanged. */
-  const renderRoomPanel = (panel: RoomPanelId): ReactNode => {
+  const renderRoomPanel = (panel: RoomPanelId, variant: RoomPanelVariant = "window", controls?: RoomPanelControls): ReactNode => {
     switch (panel) {
       case "tasks":
         return (
@@ -269,25 +282,39 @@ export function HomeMainScreen() {
             className="h-full"
             agentTasks={agentTasks}
             onOpenMissions={home.openMissions}
-            onCreateDeployment={() => {
-              setOpenRoom(null)
-              home.openTaskDeployment()
-            }}
-            onPrefetchDeployment={preloadNewDeploymentModal}
+            onCreateDeployment={openNewDeployment}
+            onPrefetchDeployment={preloadNewDeploymentFlow}
           />
         )
       case "deployments":
+      case "deployment-list":
         return (
           <RoomDeploymentsPanel
+            view={panel === "deployment-list" ? "deployments" : "runs"}
+            variant={variant}
             deployments={deployments}
-            onNewDeployment={() => {
-              setOpenRoom(null)
-              home.openTaskDeployment()
-            }}
-            onPrefetchDeployment={preloadNewDeploymentModal}
+            notice={launchNote}
+            onNewDeployment={() => (controls ? controls.showSection("new-deployment") : openNewDeployment())}
+            onPrefetchDeployment={preloadNewDeploymentFlow}
             onOpenDeployments={home.openMissions}
           />
         )
+      case "new-deployment": {
+        const creation = (
+          <RoomNewDeployment
+            isLight={isLight}
+            nova={home.nova}
+            onLaunched={(message) => {
+              setLaunchNote(message)
+              void deployments.refresh()
+              controls?.showSection("deployments")
+            }}
+            onOpenGuidedBuilder={() => router.push("/missions?create=builder&returnTo=/home")}
+            onViewAutomations={() => router.push("/missions?returnTo=/home")}
+          />
+        )
+        return variant === "holo" ? creation : <div className="holo holo--panel holo--inline">{creation}</div>
+      }
       case "schedule":
         return <ScheduleBriefing isLight={isLight} panelClass={PIXEL_PANEL} subPanelClass={PIXEL_SUBPANEL} panelStyle={NO_PANEL_STYLE} onOpenCalendar={home.openCalendar} />
       case "crypto":
@@ -391,117 +418,118 @@ export function HomeMainScreen() {
       building={activeRoom.integration ? (town.progress?.buildings.find((candidate) => candidate.integration === activeRoom.integration) ?? null) : null}
       icon={activeRoomOwnLot ? activeRoomNode?.icon : undefined}
       renderPanel={renderRoomPanel}
+      stageAction={
+        activeRoom.id === "depot"
+          ? {
+              label: "New deployment",
+              section: "new-deployment",
+              onPrefetch: preloadNewDeploymentFlow,
+            }
+          : undefined
+      }
       actions={roomPageAction(activeRoom)}
       onClose={closeRoom}
+      onTravel={(id) => setOpenRoom({ id })}
     />
   ) : null
 
   const weather = home.homeWeather
   return (
-    <div className="game-hud-root">
-      <PixelCityScene state={sceneState} safeTop={SAFE_TOP} safeBottom={SAFE_BOTTOM} hotspots={hotspots} active={pageActive} onHotspot={openHotspot} onResident={setResidentCardId} />
+    <div className="game-hud-root" data-city-boot={booting ? "on" : undefined}>
+      <div className="city-boot-play" inert={booting ? true : undefined} aria-hidden={booting ? true : undefined}>
+        <PixelCityScene state={sceneState} safeTop={SAFE_TOP} safeBottom={SAFE_BOTTOM} hotspots={hotspots} active={pageActive} onHotspot={openHotspot} onResident={setResidentCardId} onBoot={onBoot} />
 
-      <GameHud
-        town={town}
-        profileName={profileName}
-        profileAvatar={profileAvatar}
-        presence={presence}
-        questLogOpen={questLogOpen}
-        questNews={questNews}
-        musicOpen={musicOpen}
-        musicPlaying={Boolean(home.spotifyConnected && home.spotifyNowPlaying?.playing)}
-        weatherValue={
-          weather?.temperatureF !== null && weather?.temperatureF !== undefined
-            ? `${Math.round(weather.temperatureF)}°`
-            : home.homeWeatherLoading
-              ? "—"
-              : "Set city"
-        }
-        weatherTitle={home.homeWeatherError || (home.preferredWeatherCity ? weather?.conditionLabel || "Loading weather" : "Set your city")}
-        weatherAriaLabel={home.preferredWeatherCity ? `Change city from ${home.preferredWeatherCity}` : "Set your city"}
-        onHome={() => router.push("/home")}
-        onOpenTownHall={() => setOpenRoom({ id: "town-hall" })}
-        onOpenQuests={() => setQuestLogOpen(true)}
-        onOpenMusic={() => setMusicOpen(true)}
-        onOpenWeather={() => setWeatherPopupOpen(true)}
-        onOpenProfile={() => {
-          setSettingsSection("profile")
-          setSettingsOpen(true)
-        }}
-        onOpenSettings={() => {
-          setSettingsSection("appearance")
-          setSettingsOpen(true)
-        }}
-      />
-
-      {musicOpen ? (
-        <MusicWindow
-          connected={home.spotifyConnected}
-          connecting={home.spotifyConnecting}
-          nowPlaying={home.spotifyNowPlaying}
-          error={home.spotifyError}
-          busyAction={home.spotifyBusyAction}
-          onConnectSpotify={() => {
-            void home.connectSpotify()
+        <GameHud
+          town={town}
+          profileName={profileName}
+          profileAvatar={profileAvatar}
+          presence={presence}
+          questLogOpen={questLogOpen}
+          questNews={questNews}
+          musicOpen={musicOpen}
+          musicPlaying={Boolean(home.spotifyConnected && home.spotifyNowPlaying?.playing)}
+          weatherValue={
+            weather?.temperatureF !== null && weather?.temperatureF !== undefined
+              ? `${Math.round(weather.temperatureF)}°`
+              : home.homeWeatherLoading
+                ? "—"
+                : "Set city"
+          }
+          weatherTitle={home.homeWeatherError || (home.preferredWeatherCity ? weather?.conditionLabel || "Loading weather" : "Set your city")}
+          weatherAriaLabel={home.preferredWeatherCity ? `Change city from ${home.preferredWeatherCity}` : "Set your city"}
+          onHome={() => router.push("/home")}
+          onOpenTownHall={() => setOpenRoom({ id: "town-hall" })}
+          onOpenQuests={() => setQuestLogOpen(true)}
+          onOpenMusic={() => setMusicOpen(true)}
+          onOpenWeather={() => setWeatherPopupOpen(true)}
+          onOpenProfile={() => {
+            setSettingsSection("profile")
+            setSettingsOpen(true)
           }}
-          onOpenIntegrations={() => {
-            setMusicOpen(false)
-            openSetup("spotify")
+          onOpenSettings={() => {
+            setSettingsSection("appearance")
+            setSettingsOpen(true)
           }}
-          onTogglePlayPause={home.toggleSpotifyPlayback}
-          onNext={home.spotifyNextTrack}
-          onPrevious={home.spotifyPreviousTrack}
-          onPlaySmart={home.spotifyPlaySmart}
-          onSeek={home.seekSpotify}
-          onClose={() => setMusicOpen(false)}
         />
-      ) : null}
 
-      {roomWindow}
-      {residentCardId ? (
-        <ResidentCard
-          residentId={residentCardId}
-          tasks={tasks}
-          buildings={town.progress?.buildings ?? []}
-          connected={connectedSet}
-          residents={residents}
-          onClose={closeResidentCard}
-          onAction={agentTasks.runAction}
-          onRaiseBudget={agentTasks.raiseBudget}
-          onOpenTasks={openAgentTasks}
-          onSetup={openResidentSetup}
-        />
-      ) : null}
-      <TownGameLayer town={town} assistantName={assistantName} hotspots={hotspots} questLogOpen={questLogOpen} onCloseQuestLog={closeQuestLog} onGo={goToQuest} />
-
-      {weatherPopupOpen ? (
-        <div className="pixel-ui">
-          <WeatherLocationPopup
-            isLight={isLight}
-            subPanelClass={PIXEL_SUBPANEL}
-            currentCity={home.preferredWeatherCity}
-            weatherLoading={home.homeWeatherLoading}
-            weatherError={home.homeWeatherError}
-            onRetry={home.refreshHomeWeather}
-            onClose={() => setWeatherPopupOpen(false)}
+        {musicOpen ? (
+          <MusicWindow
+            connected={home.spotifyConnected}
+            connecting={home.spotifyConnecting}
+            nowPlaying={home.spotifyNowPlaying}
+            error={home.spotifyError}
+            busyAction={home.spotifyBusyAction}
+            onConnectSpotify={() => {
+              void home.connectSpotify()
+            }}
+            onOpenIntegrations={() => {
+              setMusicOpen(false)
+              openSetup("spotify")
+            }}
+            onTogglePlayPause={home.toggleSpotifyPlayback}
+            onNext={home.spotifyNextTrack}
+            onPrevious={home.spotifyPreviousTrack}
+            onPlaySmart={home.spotifyPlaySmart}
+            onSeek={home.seekSpotify}
+            onClose={() => setMusicOpen(false)}
           />
+        ) : null}
+
+        {roomWindow}
+        {residentCardId ? (
+          <ResidentCard
+            residentId={residentCardId}
+            tasks={tasks}
+            buildings={town.progress?.buildings ?? []}
+            connected={connectedSet}
+            residents={residents}
+            onClose={closeResidentCard}
+            onAction={agentTasks.runAction}
+            onRaiseBudget={agentTasks.raiseBudget}
+            onOpenTasks={openAgentTasks}
+            onSetup={openResidentSetup}
+          />
+        ) : null}
+        <TownGameLayer town={town} assistantName={assistantName} hotspots={hotspots} questLogOpen={questLogOpen} onCloseQuestLog={closeQuestLog} onGo={goToQuest} />
+
+        {weatherPopupOpen ? (
+          <div className="pixel-ui">
+            <WeatherLocationPopup
+              isLight={isLight}
+              subPanelClass={PIXEL_SUBPANEL}
+              currentCity={home.preferredWeatherCity}
+              weatherLoading={home.homeWeatherLoading}
+              weatherError={home.homeWeatherError}
+              onRetry={home.refreshHomeWeather}
+              onClose={() => setWeatherPopupOpen(false)}
+            />
+          </div>
+        ) : null}
+        <div className="pixel-ui">
+          <SettingsModal isOpen={settingsOpen} initialSection={settingsSection} onClose={() => setSettingsOpen(false)} />
         </div>
-      ) : null}
-      <div className="pixel-ui">
-        <SettingsModal isOpen={settingsOpen} initialSection={settingsSection} onClose={() => setSettingsOpen(false)} />
-      </div>
-      {home.newDeploymentOpen ? (
-        <LazyNewDeploymentModal
-          className="pixel-ui"
-          isLight={isLight}
-          nova={home.nova}
-          initialTab="describe"
-          onClose={home.closeNewDeployment}
-          onOpenDeployments={home.openMissions}
-          onOpenGuidedBuilder={() => router.push("/missions?create=builder&returnTo=/home")}
-          onViewAutomations={() => router.push("/missions?returnTo=/home")}
-        />
-      ) : null}
+        </div>
+      {booting ? <CityBoot phase={bootPhase} onDone={() => setBooting(false)} /> : null}
     </div>
   )
 }

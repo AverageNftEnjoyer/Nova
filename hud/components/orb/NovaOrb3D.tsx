@@ -339,7 +339,7 @@ function OrbScene({
 }
 
 // ─── OrbFxOverlay ────────────────────────────────────────────────────────────
-// Reimagines the old Nova colorful orb animation for 3D:
+// Reimagines the old U.B Agents colorful orb animation for 3D:
 //   • 12 orbital sparks — each on a tilted circular orbit (like the old space-orb-stars)
 //   • orbital sparks only (no ring overlays)
 

@@ -1,5 +1,5 @@
 /**
- * Nova HUD Version
+ * U.B Agents HUD Version
  *
  * Update this constant whenever making significant changes.
  * All pages import from here for consistent versioning.
@@ -10,45 +10,52 @@
  *
  * Version History:
  *
+ * - V.87 Alpha (2026-10-02): The product is named U.B Agents
+ *     - Every user-facing name, window title, default assistant name and system identity now says U.B Agents. Saved installs keep their files: the data folder is still `%APPDATA%\Nova`, and the encryption key is unchanged.
+ *
+ * - V.86 Alpha (2026-10-02): U.B Agents City boot screen
+ *     - Home covers the city with a boot screen while the Pixi world loads (`hud/app/home/components/game/city-boot.tsx`). The bar and U.B Agents the cat follow the real load: charting the harbour (the engine chunk), starting the city (WebGL), painting the island (the map), then opening the gates. It fades once the first frame is drawn. Reduced motion keeps the cat still and the fade short. Window controls stay usable, and the city underneath stays inert until the screen is gone.
+ *
  * - V.85 Alpha (2026-10-02): Building rooms and a game camera on the high-res map
- *     - Building rooms (`hud/app/home/components/rooms/`): every clickable building opens its own room instead of the shared popup or the /integrations page. One `BuildingRoom` shell; the typed registry `room-registry.ts` lists each room's place, integration, tabs, accent and background picture (`hud/public/pixel-city/rooms/<room id>.webp` or `.png`, 1600x900; a themed checker pattern until one is uploaded; file list in `docs/frontend/nova-city-rooms.md`). Data tabs reuse the Home modules; integration rooms add a Connect & settings tab with the real setup panel, and the AI rooms can make their provider Nova's live model. Quest / tutorial Go buttons, Town Hall's building list and resident cards open the matching room. The Depot opens a deployments room with a New deployment button.
+ *     - Building rooms (`hud/app/home/components/rooms/`): every clickable building opens its own room instead of the shared popup or the /integrations page. One `BuildingRoom` shell; the typed registry `room-registry.ts` lists each room's place, integration, tabs, accent and background picture (`hud/public/pixel-city/rooms/<room id>.webp` or `.png`, 1600x900; a themed checker pattern until one is uploaded; file list in `docs/frontend/nova-city-rooms.md`). Data tabs reuse the Home modules; integration rooms add a Connect & settings tab with the real setup panel, and the AI rooms can make their provider U.B Agents' live model. Quest / tutorial Go buttons, Town Hall's building list and resident cards open the matching room. The Depot opens a deployments room with a New deployment button.
  *     - Integrations: the connect / settings state moved out of `/integrations/page.tsx` into `useIntegrationsController` (`hud/app/integrations/modules/hooks/`), shared by the page and every room, so saving, testing, OAuth and secret masking exist once.
  *     - Map: Home draws the high-resolution map (`map.webp`, from `raw/map-5000x3760.png`), which holds the old painting at 3.02x with mountains and sea around it (`DISTRICT_MAP` in `image-plan.ts`); every hotspot, walk route and occluder keeps its plan coordinates. The map is drawn nearest-neighbour once a map pixel covers a device pixel, smoothly below that.
- *     - Camera: the default view is the closest zoom (the city just covers the window, 1.12x); wheel / pinch / +- zoom out until the whole map fits, with the bay's sea colour beside it. Panning never goes past the map's edges.
+ *     - Camera: the default view is the closest zoom (the city just covers the window, 1.12x); wheel / pinch / +- zoom out until the map just covers the window. Panning never goes past the map's edges.
+ *     - PixiJS world: Home's map is now a PixiJS v8 (WebGL) world with a pixi-viewport camera (`hud/components/pixel-city/world/`): cover-fit map that can never show past its edges, drag / pinch / wheel with inertia, a camera glide to a building before its room opens, a hover outline in the building's footprint, animated water glints, waterfall spray and mist, drifting cloud shadows and ambient boats, and a day / night cycle from the system clock with glowing windows (`?tod=night` forces the hour). Reduced motion draws it still; without WebGL the static map is shown under the same buttons. The Canvas2D renderer is removed.
  *     - Removed: the crypto ticker strip above the Bank (prices stay in the Bank room). The tutorial bubble stays bottom-left instead of jumping sides, and the target highlight is four gold corner brackets instead of a dashed box.
  *     - Docs: old frontend concept docs and round screenshots removed from `docs/frontend/` (the day UI spec and the rooms doc remain).
  *
- * - V.84 Alpha (2026-10-01): Nova City Day, real residents and the game HUD
+ * - V.84 Alpha (2026-10-01): U.B Agents City Day, real residents and the game HUD
  *     - Residents: walkers are exactly one per agent task plus one worker per connected integration (the anonymous townsfolk crowd is gone). Clicking one opens a resident card: an agent's task, or a worker's integration status and building level, with rename (`GET/POST /api/town/residents`, `kv_state` namespace `town-residents`). The agent card keeps its buttons in place and calls Cancel "Stop".
  *     - Day map: Home is a bright daytime island (`background.webp`, 1536x1024) with hotspots, walk routes, building lamps and boats in the bay for active deployment runs rebuilt for it; night-only effects removed.
  *     - Game HUD: portrait, name, level and XP top-left, round Quests and Music buttons down the left edge, XP and weather chips top-right, Settings bottom-right. The Spotify footer is replaced by a Music popup and the version label is hidden on Home. Quests open Settings on Skills.
- *     - Day theme (`pixel-ui.css`, `docs/frontend/nova-city-day-ui.md`): riveted slate frames, purple cards, outlined caps, round close button, teal primary buttons; PixelWindow rebuilt on it. The Integrations page (building cards) and Chat page (Nova the cat, parchment and purple bubbles) use the same theme with unchanged behaviour.
+ *     - Day theme (`pixel-ui.css`, `docs/frontend/nova-city-day-ui.md`): riveted slate frames, purple cards, outlined caps, round close button, teal primary buttons; PixelWindow rebuilt on it. The Integrations page (building cards) and Chat page (U.B Agents the cat, parchment and purple bubbles) use the same theme with unchanged behaviour.
  *
- * - V.83 Alpha (2026-10-01): Nova City becomes a game
- *     - Progression: `GET /api/town` / `POST /api/town/ack` (`hud/lib/town/`) turn real Nova activity into XP, levels (Hamlet -> Village -> Town -> City -> Metropolis -> Megacity -> Skyline Capital), building levels 0-3 per integration, population, and quests: an 8-step tutorial, milestone series, per-integration quests and daily quests in the viewer's time zone. Counts never go down; what was already celebrated, quest completion times and tutorial state live in `kv_state` namespace `town-progress`. `npm run smoke:town` covers the XP math, events, tutorial and daily rollover.
- *     - Game UI (`hud/app/home/components/game/`): level badge and XP bar beside the wordmark, a Quests chip and quest log (Tutorial / Daily / Milestones / Buildings, each quest with a Go button), a first-run tutorial where Nova points at the building to use and follows the camera, one-time level-up banners and quest toasts, and a Progress tab in the Town Hall. Quests that teach skills open Settings on Skills.
+ * - V.83 Alpha (2026-10-01): U.B Agents City becomes a game
+ *     - Progression: `GET /api/town` / `POST /api/town/ack` (`hud/lib/town/`) turn real U.B Agents activity into XP, levels (Hamlet -> Village -> Town -> City -> Metropolis -> Megacity -> Skyline Capital), building levels 0-3 per integration, population, and quests: an 8-step tutorial, milestone series, per-integration quests and daily quests in the viewer's time zone. Counts never go down; what was already celebrated, quest completion times and tutorial state live in `kv_state` namespace `town-progress`. `npm run smoke:town` covers the XP math, events, tutorial and daily rollover.
+ *     - Game UI (`hud/app/home/components/game/`): level badge and XP bar beside the wordmark, a Quests chip and quest log (Tutorial / Daily / Milestones / Buildings, each quest with a Go button), a first-run tutorial where U.B Agents points at the building to use and follows the camera, one-time level-up banners and quest toasts, and a Progress tab in the Town Hall. Quests that teach skills open Settings on Skills.
  *     - Camera: drag or touch to pan, wheel / pinch / +- to zoom, 0 to recenter, zoom and recenter buttons above the player bar. Every building is reachable at any window size (1024x768 to 4K and ultrawide); tabbing to an off-screen building pans to it.
- *     - People: new PixelLab townsfolk (6), role-dressed Nova agents (6) and Nova the cat, drawn at the painting's pixel density with 8 directions and a 6-frame walk. Walk routes stay on visible paving; foreground structures (arcade, arch, clock tower, viaduct, shelter, lamps...) now hide walkers behind them. Building hit areas, signs and anchors re-checked against the painting.
+ *     - People: new PixelLab townsfolk (6), role-dressed U.B Agents agents (6) and U.B Agents the cat, drawn at the painting's pixel density with 8 directions and a 6-frame walk. Walk routes stay on visible paving; foreground structures (arcade, arch, clock tower, viaduct, shelter, lamps...) now hide walkers behind them. Building hit areas, signs and anchors re-checked against the painting.
  *
- * - V.82 Alpha (2026-09-28): Nova City people match the painting
- *     - Walkers are drawn on the night painting's own 2px grid (`district/people.ts`) instead of the separate character sheets. Townsfolk wear the city's coat colours. Each agent task is the same figure in a Nova suit with a cyan visor (a white coat at the Lab, a dark suit at the Bank and Odds Parlour). The floating "N" chip and white work bubble are gone; a paused, failed or queued agent keeps a small mark. Nova the cat on the park bench is drawn the same way.
+ * - V.82 Alpha (2026-09-28): U.B Agents City people match the painting
+ *     - Walkers are drawn on the night painting's own 2px grid (`district/people.ts`) instead of the separate character sheets. Townsfolk wear the city's coat colours. Each agent task is the same figure in a U.B Agents suit with a cyan visor (a white coat at the Lab, a dark suit at the Bank and Odds Parlour). The floating "N" chip and white work bubble are gone; a paused, failed or queued agent keeps a small mark. U.B Agents the cat on the park bench is drawn the same way.
  *     - The park path no longer crosses the clock tower: it comes down off the lantern deck onto the dirt path. The bus-shelter ticker is a glass strip instead of a black plate, and the painting's own signs are left as painted.
  *
- * - V.81 Alpha (2026-09-27): Home is the painted Nova City
+ * - V.81 Alpha (2026-09-27): Home is the painted U.B Agents City
  *     - Home is one night painting (`hud/public/pixel-city/town/background.png`, mapped in `district/image-plan.ts`). The canvas covers the screen and draws live signs, walkers, buses and weather on top. The Harbour / District chip is gone.
  *     - Removed the code-drawn Harbour (`renderer.ts`, `layout.ts`, `palette.ts`, `sprites.ts`, `font.ts`) and the generated plates it no longer uses (`district-night.png`, `town-day-clean.png`, `town-night-clean.png`). Saved `app.homeScene` is dropped on load.
- *     - Every place is a painted building that opens its Home module: Nova HQ (Agent tasks), Depot (New deployment), Post Office (Schedule), Bank (Crypto), Odds Parlour (Polymarket), Cinema (YouTube), Power Plant (Analytics), Noticeboard (Notes), Town Hall (Integrations), Fountain Park (Chat). Each of the 15 integrations also has its own building (Records, Arcade, Cowork, Lab, Studio, Observatory, Gemini Tower, Telegraph, Clock Tower, Library, Vault); its sign is steady when connected and flickers like a faulty neon tube when not. Misspelled painted signs are relettered in the painting's own colours.
- *     - Live layer: PixelLab-made townsfolk walk the plaza, boardwalks, stairs and park; each agent task is a Nova agent dressed for its job (lab coat, courier, trader, media crew, researcher) with a glow ring, an "N" chip and a data trail, walking from Nova HQ to the building matching its last tools, with a work bubble. The canvas draws at screen resolution; Home is always night. Smoke tests open Agent tasks through Nova HQ and New deployment through the Depot.
+ *     - Every place is a painted building that opens its Home module: U.B Agents HQ (Agent tasks), Depot (New deployment), Post Office (Schedule), Bank (Crypto), Odds Parlour (Polymarket), Cinema (YouTube), Power Plant (Analytics), Noticeboard (Notes), Town Hall (Integrations), Fountain Park (Chat). Each of the 15 integrations also has its own building (Records, Arcade, Cowork, Lab, Studio, Observatory, Gemini Tower, Telegraph, Clock Tower, Library, Vault); its sign is steady when connected and flickers like a faulty neon tube when not. Misspelled painted signs are relettered in the painting's own colours.
+ *     - Live layer: PixelLab-made townsfolk walk the plaza, boardwalks, stairs and park; each agent task is a U.B Agents agent dressed for its job (lab coat, courier, trader, media crew, researcher) with a glow ring, an "N" chip and a data trail, walking from U.B Agents HQ to the building matching its last tools, with a work bubble. The canvas draws at screen resolution; Home is always night. Smoke tests open Agent tasks through U.B Agents HQ and New deployment through the Depot.
  *
  * - V.80 Alpha (2026-09-26): The District, a second Home view
  *     - Home has two pixel-city views, switched with the Harbour / District chip in the HUD bar and saved to `app.homeScene` (SQLite-mirrored user settings; default Harbour). Both share the `CitySceneRenderer` interface and the same popups (`hud/components/pixel-city/`).
- *     - The District is a walkable 2:1 isometric Hi-Bit city on a 14x14 tile island (`district/`): glass towers with living walls and rooftop gardens, pastel shophouses, a Supertree grove in the park, an offshore elevated MRT with a running train and station, Marina-Bay-style waterfront promenade, and the NovaAIO Hub tower at the centre. Night and day palettes follow the app theme; the map, the buildings, the props and the ground are baked to sprites once and only what moves is drawn each frame (20 fps, paused while hidden).
- *     - Every Home place is a building that opens its existing popup: Nova Hub (Agent tasks), Bus Depot (New deployment), Post Office with a working clock (Schedule), Bank with a live crypto ticker, Odds Parlour (Polymarket), Cinema (YouTube), Power Plant with a live cost meter (Analytics), Library with a notice board of notes, Signal Tower with one LED per integration, and the Park where Nova the cat sits (Chat). A Model Lab stands for the LLM providers. Places whose integration is not connected are dark with a CLOSED sign. Hotspot markers sit on the roofs and hit rects are each building's inscribed core, so a front building no longer steals clicks from the one behind it.
+ *     - The District is a walkable 2:1 isometric Hi-Bit city on a 14x14 tile island (`district/`): glass towers with living walls and rooftop gardens, pastel shophouses, a Supertree grove in the park, an offshore elevated MRT with a running train and station, Marina-Bay-style waterfront promenade, and the U.B Agents Hub tower at the centre. Night and day palettes follow the app theme; the map, the buildings, the props and the ground are baked to sprites once and only what moves is drawn each frame (20 fps, paused while hidden).
+ *     - Every Home place is a building that opens its existing popup: U.B Agents Hub (Agent tasks), Bus Depot (New deployment), Post Office with a working clock (Schedule), Bank with a live crypto ticker, Odds Parlour (Polymarket), Cinema (YouTube), Power Plant with a live cost meter (Analytics), Library with a notice board of notes, Signal Tower with one LED per integration, and the Park where U.B Agents the cat sits (Chat). A Model Lab stands for the LLM providers. Places whose integration is not connected are dark with a CLOSED sign. Hotspot markers sit on the roofs and hit rects are each building's inscribed core, so a front building no longer steals clicks from the one behind it.
  *     - Agents: each agent task is a character that leaves the Hub and pathfinds along the road grid to the workplace matching its last tool calls (Gmail/Calendar -> Post Office, Telegram/Discord/Slack -> Signal Tower, Coinbase/Phantom -> Bank, Polymarket -> Odds Parlour, Spotify/YouTube -> Cinema, web search/fetch -> Library, else Model Lab). Queued agents wait at the Hub, paused ones show "!", failed ones walk home under a red X, completed ones walk home and leave; glowing data trails run from the Hub to busy workplaces and the Hub's task floors light per task. Hover shows the task name and status; click opens Agent tasks. Townsfolk wander per active chat, each active deployment run is a bus on the loop, and nothing is shown that is not real data.
  *     - Fits 1024x768 to 4K with an integer pixel scale, no page scrollbar, and nothing clickable under the HUD bar or the player bar. Home smoke tests scope their selectors to the popup (the city's hover tags also say "Agent tasks" / "today") and allow the dev server's lazy-chunk compile when opening New deployment.
  *
  * - V.79 Alpha (2026-09-26): Deployment popup and Home polish
- *     - New deployment is a popup, not a page: Home's Agent Tasks "+" (and the /deployments buttons and `?mode=` / `&kind=` deep links) opens a Settings-style dialog over the current page with Describe it (Simple manager), One-off task and Automation (builder/canvas). It loads on demand, preloads on hover, reuses the page's Nova connection, and the ReactFlow canvas is its own chunk.
+ *     - New deployment is a popup, not a page: Home's Agent Tasks "+" (and the /deployments buttons and `?mode=` / `&kind=` deep links) opens a Settings-style dialog over the current page with Describe it (Simple manager), One-off task and Automation (builder/canvas). It loads on demand, preloads on hover, reuses the page's U.B Agents connection, and the ReactFlow canvas is its own chunk.
  *     - Fixed the light bar that flashed down the right edge when opening Deployments: /deployments was the only route whose document scrolled, so the native scrollbar appeared. The page is now a fixed full-height shell like Home, and `color-scheme` follows the theme so native scrollbars and select popups are dark in dark mode.
  *     - /deployments redesigned in Home's style: header with presence and four stat tiles, a Deployments list (kind, runs, latest-run status, updated), and a live Runs panel with Approve and run / Deny for runs awaiting review and Cancel for active runs. Stream events coalesce into one refetch and the lists load in parallel; the page chunk dropped from 1.2 MB to 0.5 MB in dev.
  *     - The Advanced task form was rebuilt in Settings' field styles with a themed context picker and worktree switch (`components/agents/advanced-task-form.tsx`); the dead dialog-mode `CreateTaskModal` was removed. Selected states use a neutral surface with an accent border (`lib/shared/surfaces`), so they stay visible with white or black accents.
@@ -63,14 +70,14 @@
  * - V.77 Alpha (2026-09-26): Home Spotify and weather popups
  *     - Home's disconnected Spotify control now launches OAuth directly, refreshes playback state after authorization, and keeps Integrations setup available when OAuth is not configured.
  *     - The Home weather summary now opens a matching location popup; saved cities update weather immediately and persist through the SQLite-backed settings mirror.
- *     - Settings shows the Nova version and replaces the obsolete account, email, password and sign-out UI with a Local data panel: where Nova keeps data on this PC, and a type-DELETE "Delete all local data" (`/api/account/delete` now takes `{ confirm: "DELETE" }` instead of a password the page never sent, and the purge also clears Deployments and the window's cached settings).
- *     - Removed every dead `/login` redirect (the page was deleted in V.62) from Missions, Integrations, Polymarket, Home Spotify and Settings; a runtime-token 401 now shows one "restart Nova" message (`hud/lib/shared/local-api-auth`) and integration 401s show their own reconnect error.
+ *     - Settings shows the U.B Agents version and replaces the obsolete account, email, password and sign-out UI with a Local data panel: where U.B Agents keeps data on this PC, and a type-DELETE "Delete all local data" (`/api/account/delete` now takes `{ confirm: "DELETE" }` instead of a password the page never sent, and the purge also clears Deployments and the window's cached settings).
+ *     - Removed every dead `/login` redirect (the page was deleted in V.62) from Missions, Integrations, Polymarket, Home Spotify and Settings; a runtime-token 401 now shows one "restart U.B Agents" message (`hud/lib/shared/local-api-auth`) and integration 401s show their own reconnect error.
  *
  * - V.76 Alpha (2026-09-26): Online presence label
- *     - Nova's connected default presence now reads ONLINE instead of IDLE.
+ *     - U.B Agents' connected default presence now reads ONLINE instead of IDLE.
  *
  * - V.75 Alpha (2026-09-25): Unified Deployment Platform
- *     - Added one `/deployments` workspace: Simple uses Nova's live WebSocket manager to produce a strict, server-validated task-or-automation plan; Advanced exposes the configured provider/model task form and the guided Mission builder/canvas.
+ *     - Added one `/deployments` workspace: Simple uses U.B Agents' live WebSocket manager to produce a strict, server-validated task-or-automation plan; Advanced exposes the configured provider/model task form and the guided Mission builder/canvas.
  *     - Added canonical Deployment and DeploymentRun records, immutable run revisions, replayable SQLite event streaming, attachments, durable side-effect reservations, idempotent launch keys, and Mission/Agent Task compatibility links (migrations 19-20).
  *     - Managerial tasks execute through the real Agent Task `handleInput` tool loop; automations execute through the leased Mission job ledger. Both project into one lifecycle with review, budget, pause/resume, cancellation, lease fencing, and terminal-state synchronization.
  *     - Existing Missions project as Advanced Deployments with unchanged IDs; terminal legacy Agent Tasks project once as historical runs while active tasks remain on their existing scheduler. Mission agent graph nodes are labeled as routing metadata until they invoke the live specialist runtime.
@@ -80,7 +87,7 @@
  *     - Removed the separate Home Dev Tools panel and its background metrics polling. Runtime traces and errors are now linked from the Home Analytics panel alongside spend, tokens, and budgets.
  *     - Removed the static Agent Chart preview and `/agents` route; operational agent work remains in the expanded Agent Tasks workspace.
  *     - Reorganized Home around Agent Tasks: Polymarket moved to the right rail; equal-size Crypto, YouTube, Analytics, and Notes modules share the lower row; Spotify opens from a header icon; compact weather moved to the header.
- *     - White is now the fresh-install default for the UI accent, Nova orb, and cursor spotlight; existing saved choices remain user-controlled.
+ *     - White is now the fresh-install default for the UI accent, U.B Agents orb, and cursor spotlight; existing saved choices remain user-controlled.
  *     - Leaner installer (163.8 MB -> 123.6 MB; unpacked 597 MB / 23,120 files -> 405 MB / ~10,100 files). Packaging builds use `npm run build:package` (`output: "standalone"` via `NOVA_NEXT_STANDALONE_TRACE=1`), and `hud/scripts/after-pack.js` prunes the packaged `next` / `react-dom` to Next's own output-file trace (`next` ~130 MB -> ~14 MB). `production-server.js` runs Next with the build's serialized config like Next's generated standalone server, so build-only webpack hooks are skipped.
  *     - Not shipped any more: `.next/standalone`, the `.nft.json` trace manifests and `trace` logs under `.next`, next's build-only dependencies (caniuse-lite, baseline-browser-mapping, postcss, @emnapi), the unused top-level `node_modules/jsdom` (routes load the hashed `.next/node_modules/jsdom-<hash>` copy; after-pack fails the build otherwise), dependency source maps, and from the runtime: TypeScript files, source maps, READMEs/CHANGELOGs, domino's test suite and the runtime's own `.test.` files. Removed the unused root `systeminformation` dependency.
  *     - Packaging smokes (`smoke:production-boot` / `smoke:production-routes`) now confine module resolution to the packaged tree and run with the install directory as cwd. Before, anything missing from the package silently resolved from the repo's own `node_modules`/`dist`. This exposed that Coinbase report routes loaded `dist/` relative to cwd; `hud/lib/coinbase/reporting.ts` now prefers `NOVA_WORKSPACE_ROOT` (the staged runtime).
@@ -120,7 +127,7 @@
  *     - Versioning: the app version is `NOVA_VERSION` only. `hud/scripts/sync-version.mjs` (run first by every electron build/publish script) writes `0.XX.0` into `hud/package.json`, the root `package.json` and both lockfiles, so the installer name and the auto-update version always follow it.
  *
  * - V.68 Alpha (2026-09-23): Voice mode is opt-in + packaged-app launch fixes
- *     - Nova never listens or speaks on its own: the home screen no longer sends a spoken greeting on connect (that greeting is what left Nova stuck on "speaking" at boot), and home TTS announcements only fire in voice mode. Speaking-mode code is unchanged.
+ *     - U.B Agents never listens or speaks on its own: the home screen no longer sends a spoken greeting on connect (that greeting is what left U.B Agents stuck on "speaking" at boot), and home TTS announcements only fire in voice mode. Speaking-mode code is unchanged.
  *     - Every launch starts muted. The mute flag moved from localStorage to sessionStorage (`hud/lib/chat/voice-mode`), so voice mode carries across pages in one window but never carries into the next launch.
  *     - Runtime gateway refuses a spoken greeting while muted, even if a client requests one.
  *     - Presence label: idle now reads IDLE (was ONLINE); THINKING and LISTENING are shown as themselves (thinking used to be labeled SPEAKING).
@@ -139,7 +146,7 @@
  *     - Removed the dead Electron IPC agent-spawn path (`start-agent-task`/`stop-agent-task` in `main.js`, matching `preload.js` bridge and `global.d.ts` types); agent tasks run in the `src/` runtime scheduler.
  *     - Home page at the 1024x768 minimum: panels use container queries and truncation instead of clipping; module headers switched from absolute-centered titles to a 3-column grid; bottom row is 2/3/5 columns responsive; crypto prices use compact notation (`$86.4K`); side columns narrow below `xl`.
  *     - Polymarket module header collapses Setup/Trade to icons in narrow panels; Spotify disconnected state redesigned (centered icon + label + Connect); schedule briefing/weather layout tweaks.
- *     - Added `smoke:production-boot` (`scripts/smoke/packaging/production-boot-smoke.mjs`) which boots the packaged `startProductionServices` from `hud/dist/win-unpacked` and proves a queued agent task is claimed. It does not click through `Nova.exe` or test the NSIS installer.
+ *     - Added `smoke:production-boot` (`scripts/smoke/packaging/production-boot-smoke.mjs`) which boots the packaged `startProductionServices` from `hud/dist/win-unpacked` and proves a queued agent task is claimed. It does not click through `U.B Agents.exe` or test the NSIS installer.
  *     - Removed stale `scripts/test-task-contexts.mjs`; trimmed `server-idle-cost-smoke`.
  *
  * - V.66 Alpha (2026-09-21): Idle CPU/RAM reduction + local-API security hardening + test isolation
@@ -190,18 +197,18 @@
  *     - Local-first SQLite migration and unified secrets encryption (DPAPI-wrapped master key) are DESIGNED but NOT implemented yet; see `docs/handoff/2026-09-20-v63/HANDOFF.md`.
  *
  * - V.62 Alpha (2026-09-20): Supabase Removal + Local-Only Architecture
- *     - Removed all Supabase dependencies (database, auth, realtime) to make NovaAIO fully open-source and local.
+ *     - Removed all Supabase dependencies (database, auth, realtime) to make U.B Agents fully open-source and local.
  *     - Converted integration configs to filesystem storage (`.nova-data/integrations-{userId}.json`) with encryption for secrets.
  *     - Converted job ledger and scheduler to in-memory storage with full JobLedgerStore interface.
  *     - Removed live news feed feature entirely (deleted API routes, hooks, and UI components).
- *     - Rebranded application from NovaOS to NovaAIO across all UI surfaces and documentation.
+ *     - Rebranded application from NovaOS to U.B Agents across all UI surfaces and documentation.
  *     - User settings now persist in localStorage (`nova_user_settings:local-user`) for desktop exe deployment.
  *
  * - V.61 Alpha (2026-03-22): Home Notes module rollout + backend hardening
  *     - Replaced Home Placeholder 2 with a full Notes module backed by runtime services and authenticated HUD API CRUD routes.
- *     - Added Nova command capture for note actions (including "nova note down ...") with strict user-context routing and scoped persistence under `.user/user-context/<user>/state/home-notes.json`.
+ *     - Added U.B Agents command capture for note actions (including "nova note down ...") with strict user-context routing and scoped persistence under `.user/user-context/<user>/state/home-notes.json`.
  *     - Updated Notes UI to Spotlight-aligned enterprise styling with accent-driven multi-scheme card palettes and refined single-bar add-note input interaction.
- *     - Hardened notes mutation provenance in the HUD API so client requests cannot spoof Nova-authored note source metadata.
+ *     - Hardened notes mutation provenance in the HUD API so client requests cannot spoof U.B Agents-authored note source metadata.
  *
  * - V.60 Alpha (2026-03-16): YouTube home module manual playback polish
  *     - Replaced the old AI topic chip on the Home YouTube module with a dedicated external link popup for manual YouTube playback.
@@ -250,13 +257,13 @@
  *     - Advanced the exported HUD version constant so the live badge matches the latest shipped history entry.
  *
  * - V.51 Alpha (2026-03-08): Polymarket live trading rollout + wallet-binding hardening
- *     - Replaced the old placeholder/search-based Polymarket path with a Nova HUD workspace, user-scoped API routes, runtime snapshots, and live market/portfolio trading flows.
+ *     - Replaced the old placeholder/search-based Polymarket path with a U.B Agents HUD workspace, user-scoped API routes, runtime snapshots, and live market/portfolio trading flows.
  *     - Bound Polymarket connectivity and live-trading enablement to the user's verified Phantom EVM wallet so client-posted wallet spoofing cannot attach a different trading identity.
  *     - Added automatic Polymarket reset behavior when Phantom verification changes or disconnects, plus targeted guard regression tests and live routing/domain smoke coverage.
  *
- * - V.50 Alpha (2026-03-08): Nova-native login shell overhaul
- *     - Rebuilt `/login` into a full Nova shell surface with orb-aligned spotlight panels, responsive split layout, and stronger session-routing context across sign-in, sign-up, forgot, and reset modes.
- *     - Added a dedicated login background layer that reuses Nova's atmospheric gradients and floating-line treatment so authentication feels integrated with the HUD instead of detached.
+ * - V.50 Alpha (2026-03-08): U.B Agents-native login shell overhaul
+ *     - Rebuilt `/login` into a full U.B Agents shell surface with orb-aligned spotlight panels, responsive split layout, and stronger session-routing context across sign-in, sign-up, forgot, and reset modes.
+ *     - Added a dedicated login background layer that reuses U.B Agents' atmospheric gradients and floating-line treatment so authentication feels integrated with the HUD instead of detached.
  *     - Preserved existing auth contracts, Google OAuth flow, and hydration-safe theme/orb synchronization while modernizing the access experience.
  *
  * - V.49 Alpha (2026-03-07): Job-ledger completion RPC cutover
@@ -276,7 +283,7 @@
  * - V.46 Alpha (2026-03-06): Phantom wallet verification integration
  *     - Added Phantom-first HUD integration for connect, signed-message wallet verification, verified-state display, account-change invalidation, and clean disconnect.
  *     - Added restart-safe user-scoped Phantom challenge/session state, secure nonce replay protections, and durable wallet metadata persistence through the encrypted integrations store.
- *     - Extended runtime snapshots, runtime loaders, catalog visibility, and a safe `phantom_capabilities` tool so Nova agents can read verified wallet context without any custody or trade execution path.
+ *     - Extended runtime snapshots, runtime loaders, catalog visibility, and a safe `phantom_capabilities` tool so U.B Agents agents can read verified wallet context without any custody or trade execution path.
  *     - Added targeted Phantom tests for challenge issuance, signature verification helpers, replay/stale-session rejection, disconnect invalidation, runtime snapshot safety, and multi-user runtime/tool isolation.
  *
  * - V.45 Alpha (2026-03-06): Platform-contract hardening + domain service extraction sweep
@@ -306,8 +313,8 @@
  * - V.41 Alpha (2026-03-04): YouTube integration rollout + architecture-agent overhaul
  *     - Added YouTube integration wiring across Integrations and Home surfaces, including connected-state visibility and setup flow hydration.
  *     - Expanded integration runtime surface for YouTube channel context, permissions, and token-configured state handling.
- *     - Continued org-chart/operator architecture overhaul so Nova remains the primary operator delegating to specialized agent lanes.
- *     - Hardened operator-routing and delegation scaffolding for cleaner separation between Nova core logic and downstream agent execution paths.
+ *     - Continued org-chart/operator architecture overhaul so U.B Agents remains the primary operator delegating to specialized agent lanes.
+ *     - Hardened operator-routing and delegation scaffolding for cleaner separation between U.B Agents core logic and downstream agent execution paths.
  *
  * - V.40 Alpha (2026-03-03): Orb-driven surface theming rollout across HUD modules
  *     - Replaced hardcoded dark panel/subpanel fills with orb-color-aware tinted surfaces on Home, Agents, Dev Logs, Integrations, and Missions Calendar.
@@ -348,8 +355,8 @@
  * - V.34 Alpha (2026-02-28): Agent Chart module/page launch + home module wiring
  *     - Replaced the last empty Home right-rail module slot with a live `Agent Chart` preview card.
  *     - Added settings-wheel navigation from Home module to new `/agents` page for full org-chart visualization.
- *     - Added new `Agent Chart` screen with Nova operator/council/manager/worker hierarchy and provider-rail preview UI.
- *     - Wired spotlight refs and home visual state support for the new Agent module so hover/glow behavior matches existing Nova modules.
+ *     - Added new `Agent Chart` screen with U.B Agents operator/council/manager/worker hierarchy and provider-rail preview UI.
+ *     - Wired spotlight refs and home visual state support for the new Agent module so hover/glow behavior matches existing U.B Agents modules.
  *     - Extended persistent app background support to include `/agents` so floating-lines/space/custom backgrounds carry over consistently.
  *
  * - V.33 Alpha (2026-02-27): Mission output spam loop removal + channel model repair
@@ -373,7 +380,7 @@
  *
  * - V.30 Alpha (2026-02-25): Calendar + Home overhaul with Google Calendar integration
  *     - Overhauled the Missions Calendar page UX and layout (week/day/month alignment, header behavior, mini-calendar interactions, and sidebar profile/settings module).
- *     - Overhauled Home page visual/system modules for a cleaner NovaAIO presentation and improved workflow accessibility.
+ *     - Overhauled Home page visual/system modules for a cleaner U.B Agents presentation and improved workflow accessibility.
  *     - Added and hardened Google Calendar integration flow across integrations and calendar surfaces, including synced event rendering.
  *
  * - V.29 Alpha (2026-02-24): Mission workflow reliability + builder/runtime alignment
@@ -431,8 +438,8 @@
  *     - Added release-gate chain and runbook artifacts with PASS evidence report at `archive/logs/chatkit-release-readiness-report.json`.
  *     - Validated full ChatKit smoke chain end-to-end with live gate mode enabled (`datasetMode: live`).
  *
- * - V.21 Alpha (2026-02-21): Nova conversation intelligence and reliability upgrade
- *     - Upgraded Nova's multi-turn continuity so context, preference handling, and response intent stay stable across longer conversations.
+ * - V.21 Alpha (2026-02-21): U.B Agents conversation intelligence and reliability upgrade
+ *     - Upgraded U.B Agents' multi-turn continuity so context, preference handling, and response intent stay stable across longer conversations.
  *     - Strengthened fast-path routing architecture to reduce false activations and improve first-pass answer accuracy.
  *     - Added production-grade conversation quality benchmarking (30-turn scripted eval) with score deltas for memory, safety, routing, readability, and latency.
  *     - Hardened handoff/state orchestration so message flow remains deterministic under real-time HUD interaction and rapid turn sequences.
@@ -490,7 +497,7 @@
  *     - Added final release notes artifact: `tasks/novaaio-phase10-release-notes.md` with rollout checklist and rollback plan.
  *
  * - V.13 Alpha (2026-02-19): `src/` runtime cutover + stability patch set
- *     - Standardized Nova runtime boot path to `nova.js` -> `src/runtime/core/entrypoint/index.js` (replacing prior `agent/` launch flow).
+ *     - Standardized U.B Agents runtime boot path to `nova.js` -> `src/runtime/core/entrypoint/index.js` (replacing prior `agent/` launch flow).
  *     - Expanded `src/` runtime parity and smoke coverage for provider, session, transport, tools, memory, and shell wiring.
  *     - Removed stale `src/index.ts` one-off harness and cleaned upgrade module index references.
  *     - Fixed Home -> Chat first-send duplication by tightening pending message dedupe (message id + content checks).
@@ -527,11 +534,11 @@
  *       Sidebar -> Chat -> Mission/Integrations.
  *     - Added central chat header with animated orb, live status, and version badge.
  *     - Restored orb animation/hover behavior with live presence indicator.
- *     - Removed container styling around Nova responses for cleaner module blending.
+ *     - Removed container styling around U.B Agents responses for cleaner module blending.
  * 
  * - V.06 Alpha (2026-02-27): Consolidated data cleanup, mission run-trace, and Telegram UX stabilization
  *     - Added Telegram mission output channel with pending-queue handling and cleanup.
- *     - Mission outputs can reliably create/open Nova conversations from run-trace CTA.
+ *     - Mission outputs can reliably create/open U.B Agents conversations from run-trace CTA.
  *     - Added per-step real-time run-trace streaming with true start/end timings.
  *     - Fixed run-trace auth/401 stream issues using fetch-based SSE parsing.
  *     - Step timer reflects real execution duration; step icons update live.
@@ -559,7 +566,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.85 Alpha"
+export const NOVA_VERSION = "V.87 Alpha"
 
 
 

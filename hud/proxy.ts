@@ -136,7 +136,7 @@ export function proxy(req: NextRequest): NextResponse {
   })
   if (!guard.ok) {
     return NextResponse.json(
-      { ok: false, code: "LOCAL_REQUEST_REQUIRED", error: "Forbidden: this API only accepts requests from the local Nova app." },
+      { ok: false, code: "LOCAL_REQUEST_REQUIRED", error: "Forbidden: this API only accepts requests from the local U.B Agents app." },
       { status: 403 },
     )
   }

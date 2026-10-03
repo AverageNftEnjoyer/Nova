@@ -32,7 +32,7 @@ interface NovaCatPortraitProps {
 }
 
 /**
- * Nova the cat, sitting and facing the viewer (public/pixel-city/town/characters/cat.png, one 24 px cell), drawn
+ * U.B Agents the cat, sitting and facing the viewer (public/pixel-city/town/characters/cat.png, one 24 px cell), drawn
  * with `image-rendering: pixelated`. The same sprite the city draws; states are CSS-only (stepped, no blur or glow).
  */
 export function NovaCatPortrait({ state = "idle", scale = 2, accent, paused = false, className }: NovaCatPortraitProps) {

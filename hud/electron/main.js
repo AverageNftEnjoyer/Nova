@@ -32,7 +32,7 @@ let updater = null
 // `.cause` (see hud/electron/production-server.js callers) — swallowing that down to `.message`
 // alone is what made the earlier "Failed to transpile next.config.ts" dialog unhelpfully vague.
 function formatStartupFailure(err) {
-  const lines = ['Nova failed to start.', '']
+  const lines = ['U.B Agents failed to start.', '']
   lines.push(String(err?.message || err))
   let cause = err?.cause
   let depth = 0
@@ -158,7 +158,7 @@ function createTray() {
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'Show Nova',
+      label: 'Show U.B Agents',
       click: () => {
         if (mainWindow) {
           mainWindow.show()
@@ -167,7 +167,7 @@ function createTray() {
       }
     },
     {
-      label: 'Hide Nova',
+      label: 'Hide U.B Agents',
       click: () => {
         if (mainWindow) {
           mainWindow.hide()
@@ -190,7 +190,7 @@ function createTray() {
     }
   ])
 
-  tray.setToolTip('Nova - AI Agent Hub')
+  tray.setToolTip('U.B Agents - AI Agent Hub')
   tray.setContextMenu(contextMenu)
 
   tray.on('click', () => {

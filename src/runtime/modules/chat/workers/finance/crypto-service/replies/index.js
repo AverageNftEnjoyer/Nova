@@ -54,7 +54,7 @@ function normalizePersonaTone(value) {
 // AGENTS.md is a markdown workspace doc; it lives under the data dir (<dataDir>/user-context/<uid>/AGENTS.md).
 function resolvePersonaMeta({ userContextId }) {
   const uid = String(userContextId || "").trim().toLowerCase();
-  if (!uid) return { assistantName: "Nova", tone: "neutral", communicationStyle: "friendly" };
+  if (!uid) return { assistantName: "U.B Agents", tone: "neutral", communicationStyle: "friendly" };
   const contextRoot = resolveUserContextRoot();
   const cacheKey = `${contextRoot}::${uid}`;
   const now = Date.now();
@@ -62,7 +62,7 @@ function resolvePersonaMeta({ userContextId }) {
   if (cached && now - Number(cached.ts || 0) < 60_000) return cached.value;
 
   const agentsPath = path.join(contextRoot, uid, "AGENTS.md");
-  let assistantName = "Nova";
+  let assistantName = "U.B Agents";
   let tone = "neutral";
   let communicationStyle = "friendly";
   try {
@@ -80,7 +80,7 @@ function resolvePersonaMeta({ userContextId }) {
   } catch {
   }
   const value = {
-    assistantName: assistantName || "Nova",
+    assistantName: assistantName || "U.B Agents",
     tone: normalizePersonaTone(tone),
     communicationStyle: communicationStyle || "friendly",
   };
@@ -136,7 +136,7 @@ function buildPnlPersonalityComment({
       ? "daily"
       : "report";
   const persona = resolvePersonaMeta({ userContextId });
-  const name = String(persona.assistantName || "Nova").trim() || "Nova";
+  const name = String(persona.assistantName || "U.B Agents").trim() || "U.B Agents";
   const pctText = `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
   const seed = hashSeed(`${String(userContextId || "")}:${direction}:${cadence}:${persona.tone}:${Math.round(pct * 10)}`);
 

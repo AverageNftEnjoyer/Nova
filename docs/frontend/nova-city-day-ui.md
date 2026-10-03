@@ -1,4 +1,4 @@
-# Nova City Day: UI design spec
+# U.B Agents City Day: UI design spec
 
 The city is now a bright daytime island (`background.webp`, see the map swap). The whole pixel UI moves from the old
 violet night look to a **daytime, chunky, riveted game-menu look** (reference: a "Select Funkey" style menu: slate-blue
@@ -61,10 +61,14 @@ stepped corners, **no blur, no soft glows, no gradients except 2-tone dither/bev
 - **Left edge, vertically stacked**: round icon buttons: Quests (count badge + news dot), Music (green dot when
   playing). Labels shown as a pixel tooltip plaque on hover/focus; below 1280px icons only.
 - **Bottom-right corner**: Settings, recenter/zoom controls.
-- **Bottom-left**: Nova's tutorial bubble.
+- **Bottom-left**: U.B Agents' tutorial bubble.
 - The wordmark sits small in the top-left above/next to the portrait or is dropped if crowded. No band across the top.
 - Every action the old HUD had stays reachable. Works at 1024x768 through 4K (`--hud-s` scaling).
 - Camera `safeTop`/`safeBottom` become small insets sized to the corner clusters actually used.
+
+## Boot
+
+While the Pixi world is loading, Home shows a full-screen boot (`hud/app/home/components/game/city-boot.tsx`) on the same sea as the camera. A stone card reads U.B Agents City, the current stage (charting the harbour, starting the city, painting the island, opening the gates), and a teal bar. U.B Agents the cat walks the island along the bottom in step with that bar. The screen fades once the first frame is drawn. Reduced motion holds the cat still and shortens the fade. The window controls stay in the top-right, and the city underneath is inert until the screen is gone.
 
 ## Windows
 

@@ -322,7 +322,7 @@ async function handleInputCore(text, opts = {}) {
     : handleShutdownWorker;
   if (rawRoutingText === "nova shutdown" || rawRoutingText === "nova shut down" || rawRoutingText === "shutdown nova") {
     if (autonomousTask) {
-      const error = new Error("Agent Tasks cannot shut down Nova.");
+      const error = new Error("Agent Tasks cannot shut down U.B Agents.");
       error.code = "AGENT_TASK_TOOL_DENIED";
       throw error;
     }

@@ -134,7 +134,7 @@ export async function runCoinbaseAccountRequest(input = {}) {
   if (!normalizedUserContextId) {
     return {
       ok: false,
-      reply: "I couldn't verify Coinbase data because user context is missing. Retry from your Nova account session.",
+      reply: "I couldn't verify Coinbase data because user context is missing. Retry from your U.B Agents account session.",
       errorCode: "COINBASE_USER_CONTEXT_MISSING",
       toolCall: "",
       intent: "",

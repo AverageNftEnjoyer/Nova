@@ -1,10 +1,10 @@
-// Nova is local-first: there are no accounts, sessions or sign-in page. An HTTP 401 from Nova's own API can
+// U.B Agents is local-first: there are no accounts, sessions or sign-in page. An HTTP 401 from U.B Agents' own API can
 // only mean the runtime shared token did not match (hud/lib/security/runtime-auth), which a restart fixes.
 // Integration-specific auth failures (an expired Spotify/Google/Coinbase token) carry their own server message
 // and "reconnect in Integrations" handling instead; never navigate anywhere on a 401.
 
 export const LOCAL_API_UNAUTHORIZED_MESSAGE =
-  "Nova's local API rejected the request (runtime token mismatch). Restart Nova."
+  "U.B Agents' local API rejected the request (runtime token mismatch). Restart U.B Agents."
 
 export class LocalApiUnauthorizedError extends Error {
   constructor() {

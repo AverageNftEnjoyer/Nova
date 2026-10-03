@@ -26,7 +26,7 @@ function hexToRgbTriplet(hex: string): string {
 }
 
 export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
-  const [assistantName, setAssistantName] = useState("Nova")
+  const [assistantName, setAssistantName] = useState("U.B Agents")
   const [orbColor, setOrbColor] = useState<OrbColor>("white")
   const [spotlightEnabled, setSpotlightEnabled] = useState(true)
 
@@ -42,7 +42,7 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
     const settings = loadUserSettings()
     const nextOrbColor = cached.orbColor ?? settings.app.orbColor
     const nextSpotlight = cached.spotlightEnabled ?? (settings.app.spotlightEnabled ?? true)
-    const nextAssistantName = String(settings.personalization?.assistantName || "").trim() || "Nova"
+    const nextAssistantName = String(settings.personalization?.assistantName || "").trim() || "U.B Agents"
     setOrbColor(nextOrbColor)
     setSpotlightEnabled(nextSpotlight)
     setAssistantName(nextAssistantName)
@@ -57,7 +57,7 @@ export function useHomeVisuals({ isLight }: UseHomeVisualsInput) {
       const settings = loadUserSettings()
       setOrbColor(settings.app.orbColor)
       setSpotlightEnabled(settings.app.spotlightEnabled ?? true)
-      setAssistantName(String(settings.personalization?.assistantName || "").trim() || "Nova")
+      setAssistantName(String(settings.personalization?.assistantName || "").trim() || "U.B Agents")
       writeShellUiCache({
         orbColor: settings.app.orbColor,
         spotlightEnabled: settings.app.spotlightEnabled ?? true,

@@ -134,7 +134,7 @@ export function SettingsProfilePanel({
           <div>
             <p className={cn("text-sm", isLight ? "text-s-70" : "text-slate-200")}>Memory</p>
             <p className={cn("text-xs", isLight ? "text-s-30" : "text-slate-500")}>
-              Edit your full <code>MEMORY.md</code> directly. Nova reads this every turn.
+              Edit your full <code>MEMORY.md</code> directly. U.B Agents reads this every turn.
             </p>
           </div>
           <div className="flex items-center gap-2">

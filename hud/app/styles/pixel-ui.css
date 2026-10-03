@@ -735,7 +735,7 @@
   color-scheme: normal;
 }
 
-/* ── Scene camera (Nova City pan / zoom) ─────────────────────────────────────
+/* ── Scene camera (U.B Agents City pan / zoom) ─────────────────────────────────────
    The scene host is the camera: drag to pan, wheel / pinch to zoom. Where the camera shows past the painting's
    edge (zoomed out, or the top / bottom panned out from under the HUD and footer) the host's backdrop continues the
    painting's sky above and its street below. */
@@ -757,6 +757,13 @@
 .pixel-camera[data-dragging="true"] .pixel-hotspot::before,
 .pixel-camera[data-dragging="true"] .pixel-hotspot-tag {
   display: none;
+}
+
+/* The PixiJS world outlines the hovered building itself (a pixel border in its footprint); the dashed DOM outline
+   stays for keyboard focus only. */
+.pixel-camera[data-renderer="pixi"] .pixel-hotspot:hover:not(:focus-visible)::before {
+  border-color: transparent;
+  animation: none;
 }
 
 .pixel-camera:focus-visible {
@@ -985,7 +992,7 @@
   opacity: 1;
 }
 
-/* ── Tutorial guide: Nova's riveted speech frame, the arrow and the ring on the target ── */
+/* ── Tutorial guide: U.B Agents' riveted speech frame, the arrow and the ring on the target ── */
 /* Bottom-left (the tutorial bubble's corner); it moves to the bottom-right when the target is on the left, and then
    clears the Settings button and the zoom controls. Scaled as a whole with --hud-s. */
 .game-tutorial {
@@ -1407,7 +1414,7 @@
  *              Quests / Music orb rail stacked under it along the left edge
  *   top-right  window controls (Electron only), XP counter plaque, weather chip
  *   bottom-right  Settings orb, with the camera's zoom / recenter buttons to its left
- *   bottom-left   Nova's tutorial bubble (components/game/tutorial-guide.tsx)
+ *   bottom-left   U.B Agents' tutorial bubble (components/game/tutorial-guide.tsx)
  *
  * `.game-hud-root` is Home's screen and owns --hud-s, the scale every pixel-UI size multiplies by (1 up to 1919px
  * wide, then 1.25, 1.6, 2 for 1080p, 1440p, 4K).
@@ -1498,7 +1505,7 @@
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
   font-size: calc(15px * var(--hud-s));
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.04em;
   line-height: 1;
   text-transform: uppercase;
   cursor: pointer;
@@ -1813,7 +1820,7 @@ button.pixel-plaque.game-chip:focus-visible {
 /* ===== end Game HUD ===== */
 
 /* ===== Integrations page ===== */
-/* /integrations dressed as Nova City's Town Hall in the Day theme: one big riveted .pixel-frame holding a title plaque,
+/* /integrations dressed as U.B Agents City's Town Hall in the Day theme: one big riveted .pixel-frame holding a title plaque,
    a close button, a caption row and three panels (building cards, setup, status). Cards, buttons and labels come from
    the Day theme core; this section only lays them out and re-skins the setup forms (which keep their Tailwind markup)
    onto Day tokens. Hard borders and 2px offsets only; no blur, no glow. The page zooms up at large viewports so the
@@ -2346,7 +2353,7 @@ button.pixel-plaque.game-chip:focus-visible {
 /* ===== Chat page ===== */
 /*
  * /chat (and the sidebar on /history) as a daytime pixel RPG messenger: a slate stone frame holds the conversation
- * list, another holds the dialogue with Nova the cat, speech bubbles are parchment (Nova) and purple (you) with
+ * list, another holds the dialogue with U.B Agents the cat, speech bubbles are parchment (U.B Agents) and purple (you) with
  * stepped tails, and the right-hand panels are purple cards. Built on the Day theme core (.pixel-frame / .pixel-card /
  * .pixel-btn / .pixel-plaque / .pixel-title). Every size is a multiple of --pc-u (1 css px) so borders stay whole
  * pixels. At 4K (>= 3200px wide) the whole page is zoomed 2x with `zoom` (--pc-zoom) instead of overriding the root
@@ -2360,7 +2367,7 @@ button.pixel-plaque.game-chip:focus-visible {
   --pc-u: 1px;
   --pc-b: calc(var(--pc-u) * 3);
   --pc-b2: calc(var(--pc-u) * 2);
-  /* Parchment: Nova's bubble surface, derived from the day palette (dark ink text on it, contrast > 10:1). */
+  /* Parchment: U.B Agents' bubble surface, derived from the day palette (dark ink text on it, contrast > 10:1). */
   --pc-paper: color-mix(in srgb, var(--px-accent) 14%, white);
   --pc-paper-lo: color-mix(in srgb, var(--px-accent) 30%, var(--px-muted));
   --pc-paper-line: var(--px-frame-line);
@@ -2404,7 +2411,7 @@ button.pixel-plaque.game-chip:focus-visible {
 /* The home-spotlight glow layer is a soft effect: not part of the day look. */
 .pixel-chat-side .home-global-spotlight { display: none; }
 
-/* ── Nova the cat (portrait) ─────────────────────────────────────────────── */
+/* ── U.B Agents the cat (portrait) ─────────────────────────────────────────────── */
 
 .nova-cat {
   --cat-scale: 2;
@@ -2706,7 +2713,7 @@ button.pixel-plaque.game-chip:focus-visible {
 .pc-col--compact { max-width: 82%; }
 .pc-col--wide { max-width: 96%; }
 
-/* Nova's bubble: parchment, dark ink. */
+/* U.B Agents' bubble: parchment, dark ink. */
 .pc-bubble {
   --pc-bg: var(--pc-paper);
   --pc-line: var(--pc-paper-line);
@@ -3199,9 +3206,10 @@ button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); out
 .pixel-chat-side .pc-wordmark {
   margin: 0;
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: 1.25rem;
+  font-size: 1rem;
   line-height: 1;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
   color: var(--px-text);
   text-shadow: var(--px-outline-2);
 }
@@ -3386,7 +3394,7 @@ button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); out
 /* ===== end Chat page ===== */
 
 /* ===== Building rooms ===== */
-/* BuildingRoom (hud/app/home/components/rooms/building-room.tsx): every building in Nova City opens its own room, a
+/* BuildingRoom (hud/app/home/components/rooms/building-room.tsx): every building in U.B Agents City opens its own room, a
    large pixel window. Along the top runs the room's vista: its uploaded picture (hud/public/pixel-city/rooms/,
    docs/frontend/nova-city-rooms.md) over a themed pixel backdrop that shows when no picture exists, with the
    building's live status on plaques. Below it, the room's tabs and a solid --px-bg panel, so text never sits on the
@@ -3677,3 +3685,1008 @@ button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); out
   .room-vista { height: clamp(72px, 18%, 120px); }
 }
 /* ===== end Building rooms ===== */
+
+/* ===== Immersive rooms (stage) ===== */
+/* RoomStage (hud/app/home/components/rooms/room-stage.tsx): a room whose registry entry has a `stage` opens as a
+   full-viewport scene. The picture is cover-fit (never letterboxed, never altered) inside .stage-box, and every
+   overlay is positioned in % of that box, so it stays locked to the artwork. Colours come from --stage-* (sampled
+   from the picture, room-registry.ts). The hologram UI (.holo*) is hard-edged: 2px/1px pixel borders, a flat
+   scanline texture; no blur, no flicker, no soft glow. docs/frontend/nova-city-rooms.md. */
+
+.room-stage {
+  position: fixed;
+  inset: 0;
+  /* Below the home HUD, tutorial and popup windows (119-120): the game UI stays on screen inside a room. */
+  z-index: 118;
+  overflow: hidden;
+  background: #0d0a24;
+  animation: stage-enter 250ms steps(5, end) both;
+  --holo-line: var(--stage-holo, #00ccfe);
+  --holo-deep: var(--stage-holo-deep, #002b78);
+  --holo-mid: var(--stage-holo-mid, #0076cd);
+  --holo-ink: #e6fbff;
+  --holo-dim: #8fd0f5;
+  --holo-ok: #7dffb0;
+  --holo-warn: #ffc861;
+  --holo-bad: #ff8aa8;
+}
+
+@keyframes stage-enter {
+  from { opacity: 0; transform: scale(1.07); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.stage-box {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100vw, calc(100dvh * var(--stage-ratio)));
+  aspect-ratio: var(--stage-ratio);
+  transform: translate(-50%, -50%);
+  container-type: inline-size;
+}
+
+.stage-picture {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+}
+
+@container (min-width: 2400px) {
+  .stage-picture { image-rendering: pixelated; }
+}
+
+/* The home HUD (player panel, Quests / Music rail, chips, Settings) and U.B Agents' tutorial stay above an open room. */
+.game-hud-root:has(.room-stage) .game-hud-left,
+.game-hud-root:has(.room-stage) .game-hud-right,
+.game-hud-root:has(.room-stage) .game-hud-br,
+.game-hud-root:has(.room-stage) .game-hud-drag,
+.game-hud-root:has(.room-stage) .game-tutorial {
+  z-index: 119;
+}
+
+/* ── The map: the way out of a room. A stone-and-brass button in the bottom-left corner opens the city map ── */
+/* U.B Agents' tutorial moves aside for the button, and hides while the map is open. */
+.game-hud-root:has(.room-stage) .game-tutorial { left: calc(96px * var(--hud-s, 1)); }
+.game-hud-root:has(.stage-map) .game-tutorial { visibility: hidden; }
+
+.stage-map-orb {
+  position: fixed;
+  left: calc(16px * var(--hud-s, 1));
+  bottom: calc(16px * var(--hud-s, 1));
+  z-index: 4;
+}
+
+.stage-map {
+  position: fixed;
+  left: calc(96px * var(--hud-s, 1));
+  bottom: calc(16px * var(--hud-s, 1));
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(560px, calc(100vw - 120px * var(--hud-s, 1)));
+  max-height: calc(100dvh - 130px);
+  padding: 10px;
+  background: var(--stage-stone);
+  border: 3px solid var(--stage-amber);
+  box-shadow: inset 0 0 0 2px #0d0a24, 0 4px 0 0 #0d0a24;
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+}
+
+.stage-map-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: #ffe8b8;
+}
+
+.stage-map-title { margin: 0; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; }
+
+.stage-map-view {
+  position: relative;
+  min-height: 0;
+  width: 100%;
+  border: 2px solid #0d0a24;
+  background: #0d0a24;
+}
+
+.stage-map-img { display: block; width: 100%; height: 100%; user-select: none; image-rendering: pixelated; }
+
+.stage-map-pin {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  background: var(--stage-amber);
+  border: 2px solid #0d0a24;
+  box-shadow: 0 2px 0 0 #0d0a24;
+  cursor: pointer;
+}
+
+.stage-map-pin[data-current] { background: var(--holo-line); animation: stage-map-here 1s steps(2, end) infinite; }
+
+@keyframes stage-map-here {
+  50% { transform: translate(-50%, -50%) scale(1.3); }
+}
+
+.stage-map-pin:hover,
+.stage-map-pin:focus-visible { background: #fff; outline: 2px solid var(--holo-line); outline-offset: 2px; z-index: 1; }
+
+.stage-map-pin-name {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  display: none;
+  padding: 4px 7px 5px;
+  background: #0d0a24;
+  border: 1px solid var(--stage-amber);
+  color: #ffe8b8;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.stage-map-pin:hover .stage-map-pin-name,
+.stage-map-pin:focus-visible .stage-map-pin-name { display: block; }
+
+.stage-map-foot { display: flex; gap: 8px; justify-content: flex-end; }
+
+.stage-map-leave,
+.stage-map-close {
+  padding: 8px 12px 9px;
+  border: 2px solid var(--stage-amber);
+  background: #0d0a24;
+  color: #ffe8b8;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.stage-map-leave { background: var(--holo-line); border-color: #0d0a24; color: #00184a; }
+
+.stage-map-leave:hover,
+.stage-map-leave:focus-visible,
+.stage-map-close:hover,
+.stage-map-close:focus-visible { border-color: var(--holo-line); color: #fff; outline: none; }
+
+.stage-map-leave:hover,
+.stage-map-leave:focus-visible { background: #fff; color: #00184a; }
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-map-pin[data-current] { animation: none; }
+}
+
+/* ── The painted screen, covered by the hologram ── */
+.stage-screen {
+  position: absolute;
+  --u: calc(100cqw / 1672);
+}
+
+.holo {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  color: var(--holo-ink);
+  font-family: var(--font-pixel), ui-monospace, monospace;
+  font-size: max(12px, calc(var(--u) * 17));
+  line-height: 1.15;
+  --holo-small: max(12px, calc(var(--u) * 15));
+  --holo-gap: max(5px, calc(var(--u) * 8));
+}
+
+.holo--screen {
+  --ch: calc(var(--u) * 30);
+  --ch-in: calc(var(--u) * 28);
+  width: 100%;
+  height: 100%;
+  padding: calc(var(--u) * 12) calc(var(--u) * 24) calc(var(--u) * 14);
+  gap: var(--holo-gap);
+  background: var(--holo-line);
+  clip-path: polygon(var(--ch) 0, calc(100% - var(--ch)) 0, 100% var(--ch), 100% calc(100% - var(--ch)), calc(100% - var(--ch)) 100%, var(--ch) 100%, 0 calc(100% - var(--ch)), 0 var(--ch));
+}
+
+/* Squarer windows crop the picture at the sides, which pulls the screen under the home HUD's player panel (it stays
+   on top of the room): keep the menu clear of it. */
+@media (max-aspect-ratio: 3/2) {
+  .holo--screen {
+    padding-left: max(calc(var(--u) * 24), calc(150px * var(--hud-s, 1)));
+  }
+}
+
+/* Inner field: 3 px of cyan rim around deep blue, with a flat scanline + grid texture (static: no flicker). */
+.holo--screen::before {
+  content: "";
+  position: absolute;
+  inset: max(2px, calc(var(--u) * 3));
+  z-index: 0;
+  background:
+    repeating-linear-gradient(0deg, rgb(0 204 254 / 0.07) 0 1px, transparent 1px 4px),
+    linear-gradient(90deg, rgb(0 204 254 / 0.05) 1px, transparent 1px) 0 0 / calc(var(--u) * 40) 100%,
+    linear-gradient(180deg, #02358f, var(--holo-deep) 60%, #001f5c);
+  clip-path: polygon(var(--ch-in) 0, calc(100% - var(--ch-in)) 0, 100% var(--ch-in), 100% calc(100% - var(--ch-in)), calc(100% - var(--ch-in)) 100%, var(--ch-in) 100%, 0 calc(100% - var(--ch-in)), 0 var(--ch-in));
+}
+
+.holo > * { position: relative; z-index: 1; }
+
+.holo--panel {
+  --u: 1px;
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 14px 16px 16px;
+  gap: 10px;
+  background: var(--holo-deep);
+  border: 3px solid var(--holo-line);
+  box-shadow: inset 0 0 0 2px var(--stage-stone), 0 4px 0 0 #0d0a24;
+  font-size: 16px;
+  --holo-small: 13px;
+  --holo-gap: 8px;
+}
+
+.holo-head {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--holo-gap);
+}
+
+.holo-title {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--holo-gap) * 1.2);
+  margin: 0;
+  min-width: 0;
+  font-weight: 400;
+}
+
+.holo-name {
+  color: var(--holo-ink);
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  font-size: max(14px, calc(var(--u) * 21));
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.holo--panel .holo-name { font-size: 20px; }
+
+.holo-role {
+  color: var(--holo-dim);
+  font-size: var(--holo-small);
+}
+
+.holo-chips { display: contents; }
+
+/* The shared status plaques (RoomStatus), re-skinned as hologram chips. */
+.holo .room-status {
+  position: static;
+  display: contents;
+}
+
+.holo .pixel-plaque {
+  min-height: 0;
+  padding: 3px 8px;
+  background: rgb(0 118 205 / 0.35);
+  border: 1px solid var(--holo-line);
+  box-shadow: none;
+  clip-path: none;
+  color: var(--holo-ink);
+  font-family: var(--font-pixel), ui-monospace, monospace;
+  font-size: var(--holo-small);
+}
+
+.holo .room-lamp { border: 1px solid var(--holo-ink); }
+
+.holo-actions { margin-left: auto; }
+
+.holo-actions .pixel-chip {
+  height: auto !important;
+  padding: 3px 9px !important;
+  background: transparent;
+  border: 2px solid var(--holo-line);
+  box-shadow: none;
+  clip-path: none;
+  color: var(--holo-ink);
+  font-size: var(--holo-small) !important;
+}
+
+.holo-actions .pixel-chip:hover,
+.holo-actions .pixel-chip:focus-visible {
+  background: var(--holo-line);
+  color: #00184a;
+}
+
+/* The day theme outlines light text with a dark text-shadow; on the cyan hover fill that smears the dark label. */
+.holo-actions .pixel-chip,
+.holo-tab,
+.holo-btn { text-shadow: none; }
+
+.holo-actions .pixel-chip svg { display: none; }
+.holo-actions .pixel-chip .hidden { display: inline; }
+
+/* Tabs: holographic buttons along the top edge of the field. */
+.holo-tabs {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: calc(var(--holo-gap) * 0.75);
+}
+
+.holo-tab,
+.holo-btn {
+  padding: calc(var(--holo-gap) * 0.5) calc(var(--holo-gap) * 1.6);
+  background: rgb(0 70 150 / 0.55);
+  border: 2px solid var(--holo-mid);
+  color: var(--holo-ink);
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  font-size: var(--holo-small);
+  line-height: 1.1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.holo-tab:hover,
+.holo-btn:hover {
+  border-color: var(--holo-line);
+  background: rgb(0 140 230 / 0.55);
+}
+
+.holo-tab[data-active="true"] {
+  background: var(--holo-line);
+  border-color: var(--holo-line);
+  color: #00184a;
+  box-shadow: 0 3px 0 0 #7ff0ff;
+}
+
+.holo-tab:focus-visible,
+.holo-btn:focus-visible,
+.holo-actions .pixel-chip:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.holo-body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.holo--panel .holo-body { overflow: visible; }
+
+.holo-body[data-kind="setup"] { overflow-y: auto; }
+
+.holo-panel-body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--holo-gap);
+}
+
+.holo-stats {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--holo-gap);
+}
+
+.holo-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--holo-gap) * 1.2);
+  padding: calc(var(--holo-gap) * 0.5) calc(var(--holo-gap) * 1.4);
+  background: rgb(0 70 150 / 0.45);
+  border: 1px solid var(--holo-mid);
+  border-left: 4px solid var(--holo-line);
+}
+
+.holo-stat-value {
+  color: #fff;
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  font-size: max(15px, calc(var(--u) * 22));
+}
+
+.holo-stat-label {
+  color: var(--holo-dim);
+  font-size: var(--holo-small);
+}
+
+.holo-stats-link {
+  margin-left: auto;
+  align-self: center;
+}
+
+.holo-error {
+  margin: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--holo-bad);
+  color: var(--holo-bad);
+  font-size: var(--holo-small);
+}
+
+/* Rows look like the chart panels painted on the screen: a thin cyan rim and a darker field. */
+.holo-list {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: calc(var(--holo-gap) * 0.6);
+  margin: 0;
+  padding: 0 calc(var(--holo-gap) * 0.9) 0 0;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-color: var(--holo-line) #01245f;
+  scrollbar-width: thin;
+}
+
+.holo-list::-webkit-scrollbar { width: 10px; }
+.holo-list::-webkit-scrollbar-track { background: #01245f; border: 1px solid var(--holo-mid); }
+.holo-list::-webkit-scrollbar-thumb { background: var(--holo-line); border: 2px solid #01245f; }
+
+.holo-row {
+  display: flex;
+  min-width: 0;
+  flex: none;
+  align-items: center;
+  gap: var(--holo-gap);
+  padding: calc(var(--holo-gap) * 0.6) calc(var(--holo-gap) * 1.2);
+  background: rgb(0 40 110 / 0.7);
+  border: 1px solid var(--holo-mid);
+  border-left: 4px solid var(--holo-mid);
+}
+
+.holo-row[data-tone="ok"] { border-left-color: var(--holo-ok); }
+.holo-row[data-tone="live"] { border-left-color: var(--holo-line); }
+.holo-row[data-tone="review"] { border-left-color: var(--holo-warn); }
+.holo-row[data-tone="bad"] { border-left-color: var(--holo-bad); }
+
+.holo-row-title {
+  min-width: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+  color: var(--holo-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.holo-row-meta {
+  flex: none;
+  color: var(--holo-dim);
+  font-size: var(--holo-small);
+}
+
+.holo-tag {
+  flex: none;
+  padding: 1px 7px 2px;
+  border: 1px solid currentcolor;
+  color: var(--holo-dim);
+  font-size: var(--holo-small);
+  text-transform: uppercase;
+}
+
+.holo-tag[data-tone="ok"] { color: var(--holo-ok); }
+.holo-tag[data-tone="live"] { color: var(--holo-line); background: rgb(0 204 254 / 0.14); }
+.holo-tag[data-tone="review"] { color: var(--holo-warn); background: rgb(255 200 97 / 0.12); }
+.holo-tag[data-tone="bad"] { color: var(--holo-bad); }
+
+.holo-empty {
+  flex: none;
+  padding: calc(var(--holo-gap) * 1.5);
+  background: rgb(0 40 110 / 0.55);
+  border: 1px dashed var(--holo-line);
+  color: var(--holo-dim);
+  line-height: 1.3;
+}
+
+.holo-empty strong {
+  color: var(--holo-ink);
+  font-weight: 400;
+}
+
+/* ── Painted buttons that became real: crystals (prev / next page) and the portal (main action) ── */
+.stage-crystal,
+.stage-portal {
+  position: absolute;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.stage-crystal { clip-path: circle(closest-side); }
+
+.stage-crystal:hover,
+.stage-crystal:focus-visible {
+  background: radial-gradient(circle closest-side, rgb(255 255 255 / 0.2) 0 100%);
+  outline: none;
+}
+
+.stage-portal { clip-path: ellipse(50% 50% at 50% 50%); }
+
+.stage-portal:hover,
+.stage-portal:focus-visible {
+  background: radial-gradient(ellipse closest-side, rgb(0 231 252 / 0.24) 0 100%);
+  outline: none;
+}
+
+.stage-portal-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  padding: 0.45em 0.9em 0.6em;
+  background: var(--stage-stone);
+  border: 2px solid var(--stage-amber);
+  box-shadow: 0 3px 0 0 #0d0a24;
+  color: #ffe8b8;
+  font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
+  font-size: max(11px, calc(100cqw / 1672 * 14));
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+}
+
+.stage-portal:hover .stage-portal-label,
+.stage-portal:focus-visible .stage-portal-label {
+  background: var(--holo-line);
+  border-color: var(--stage-amber);
+  color: #00184a;
+}
+
+/* ── Compact: the picture on top at its natural ratio, the menu as a full-width themed panel under it ── */
+.stage-scroll {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  /* Clears the home HUD's top band, which stays visible over the room. */
+  padding-top: calc(120px * var(--hud-s, 1));
+  background: #0d0a24;
+}
+
+.stage-compact-picture {
+  position: relative;
+  width: 100%;
+  aspect-ratio: var(--stage-ratio);
+  max-height: 46dvh;
+  overflow: hidden;
+}
+
+.stage-compact-picture .stage-picture {
+  object-fit: cover;
+  object-position: 50% 30%;
+}
+
+.stage-compact-menu {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border-top: 3px solid var(--stage-amber);
+  background: linear-gradient(180deg, var(--stage-stone), #0d0a24 40%);
+}
+
+.stage-compact-portal {
+  align-self: center;
+  padding: 10px 22px;
+  font-size: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .room-stage { animation: none; }
+  .holo--screen::before { animation: none; }
+}
+/* ===== end Immersive rooms ===== */
+
+/* ===== U.B Agents City boot ===== */
+/*
+ * The screen that covers Home while the Pixi world loads (game/city-boot.tsx). Sea matches DISTRICT_SEA_COLOR so the
+ * fade opens onto the same water. One sky band, the stone card, and the island along the bottom. The cat walks the
+ * shore in step with the bar.
+ */
+.city-boot-play {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.city-boot {
+  position: absolute;
+  inset: 0;
+  /* Above the tutorial bubble (60) and celebration toasts (130), which are position:fixed. */
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: calc(28px * var(--hud-s, 1)) calc(24px * var(--hud-s, 1)) 30vw;
+  background: #01a5d4;
+  color: var(--px-text);
+  transition: opacity 460ms steps(5, end);
+}
+
+.city-boot::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 46%;
+  background: #7ec8e8;
+  pointer-events: none;
+}
+
+.city-boot.is-leaving {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.city-boot-controls {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+}
+
+.city-boot-clouds {
+  position: absolute;
+  top: 0;
+  left: -6%;
+  z-index: 0;
+  width: 112%;
+  height: 34%;
+  pointer-events: none;
+}
+
+.city-boot-card {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(12px * var(--hud-s, 1));
+  width: min(420px, calc(100% - 32px));
+  text-align: center;
+  filter: drop-shadow(0 calc(4px * var(--hud-s, 1)) 0 var(--px-shadow));
+}
+
+.city-boot-mark {
+  display: block;
+  width: calc(56px * var(--hud-s, 1));
+  height: auto;
+}
+
+.city-boot-title {
+  font-size: calc(26px * var(--hud-s, 1));
+  letter-spacing: 0.04em;
+  color: var(--px-accent);
+}
+
+.city-boot-card .pixel-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.2em;
+  margin: 0;
+  color: var(--px-text);
+  font-size: calc(13px * var(--hud-s, 1));
+}
+
+.city-boot-card .pixel-bar {
+  align-self: stretch;
+  margin-top: calc(4px * var(--hud-s, 1));
+}
+
+.city-boot-card .pixel-bar-fill {
+  transition: none;
+}
+
+.city-boot-caret {
+  display: inline-block;
+  width: 0.45em;
+  height: 0.75em;
+  margin-left: 0.4em;
+  background: var(--px-accent);
+}
+
+.city-boot-shore {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.city-boot-shore > svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.city-boot-walker {
+  position: absolute;
+  bottom: 36%;
+  z-index: 1;
+  width: calc(64px * var(--hud-s, 1));
+  height: calc(50px * var(--hud-s, 1));
+  transform: translateX(-50%);
+}
+
+.city-boot-walker svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.city-boot-legs-b {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .city-boot-clouds {
+    animation: city-boot-drift 18s steps(8, end) infinite alternate;
+  }
+
+  .city-boot-caret {
+    animation: city-boot-blink 0.9s steps(1, end) infinite alternate;
+  }
+
+  .city-boot-walker {
+    animation: city-boot-bob 0.22s steps(1, end) infinite alternate;
+  }
+
+  .city-boot-legs-a {
+    animation: city-boot-fade-out 0.22s steps(1, end) infinite alternate;
+  }
+
+  .city-boot-legs-b {
+    animation: city-boot-fade-in 0.22s steps(1, end) infinite alternate;
+  }
+}
+
+@keyframes city-boot-drift {
+  from { transform: translateX(-2%); }
+  to { transform: translateX(2%); }
+}
+
+@keyframes city-boot-blink {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes city-boot-bob {
+  from { transform: translateX(-50%) translateY(0); }
+  to { transform: translateX(-50%) translateY(-3px); }
+}
+
+@keyframes city-boot-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes city-boot-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .city-boot { transition-duration: 90ms; transition-timing-function: linear; }
+}
+/* ===== end U.B Agents City boot ===== */
+
+/* ===== Depot creation view (hologram "New" section) ===== */
+/*
+ * rooms/room-new-deployment.tsx hosts deployments/components/new-deployment-flow.tsx (the same flow as the New
+ * deployment popup) on the Depot hologram. Every app form control inside it is re-skinned here, scoped under
+ * .holo-new: deep translucent blue fields, 2px cyan pixel borders, pixel font, hard edges, no blur / glow / purple.
+ * Also: the popup composer (.deployment-composer) gets a neutral slate fill instead of the pixel skin purple.
+ */
+.holo-new {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--holo-gap);
+  font-size: var(--holo-small);
+}
+
+.holo--inline { max-width: none; min-height: 420px; }
+.holo--inline .holo-new { min-height: 380px; }
+
+.room-section { display: contents; }
+.room-section[hidden] { display: none; }
+.room-panel[data-kind="data"] > .room-section > * { min-height: 100%; }
+
+.holo-new-bar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--holo-gap);
+}
+.holo-subtabs { display: flex; flex-wrap: wrap; gap: calc(var(--holo-gap) * 0.75); }
+.holo-new-links { display: flex; gap: calc(var(--holo-gap) * 0.75); }
+.holo-new-status,
+.holo-notice {
+  flex: none;
+  margin: 0;
+  padding: calc(var(--holo-gap) * 0.5) var(--holo-gap);
+  border: 2px solid var(--holo-ok);
+  background: rgb(0 60 40 / 0.45);
+  color: var(--holo-ok);
+}
+.holo-notice { border-color: var(--holo-line); background: rgb(0 40 110 / 0.55); color: var(--holo-ink); }
+.holo-btn--small { padding: 1px calc(var(--holo-gap) * 0.9); }
+.holo-btn[data-primary="true"] { background: var(--holo-line); border-color: var(--holo-line); color: #00184a; }
+.holo-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.holo-row-actions { display: inline-flex; flex: none; gap: calc(var(--holo-gap) * 0.6); }
+.holo-row { flex-wrap: wrap; }
+
+.holo-flow {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  color: var(--holo-ink);
+  overflow: hidden;
+}
+.holo--panel .holo-flow { min-height: 440px; }
+.holo-flow > * { flex: 1 1 auto; min-height: 0; }
+
+/* Hard edges, flat colour, pixel font; text in the hologram palette. */
+.holo-new .holo-flow,
+.holo-new .holo-flow * {
+  border-radius: 0 !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  transition: none !important;
+  animation: none !important;
+  font-family: var(--font-pixel), ui-monospace, monospace;
+  background-image: none;
+  color: var(--holo-ink);
+}
+.holo-new .holo-flow [class*="text-slate-4"],
+.holo-new .holo-flow [class*="text-slate-5"],
+.holo-new .holo-flow [class*="text-s-"] { color: var(--holo-dim); }
+.holo-new .holo-flow [class*="text-accent"] { color: var(--holo-line); }
+.holo-new .holo-flow [class*="text-rose"],
+.holo-new .holo-flow [role="alert"] { color: var(--holo-bad); }
+.holo-new .holo-flow [class*="text-emerald"] { color: var(--holo-ok); }
+.holo-new .holo-flow [class*="text-amber"],
+.holo-new .holo-flow [class*="text-yellow"] { color: var(--holo-warn); }
+.holo-new .holo-flow h3,
+.holo-new .holo-flow h4 { font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace; letter-spacing: 0.05em; color: var(--holo-ink); }
+.holo-new .holo-flow label,
+.holo-new .holo-flow span[class*="uppercase"] { color: var(--holo-dim); }
+
+/* Panels, cards, groups: dark translucent blue with a cyan hairline. */
+.holo-new .holo-flow article,
+.holo-new .holo-flow [class*="rounded"][class*="border"]:not(button):not(input):not(textarea),
+.holo-new .holo-flow .holo-subpanel {
+  background-color: rgb(0 30 90 / 0.6);
+  border: 1px solid var(--holo-mid);
+}
+.holo-new .holo-flow [class*="border-rose"] { border-color: var(--holo-bad); background-color: rgb(80 0 30 / 0.4); }
+.holo-new .holo-flow [class*="border-dashed"] { border: 2px dashed var(--holo-mid); }
+
+/* Fields: translucent deep blue, 2px cyan border, bright text. */
+.holo-new .holo-flow input,
+.holo-new .holo-flow textarea,
+.holo-new .holo-flow select {
+  border: 2px solid var(--holo-mid) !important;
+  background-color: rgb(0 25 80 / 0.7) !important;
+  color: var(--holo-ink) !important;
+  caret-color: var(--holo-line);
+  font-size: var(--holo-small);
+}
+.holo-new .holo-flow .deployment-composer { background-color: rgb(0 25 80 / 0.7); border: 2px solid var(--holo-mid); }
+.holo-new .holo-flow .deployment-composer-input { border: 0 !important; background-color: transparent !important; }
+.holo-new .holo-flow .deployment-composer:focus-within,
+.holo-new .holo-flow input:focus,
+.holo-new .holo-flow textarea:focus,
+.holo-new .holo-flow select:focus { border-color: var(--holo-line) !important; outline: none; }
+.holo-new .holo-flow ::placeholder { color: #5fa6d2; opacity: 1; }
+
+/* Buttons: outlined cyan; the submit / launch action is solid cyan. */
+.holo-new .holo-flow button {
+  background-color: rgb(0 40 110 / 0.7);
+  border: 2px solid var(--holo-mid);
+  color: var(--holo-ink);
+  cursor: pointer;
+}
+.holo-new .holo-flow button:hover:not(:disabled),
+.holo-new .holo-flow button:focus-visible { border-color: var(--holo-line); background-color: rgb(0 90 170 / 0.7); outline: none; }
+.holo-new .holo-flow button:disabled { opacity: 0.45; cursor: not-allowed; }
+.holo-new .holo-flow button[type="submit"],
+.holo-new .holo-flow button[data-primary="true"] {
+  background-color: var(--holo-line);
+  border-color: var(--holo-line);
+  color: #00184a;
+}
+.holo-new .holo-flow button[type="submit"] *,
+.holo-new .holo-flow button[data-primary="true"] * { color: #00184a; }
+.holo-new .holo-flow button[type="submit"]:disabled { background-color: rgb(0 60 120 / 0.9); border-color: var(--holo-mid); opacity: 1; color: #8fd0f5; }
+.holo-new .holo-flow button[type="submit"]:disabled * { color: #8fd0f5; }
+.holo-new .holo-flow button[aria-pressed="true"] { background-color: var(--holo-line); color: #00184a; border-color: var(--holo-line); }
+.holo-new .holo-flow button[aria-pressed="true"] * { color: #00184a; }
+.holo-new .holo-flow .deployment-composer button { flex: none; }
+
+/* Toggle switch (NovaSwitch) and pickers. */
+.holo-new .holo-flow [role="switch"] { background-color: rgb(0 25 80 / 0.9); border: 2px solid var(--holo-mid); }
+.holo-new .holo-flow [role="switch"][aria-checked="true"] { background-color: var(--holo-line); }
+.holo-new .holo-flow [role="switch"] > * { background-color: var(--holo-ink); }
+.holo-new .holo-flow .holo-select {
+  height: auto !important;
+  min-height: 34px;
+  border: 2px solid var(--holo-mid) !important;
+  background-color: rgb(0 25 80 / 0.7) !important;
+  color: var(--holo-ink) !important;
+}
+/* Picker menus are portaled to the body: styled by their own classes, not by .holo-new. */
+.holo-select-menu {
+  padding: 2px !important;
+  border: 2px solid #00ccfe !important;
+  background: #012a73 !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 3px 0 0 #0d0a24 !important;
+  border-radius: 0 !important;
+  overflow-y: auto !important;
+}
+.holo-select-option {
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: #e6fbff !important;
+  font-family: var(--font-pixel), ui-monospace, monospace;
+  font-size: 15px;
+  transition: none !important;
+}
+.holo-select-option:hover:not(:disabled),
+.holo-select-option[data-selected="true"] { background: #00ccfe !important; color: #00184a !important; }
+
+/* Themed pixel scrollbars for every scroller inside the creation view. */
+.holo-new .holo-flow * { scrollbar-width: thin; scrollbar-color: var(--holo-line) #01245f; }
+.holo-new .holo-flow *::-webkit-scrollbar { width: 10px; height: 10px; display: block; }
+.holo-new .holo-flow *::-webkit-scrollbar-track { background: #01245f; border: 1px solid var(--holo-mid); }
+.holo-new .holo-flow *::-webkit-scrollbar-thumb { background: var(--holo-line); border: 2px solid #01245f; }
+
+/* The popup (/deployments, Home skin): the composer is neutral dark slate with a light 2px border, never purple. */
+.pixel-ui .deployment-composer { background-color: #1a2230; border: 2px solid #cbd5e1; }
+.pixel-ui .deployment-composer-input,
+.pixel-ui textarea.deployment-composer-input {
+  border: 0 !important;
+  background-color: #1a2230 !important;
+  color: #f1f5f9 !important;
+}
+.pixel-ui .deployment-composer:focus-within { border-color: #fff; }
+/* ===== end Depot creation view ===== */
+
+/* ===== Depot creation view: compact extras ===== */
+/* Stacked under the picture the page scrolls, so the primary action sticks to the bottom of the viewport. */
+.holo--panel .holo-flow { overflow: visible; }
+.holo--panel .holo-flow form[aria-label="Advanced task settings"] > div:last-child,
+.holo--panel .holo-flow > div > form:last-child {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding: var(--holo-gap) 0 0;
+  background: var(--holo-deep);
+}
+/* ===== end Depot creation view: compact extras ===== */

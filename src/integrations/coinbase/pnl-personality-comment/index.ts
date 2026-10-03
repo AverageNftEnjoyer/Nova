@@ -38,7 +38,7 @@ function pickVariant(lines: string[], seed: number): string {
 }
 
 export function buildCoinbasePnlPersonalityComment(input: CoinbasePnlPersonalityCommentInput): string {
-  const assistantName = String(input.assistantName || "Nova").trim() || "Nova";
+  const assistantName = String(input.assistantName || "U.B Agents").trim() || "U.B Agents";
   const tone = normalizeTone(input.tone);
   const cadence = input.cadence === "daily" || input.cadence === "weekly" ? input.cadence : "report";
   const threshold = Number.isFinite(Number(input.thresholdPct)) ? Math.max(1, Number(input.thresholdPct)) : 10;

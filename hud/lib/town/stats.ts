@@ -1,5 +1,5 @@
 /**
- * Reads the real activity behind Nova City from nova.db and the user's workspace skills.
+ * Reads the real activity behind U.B Agents City from nova.db and the user's workspace skills.
  *
  * A handful of user-scoped queries, each on a primary key prefix or an index. Free of `server-only` and `@/` runtime
  * imports so scripts/smoke/town can transpile and run it against a scratch nova.db.

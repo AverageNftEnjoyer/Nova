@@ -1,8 +1,8 @@
 import type { CityIntegration, CityWorkplace } from "../types"
 
 /**
- * The people of Nova City: PixelLab character sheets drawn at the painting's own pixel density, so the
- * residents (one agent per task, one worker per connected integration) and Nova the cat look painted into the city rather than pasted on top.
+ * The people of U.B Agents City: PixelLab character sheets drawn at the painting's own pixel density, so the
+ * residents (one agent per task, one worker per connected integration) and U.B Agents the cat look painted into the city rather than pasted on top.
  *
  * The daytime painting is a 1536x1024 plan on which a building stands ~80-160 px tall. A sheet pixel covers PERSON_PX
  * plan pixels, so a figure (~28 sheet pixels) is about 27 plan pixels tall: a little under door height. A sheet is
@@ -10,32 +10,32 @@ import type { CityIntegration, CityWorkplace } from "../types"
  *
  * Sheet layout (`public/pixel-city/town/characters/*.png`): 8 direction rows in `directionRow` order (south,
  * south-east, east, north-east, north, north-west, west, south-west) by 7 columns (standing, then 6 walk frames),
- * 32 px cells, feet on row FOOT_Y. The cat sheet is one 24 px cell: Nova sitting, facing the viewer.
+ * 32 px cells, feet on row FOOT_Y. The cat sheet is one 24 px cell: U.B Agents sitting, facing the viewer.
  *
  * Feet are the anchor: (x, y) is where the figure stands.
  */
 
 /** Plan pixels per sheet pixel: a ~28 px figure stands ~27 plan pixels tall next to buildings 80-160 px tall. */
 export const PERSON_PX = 0.95
-const CELL = 32
+export const CELL = 32
 /** Row of the feet inside a cell (the lowest opaque row of the standing frames). */
-const FOOT_Y = 30
-const WALK_FRAMES = 6
+export const FOOT_Y = 30
+export const WALK_FRAMES = 6
 /** Walk-cycle frames per second: one stride per cycle at the city's strolling pace. */
-const WALK_FPS = 9
+export const WALK_FPS = 9
 /** Head to feet of a standing figure, in plan pixels (sheet figures are ~28 px tall). */
 export const PERSON_HEIGHT = Math.round(28 * PERSON_PX)
 
-const CAT_CELL = 24
-/** Nova is drawn a little larger than life so the city's mascot reads from across the park. */
-const CAT_PX = 0.8
+export const CAT_CELL = 24
+/** U.B Agents is drawn a little larger than life so the city's mascot reads from across the park. */
+export const CAT_PX = 0.8
 /** Row of the cat's paws inside its cell. */
-const CAT_FOOT_Y = 21
+export const CAT_FOOT_Y = 21
 /** Paws to ear tips of the sitting cat, in plan pixels. */
 export const CAT_HEIGHT = Math.round(20 * CAT_PX)
 
-/** Sheets are enlarged this much with hard edges before the canvas scales them smoothly to the screen. */
-const PRESCALE = 3
+/** Sheets are enlarged this much with hard edges before the GPU scales them smoothly to the screen, so their pixels stay square. */
+export const PRESCALE = 3
 const SHEET_BASE = "/pixel-city/town/characters"
 
 export const AGENT_SHEETS = ["agent", "agent-lab", "agent-courier", "agent-trader", "agent-media", "agent-research"] as const
@@ -46,7 +46,7 @@ export interface PersonLook {
 }
 
 /**
- * Agents dress for the job they are doing. Every outfit keeps the Nova teal suit and glowing cyan visor; workplaces
+ * Agents dress for the job they are doing. Every outfit keeps the U.B Agents teal suit and glowing cyan visor; workplaces
  * without their own outfit wear the base suit.
  */
 const ROLE_SHEET: Readonly<Record<CityWorkplace, PersonSheet>> = {
@@ -99,7 +99,7 @@ export function personSheetArt(sheet: PersonSheet): { url: string; cell: number;
 
 // ── Sheet loading ─────────────────────────────────────────────────────────────
 
-type Art = HTMLCanvasElement
+export type Art = HTMLCanvasElement
 
 const sheets = new Map<string, Art>()
 let catAwake: Art | null = null
@@ -175,42 +175,14 @@ export function loadPeopleArt(): void {
   })
 }
 
-// ── Drawing ───────────────────────────────────────────────────────────────────
+// ── Art for the PixiJS world ───────────────────────────────────────────────────
 
-/** Draws one sheet cell (in sheet pixels) with its anchor row on (x, y), smoothly scaled like the painting. */
-function drawCell(ctx: CanvasRenderingContext2D, art: Art, col: number, row: number, cell: number, footY: number, scale: number, x: number, y: number): void {
-  const smoothing = ctx.imageSmoothingEnabled
-  ctx.imageSmoothingEnabled = true
-  ctx.imageSmoothingQuality = "high"
-  const size = cell * scale
-  ctx.drawImage(art, col * cell * PRESCALE, row * cell * PRESCALE, cell * PRESCALE, cell * PRESCALE, x - size / 2, y - footY * scale, size, size)
-  ctx.imageSmoothingEnabled = smoothing
+/** A prescaled sheet (PRESCALE x, hard edges) as a canvas, or null until it has loaded. */
+export function peopleSheet(sheet: PersonSheet): Art | null {
+  return sheets.get(sheet) ?? null
 }
 
-/** A soft contact shadow under the feet, so figures stand on the paving instead of floating over it. */
-function drawShadow(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number): void {
-  ctx.fillStyle = "rgba(20, 30, 50, 0.3)"
-  ctx.beginPath()
-  ctx.ellipse(x, y - 1, rx, rx * 0.4, 0, 0, Math.PI * 2)
-  ctx.fill()
-}
-
-/**
- * One person. `dir` is the sheet row (0 south … 7 south-west, see `directionRow`); a walking figure steps through
- * its walk cycle, phase-shifted by x so a crowd doesn't march in step.
- */
-export function drawPerson(ctx: CanvasRenderingContext2D, x: number, y: number, dir: number, moving: boolean, time: number, look: PersonLook): void {
-  const art = sheets.get(look.sheet)
-  if (!art) return
-  const row = ((Math.round(dir) % 8) + 8) % 8
-  const col = moving ? 1 + (Math.floor(time * WALK_FPS + x * 0.37) % WALK_FRAMES) : 0
-  drawShadow(ctx, x, y, 5)
-  drawCell(ctx, art, col, row, CELL, FOOT_Y, PERSON_PX, x, y)
-}
-
-/** Nova beside the fountain, facing the viewer. `blink` shuts the eyes (asleep while Nova is offline). */
-export function drawCat(ctx: CanvasRenderingContext2D, x: number, y: number, blink: boolean): void {
-  const art = blink ? catAsleep : catAwake
-  if (!art) return
-  drawCell(ctx, art, 0, 0, CAT_CELL, CAT_FOOT_Y, CAT_PX, x, y)
+/** U.B Agents the cat's prescaled sheet (one CAT_CELL cell): eyes open, or shut (`asleep`). Null until loaded. */
+export function catSheet(asleep: boolean): Art | null {
+  return asleep ? catAsleep : catAwake
 }

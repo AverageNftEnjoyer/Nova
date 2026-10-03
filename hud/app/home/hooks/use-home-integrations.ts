@@ -509,7 +509,7 @@ export function useHomeIntegrations({ latestUsage }: UseHomeIntegrationsInput) {
         `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`,
       )
       if (!popup) {
-        throw new Error("Spotify authorization was blocked. Allow popups for Nova and try again.")
+        throw new Error("Spotify authorization was blocked. Allow popups for U.B Agents and try again.")
       }
 
       spotifyOAuthPopupRef.current = popup

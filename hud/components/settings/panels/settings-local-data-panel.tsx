@@ -123,7 +123,7 @@ export function SettingsLocalDataPanel({ isLight, settings, onNavigateToProfile 
           </div>
         </div>
         <p className={cn("text-xs leading-5", bodyText)}>
-          Everything Nova stores stays in its data folder on this computer:{" "}
+          Everything U.B Agents stores stays in its data folder on this computer:{" "}
           <span className="font-mono">%APPDATA%\Nova</span> for the installed app (a <span className="font-mono">.user</span> folder
           in the repository during development, or <span className="font-mono">NOVA_DATA_DIR</span> when set).
           API keys and tokens are encrypted with Windows DPAPI for your Windows account.
@@ -134,7 +134,7 @@ export function SettingsLocalDataPanel({ isLight, settings, onNavigateToProfile 
       <div className={cn(getSettingsCardClass(isLight), "p-4")}>
         <p className={cn("text-sm mb-1", titleText)}>Delete all local data</p>
         <p className={cn("text-xs mb-3", mutedText)}>
-          Wipes this profile from Nova&apos;s data folder and starts over with a fresh one. This cannot be undone.
+          Wipes this profile from U.B Agents&apos; data folder and starts over with a fresh one. This cannot be undone.
         </p>
         <button
           type="button"

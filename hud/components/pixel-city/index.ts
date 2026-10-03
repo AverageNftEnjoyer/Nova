@@ -1,4 +1,5 @@
 export { PixelCityScene, type CityHotspot } from "./pixel-city-scene"
+export { CITY_BOOT_LABEL, CITY_BOOT_PHASES, cityBootRank, type CityBootPhase } from "./boot"
 export { EMPTY_CITY_STATE } from "./types"
 export { agentResidentId } from "./types"
 export type { CityAgent, CityResidentAnchor, CityWorker, CityHotspotId, CityIntegration, CityPlaceId, CityPresence, CitySceneState, CityTaskLight, CityWeather, CityWorkplace } from "./types"

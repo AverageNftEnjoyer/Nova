@@ -1,5 +1,5 @@
 /**
- * Nova secrets core — shared by the HUD (Next server) and the agent runtime.
+ * U.B Agents secrets core — shared by the HUD (Next server) and the agent runtime.
  *
  * Every API key / token a user enters is encrypted with AES-256-GCM before it is
  * written anywhere. The data key is derived (HKDF) from a random 32-byte master
@@ -33,7 +33,7 @@ const FAILURE_CACHE_MS = 10 * 60_000
 const DPAPI_TIMEOUT_MS = 20_000
 const REDACTED = "[redacted]"
 const KEY_FILE_RECOVERY_HINT =
-  "If it is damaged or came from another PC or Windows account, remove keys/master.key.dpapi from the Nova data folder and re-enter your API keys."
+  "If it is damaged or came from another PC or Windows account, remove keys/master.key.dpapi from the U.B Agents data folder and re-enter your API keys."
 
 export class SecretsUnavailableError extends Error {
   constructor(message) {
@@ -191,13 +191,13 @@ function readWrappedBlob(file) {
   } catch (error) {
     if (error && error.code === "ENOENT") return null
     throw new SecretsUnavailableError(
-      `The Nova master key file could not be read. ${KEY_FILE_RECOVERY_HINT}`,
+      `The U.B Agents master key file could not be read. ${KEY_FILE_RECOVERY_HINT}`,
     )
   }
   const lines = raw.split(/\r?\n/)
   const blob = String(lines[1] || "").trim()
   if (lines[0] !== KEY_FILE_HEADER || !BASE64_RE.test(blob)) {
-    throw new SecretsUnavailableError(`The Nova master key file is malformed. ${KEY_FILE_RECOVERY_HINT}`)
+    throw new SecretsUnavailableError(`The U.B Agents master key file is malformed. ${KEY_FILE_RECOVERY_HINT}`)
   }
   return blob
 }
@@ -259,13 +259,13 @@ function createWrappedKey(file) {
   if (won) return { blob, key: fresh }
   fresh.fill(0)
   const winner = readWrappedBlobWithRetry(file)
-  if (!winner) throw new SecretsUnavailableError("The Nova master key file disappeared during creation.")
+  if (!winner) throw new SecretsUnavailableError("The U.B Agents master key file disappeared during creation.")
   return { blob: winner, key: null }
 }
 
 function unavailable(reason) {
   return new SecretsUnavailableError(
-    `${reason} Nova cannot encrypt secrets right now. Secrets are never stored in plaintext. ` +
+    `${reason} U.B Agents cannot encrypt secrets right now. Secrets are never stored in plaintext. ` +
       "If keys/master.key.dpapi came from another PC or Windows account, remove it and re-enter your API keys.",
   )
 }
@@ -296,11 +296,11 @@ function getDataKey(create) {
   try {
     file = keyFilePath()
   } catch {
-    throw unavailable("The Nova data directory is not usable.")
+    throw unavailable("The U.B Agents data directory is not usable.")
   }
   if (st.keyPath === file && st.dataKey) return st.dataKey
   if (st.failure && st.failure.path === file && Date.now() - st.failure.at < FAILURE_CACHE_MS) {
-    throw unavailable("Windows DPAPI could not unlock the Nova master key.")
+    throw unavailable("Windows DPAPI could not unlock the U.B Agents master key.")
   }
 
   let master = null
@@ -316,7 +316,7 @@ function getDataKey(create) {
   } catch (error) {
     if (error instanceof SecretsUnavailableError) throw error
     st.failure = { path: file, at: Date.now() }
-    throw unavailable("Windows DPAPI could not unlock the Nova master key.")
+    throw unavailable("Windows DPAPI could not unlock the U.B Agents master key.")
   }
 
   zeroCachedKeys()
@@ -439,7 +439,7 @@ export function deriveApplicationSecret(info, bytes = 32) {
   // Ensure the master key is loaded/created, then HKDF with a purpose-specific info string.
   getDataKey(true)
   const st = state()
-  if (!st.masterKey) throw unavailable("The Nova master key is not available.")
+  if (!st.masterKey) throw unavailable("The U.B Agents master key is not available.")
   return deriveInfoKey(st.masterKey, info, size).toString("hex")
 }
 

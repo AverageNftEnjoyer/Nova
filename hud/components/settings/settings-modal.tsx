@@ -21,7 +21,7 @@ import { SettingsLocalDataPanel } from "@/components/settings/panels/settings-lo
 interface SettingsModalProps {
   isOpen: boolean
   onClose: () => void
-  /** Section shown when the modal opens (e.g. "skills" from a Nova City quest). Default: Profile. */
+  /** Section shown when the modal opens (e.g. "skills" from a U.B Agents City quest). Default: Profile. */
   initialSection?: SettingsSectionId
 }
 
@@ -125,7 +125,7 @@ export function SettingsModal({ isOpen, onClose, initialSection = "profile" }: S
   const activeLabel = SETTINGS_SECTIONS.find((s) => s.id === activeSection)?.label ?? ""
 
   return (
-    <div style={paletteVars} className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6">
+    <div style={paletteVars} className="fixed inset-0 z-121 flex items-center justify-center p-3 sm:p-6">
       {/* Backdrop */}
       <button
         className={cn("absolute inset-0 backdrop-blur-sm", isLight ? "bg-[#0a122433]" : "bg-black/45")}

@@ -46,7 +46,7 @@ export async function sendEmailMessage(input: EmailSendInput, scope?: Integratio
   if (recipients.length === 0) {
     throw new Error("Email delivery is unavailable because no recipient is configured.")
   }
-  const subject = String(input.subject || "Nova Coinbase Report").trim() || "Nova Coinbase Report"
+  const subject = String(input.subject || "U.B Agents Coinbase Report").trim() || "U.B Agents Coinbase Report"
 
   const results = await Promise.all(recipients.map(async (recipient): Promise<EmailSendResult> => {
     try {

@@ -16,7 +16,7 @@ export async function POST(req: Request) {
   try {
     const now = new Date().toISOString()
     const results = await sendSlackMessage({
-      text: `Nova Slack integration test successful at ${now}`,
+      text: `U.B Agents Slack integration test successful at ${now}`,
     })
     const redactedResults = results.map((result) => ({
       webhookId: result.webhookId,

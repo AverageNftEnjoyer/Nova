@@ -33,7 +33,7 @@ export async function POST(req: Request) {
         ok: false,
         error: target === "install"
           ? "Failed to open Phantom in an external browser."
-          : "Failed to open Nova in an external browser.",
+          : "Failed to open U.B Agents in an external browser.",
       },
       { status: 500 },
     )

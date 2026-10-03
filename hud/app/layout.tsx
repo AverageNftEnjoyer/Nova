@@ -16,8 +16,8 @@ const pixelifySans = Pixelify_Sans({ subsets: ["latin"], variable: "--font-pixel
 const silkscreen = Silkscreen({ subsets: ["latin"], weight: ["400", "700"], variable: "--font-pixel-display" })
 
 export const metadata: Metadata = {
-  title: "Nova",
-  description: "Nova AI Assistant",
+  title: "U.B Agents",
+  description: "U.B Agents AI Assistant",
   icons: {
     icon: {
       url: "/images/nova.svg",

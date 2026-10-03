@@ -45,7 +45,7 @@ function readError(body: unknown): string | null {
 }
 
 /**
- * The names the user gave Nova City's residents, from GET /api/town/residents. Call it once per screen and hand the
+ * The names the user gave U.B Agents City's residents, from GET /api/town/residents. Call it once per screen and hand the
  * result down, so the scene and the resident card share one copy. Polls every 30 s while the page is visible,
  * refetches on focus / visibility, and resets on a user switch.
  */
@@ -138,7 +138,7 @@ export function useTownResidents(): TownResidentsState {
       setState({ names, loading: false, error: null })
       return { ok: true }
     } catch {
-      return { ok: false, error: "Could not reach Nova to save. Try again." }
+      return { ok: false, error: "Could not reach U.B Agents to save. Try again." }
     }
   }, [])
 

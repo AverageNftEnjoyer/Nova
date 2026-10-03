@@ -76,13 +76,13 @@ function whereabouts(task: AgentTask, workplace: CityWorkplace): { place: string
   const latest = tools.length > 0 ? tools[tools.length - 1] : null
   switch (task.status) {
     case "queued":
-      return { place: WORKPLACE_NAME.hq, why: "Waiting at Nova HQ for a free slot." }
+      return { place: WORKPLACE_NAME.hq, why: "Waiting at U.B Agents HQ for a free slot." }
     case "completed":
-      return { place: WORKPLACE_NAME.hq, why: "Done, and back at Nova HQ." }
+      return { place: WORKPLACE_NAME.hq, why: "Done, and back at U.B Agents HQ." }
     case "failed":
-      return { place: WORKPLACE_NAME.hq, why: "Stopped by an error, back at Nova HQ." }
+      return { place: WORKPLACE_NAME.hq, why: "Stopped by an error, back at U.B Agents HQ." }
     case "cancelled":
-      return { place: WORKPLACE_NAME.hq, why: "Stopped by you, back at Nova HQ." }
+      return { place: WORKPLACE_NAME.hq, why: "Stopped by you, back at U.B Agents HQ." }
     case "paused":
       return { place: building, why: latest ? `Paused at the ${building} after using ${latest}.` : `Paused at the ${building}.` }
     case "running":
@@ -111,7 +111,7 @@ function AgentPortrait({ workplace }: { workplace: CityWorkplace }) {
     <div className="pixel-card grid shrink-0 place-items-end justify-center overflow-hidden p-0!" style={{ width: size + 12, height: size + 8 }}>
       <div
         role="img"
-        aria-label={`Nova agent in its ${WORKPLACE_NAME[workplace]} outfit`}
+        aria-label={`U.B Agents agent in its ${WORKPLACE_NAME[workplace]} outfit`}
         style={{
           width: size,
           height: size,
@@ -136,7 +136,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 /**
- * The agent card: what one Nova agent (one agent task) is doing, where in the city and why, what it has spent and
+ * The agent card: what one U.B Agents agent (one agent task) is doing, where in the city and why, what it has spent and
  * what it needs from you, with the task's own controls. Everything shown is the task's real row from useAgentTasks.
  */
 export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks, displayName, customizer }: AgentCardProps) {
@@ -155,7 +155,7 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks,
 
   if (!task) {
     return (
-      <PixelWindow place="Nova agent" theme="agent" role="Gone" size="sm" onClose={onClose} actions={openTasks}>
+      <PixelWindow place="U.B Agents agent" theme="agent" role="Gone" size="sm" onClose={onClose} actions={openTasks}>
         <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center" role="status">
           <p className="font-pixel text-[14px] text-(--px-muted)">This agent&apos;s task no longer exists.</p>
           <button type="button" onClick={onOpenTasks} className="pixel-btn pixel-btn--teal game-sm">
@@ -226,7 +226,7 @@ export function AgentCard({ task, onClose, onAction, onRaiseBudget, onOpenTasks,
   const input = "game-input h-9 w-24 px-2 font-pixel text-[14px] tabular-nums"
 
   return (
-    <PixelWindow place="Nova agent" theme="agent" role={where.place} size="md" onClose={onClose} actions={openTasks}>
+    <PixelWindow place="U.B Agents agent" theme="agent" role={where.place} size="md" onClose={onClose} actions={openTasks}>
       <div className={cn("flex h-full min-h-0 flex-col gap-2", busy && "opacity-70")} aria-busy={busy}>
         <div className="game-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
           <div className="flex gap-3">

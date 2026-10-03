@@ -39,7 +39,7 @@ export function SettingsPersonalizationPanel({ isLight, settings, updatePersonal
     <div className="space-y-5">
       <div className="p-4 rounded-xl bg-accent-10 border border-accent-30 transition-colors duration-150 hover:bg-accent-15 mb-4">
         <p className="text-sm text-accent-secondary">
-          Help Nova understand you better by filling in these details.
+          Help U.B Agents understand you better by filling in these details.
           This information helps personalize your experience.
         </p>
       </div>
@@ -49,14 +49,14 @@ export function SettingsPersonalizationPanel({ isLight, settings, updatePersonal
         description="What do you want to call your assistant?"
         value={settings.personalization.assistantName}
         onChange={handleAssistantNameChange}
-        placeholder="e.g., Nova, Atlas..."
+        placeholder="e.g., U.B Agents, Atlas..."
         errorText={assistantNameValidation || undefined}
         isLight={isLight}
       />
 
       <SettingInput
         label="Nickname"
-        description="What should Nova call you?"
+        description="What should U.B Agents call you?"
         value={settings.personalization.nickname}
         onChange={(v) => updatePersonalization("nickname", v)}
         placeholder="e.g., Boss, Chief, Captain..."
@@ -74,7 +74,7 @@ export function SettingsPersonalizationPanel({ isLight, settings, updatePersonal
 
       <SettingInput
         label="Preferred Weather City"
-        description="Used for the Home weather module. You can also tell Nova: set my weather city to Miami, FL."
+        description="Used for the Home weather module. You can also tell U.B Agents: set my weather city to Miami, FL."
         value={settings.personalization.preferredCity}
         onChange={(v) => updatePersonalization("preferredCity", v)}
         placeholder="e.g., Austin, TX"
@@ -91,7 +91,7 @@ export function SettingsPersonalizationPanel({ isLight, settings, updatePersonal
 
       <SettingSelect
         label="Communication Style"
-        description="How formal should Nova be?"
+        description="How formal should U.B Agents be?"
         isLight={isLight}
         value={settings.personalization.communicationStyle}
         options={[
@@ -105,7 +105,7 @@ export function SettingsPersonalizationPanel({ isLight, settings, updatePersonal
 
       <SettingSelect
         label="Response Tone"
-        description="Nova's conversational tone"
+        description="U.B Agents' conversational tone"
         isLight={isLight}
         value={settings.personalization.tone}
         options={[
@@ -138,7 +138,7 @@ export function SettingsPersonalizationPanel({ isLight, settings, updatePersonal
 
       <SettingSelect
         label="Proactivity"
-        description="How often should Nova volunteer suggestions unprompted?"
+        description="How often should U.B Agents volunteer suggestions unprompted?"
         isLight={isLight}
         value={settings.personalization.proactivity}
         options={[
@@ -177,7 +177,7 @@ export function SettingsPersonalizationPanel({ isLight, settings, updatePersonal
 
       <SettingSelect
         label="Challenge Mode"
-        description="Should Nova push back or stay supportive?"
+        description="Should U.B Agents push back or stay supportive?"
         isLight={isLight}
         value={settings.personalization.challenge_level}
         options={[
@@ -190,7 +190,7 @@ export function SettingsPersonalizationPanel({ isLight, settings, updatePersonal
 
       <SettingSelect
         label="Risk Tolerance"
-        description="How bold should Nova be in recommendations?"
+        description="How bold should U.B Agents be in recommendations?"
         isLight={isLight}
         value={settings.personalization.risk_tolerance}
         options={[

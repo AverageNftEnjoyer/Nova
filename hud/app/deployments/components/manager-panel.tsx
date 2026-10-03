@@ -49,9 +49,9 @@ export function ManagerPanel({ isLight, subPanelClass, manager }: ManagerPanelPr
             <span className={cn("grid h-11 w-11 place-items-center rounded-xl border", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/25")}>
               <Sparkles className="h-5 w-5 text-accent" />
             </span>
-            <h3 className={cn("mt-4 text-lg font-semibold tracking-tight", strongText)}>What should Nova deploy?</h3>
+            <h3 className={cn("mt-4 text-lg font-semibold tracking-tight", strongText)}>What should U.B Agents deploy?</h3>
             <p className={cn("mt-1.5 max-w-lg text-sm leading-6", mutedText)}>
-              Describe the result you want. Nova decides whether it is a one-off task or a reusable automation, picks
+              Describe the result you want. U.B Agents decides whether it is a one-off task or a reusable automation, picks
               the tools, and asks for your review before sensitive work.
             </p>
             <div className="mt-5 grid w-full gap-1.5">
@@ -88,7 +88,7 @@ export function ManagerPanel({ isLight, subPanelClass, manager }: ManagerPanelPr
             {busy || novaState === "thinking" ? (
               <div className={cn("flex items-center gap-2 text-sm", mutedText)} role="status">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                {busy ? "Nova is building and validating the deployment plan…" : thinkingStatus || "Nova is planning…"}
+                {busy ? "U.B Agents is building and validating the deployment plan…" : thinkingStatus || "U.B Agents is planning…"}
               </div>
             ) : null}
 
@@ -134,6 +134,7 @@ export function ManagerPanel({ isLight, subPanelClass, manager }: ManagerPanelPr
 
                 <button
                   type="button"
+                  data-primary="true"
                   onClick={() => void manager.launch()}
                   disabled={launching}
                   className={cn(
@@ -160,7 +161,7 @@ export function ManagerPanel({ isLight, subPanelClass, manager }: ManagerPanelPr
       <form onSubmit={manager.submit} className="mt-3 shrink-0">
         <div
           className={cn(
-            "flex items-end gap-2 rounded-lg border p-2 transition-colors focus-within:border-accent-30",
+            "deployment-composer flex items-end gap-2 rounded-lg border p-2 transition-colors focus-within:border-accent-30",
             isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/30",
           )}
         >
@@ -178,7 +179,7 @@ export function ManagerPanel({ isLight, subPanelClass, manager }: ManagerPanelPr
             aria-label="Deployment outcome"
             placeholder="Describe an outcome, not implementation steps…"
             className={cn(
-              "min-h-12 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-6 outline-none",
+              "deployment-composer-input min-h-12 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-6 outline-none",
               isLight ? "text-s-90 placeholder:text-s-40" : "text-slate-100 placeholder:text-slate-500",
             )}
           />
@@ -198,7 +199,7 @@ export function ManagerPanel({ isLight, subPanelClass, manager }: ManagerPanelPr
           <span className={cn("h-1.5 w-1.5 rounded-full", connected ? "bg-emerald-500" : "bg-yellow-500")} aria-hidden="true" />
           {connected
             ? "Enter to send, Shift+Enter for a new line"
-            : "Nova's runtime is offline. The server still plans and validates your request."}
+            : "U.B Agents' runtime is offline. The server still plans and validates your request."}
         </p>
       </form>
     </div>

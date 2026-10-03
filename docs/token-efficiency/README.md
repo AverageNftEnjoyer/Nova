@@ -1,6 +1,6 @@
 # Token Efficiency: Reference
 
-Written for AI models and developers who will change prompt assembly, provider calls, tools, budgets or analytics. It describes how Nova keeps LLM spend low and what you must not break. The work shipped in V.70–V.73 (2026-09-23 to 2026-09-25); the git history for those versions holds the session-by-session record.
+Written for AI models and developers who will change prompt assembly, provider calls, tools, budgets or analytics. It describes how U.B Agents keeps LLM spend low and what you must not break. The work shipped in V.70–V.73 (2026-09-23 to 2026-09-25); the git history for those versions holds the session-by-session record.
 
 ## Rules that keep caching working
 

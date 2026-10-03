@@ -28,7 +28,7 @@ export function useProviderDefinitions(params: UseProviderDefinitionsParams): Pr
     openai: {
       sectionRef: openaiSetupSectionRef,
       title: "OpenAI Setup",
-      description: "Save your OpenAI credentials and model defaults for Nova API usage.",
+      description: "Save your OpenAI credentials and model defaults for U.B Agents API usage.",
       isConnected: settings.openai.connected,
       isSaving: isSavingTarget === "openai",
       onToggle: openAISetup.toggle,
@@ -59,7 +59,7 @@ export function useProviderDefinitions(params: UseProviderDefinitionsParams): Pr
     claude: {
       sectionRef: claudeSetupSectionRef,
       title: "Claude Setup",
-      description: "Save your Anthropic credentials and model defaults for Nova API usage.",
+      description: "Save your Anthropic credentials and model defaults for U.B Agents API usage.",
       isConnected: settings.claude.connected,
       isSaving: isSavingTarget === "claude",
       onToggle: claudeSetup.toggle,
@@ -90,7 +90,7 @@ export function useProviderDefinitions(params: UseProviderDefinitionsParams): Pr
     grok: {
       sectionRef: grokSetupSectionRef,
       title: "Grok Setup",
-      description: "Save your xAI credentials and model defaults for Nova API usage.",
+      description: "Save your xAI credentials and model defaults for U.B Agents API usage.",
       isConnected: settings.grok.connected,
       isSaving: isSavingTarget === "grok",
       onToggle: grokSetup.toggle,
@@ -121,7 +121,7 @@ export function useProviderDefinitions(params: UseProviderDefinitionsParams): Pr
     gemini: {
       sectionRef: geminiSetupSectionRef,
       title: "Gemini Setup",
-      description: "Save your Gemini credentials and model defaults for Nova API usage.",
+      description: "Save your Gemini credentials and model defaults for U.B Agents API usage.",
       isConnected: settings.gemini.connected,
       isSaving: isSavingTarget === "gemini",
       onToggle: geminiSetup.toggle,

@@ -1,4 +1,4 @@
-/** Nova the cat (the city's guide), 12x10 pixels: black fur, the Nova suit's cyan visor for eyes, a pink nose. */
+/** U.B Agents the cat (the city's guide), 12x10 pixels: black fur, the U.B Agents suit's cyan visor for eyes, a pink nose. */
 const ROWS = [
   "..X......X..",
   ".XXX....XXX.",

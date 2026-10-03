@@ -21,7 +21,7 @@ export function resolveModelPricing(model: string): ModelPricing | null {
   return resolveSharedModelPricing(model)
 }
 
-/** True for a model still priced (it still answers API calls) but no longer offered in Nova's pickers. */
+/** True for a model still priced (it still answers API calls) but no longer offered in U.B Agents' pickers. */
 function isLegacyPricedModel(model: string): boolean {
   const key = String(model || "").trim().toLowerCase()
   if (!key || !resolveModelPricing(key)) return false
@@ -38,7 +38,7 @@ export function formatModelPriceHint(model: string): string {
   const pricing = resolveModelPricing(model)
   if (!pricing) return "Pricing unknown for this model."
   const cached = typeof pricing.cachedInput === "number" ? `, cached input $${formatUsdRate(pricing.cachedInput)}` : ""
-  const legacy = isLegacyPricedModel(model) ? " Older model, no longer in Nova's list." : ""
+  const legacy = isLegacyPricedModel(model) ? " Older model, no longer in U.B Agents' list." : ""
   return `$${formatUsdRate(pricing.input)} in / $${formatUsdRate(pricing.output)} out per 1M tokens${cached}.${legacy}`
 }
 

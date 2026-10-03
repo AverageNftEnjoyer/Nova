@@ -61,7 +61,7 @@ export async function runCryptoRequest({
   const normalizedUserContextId = String(userContextId || "").trim();
   if (!normalizedUserContextId) {
     return {
-      reply: "I couldn't verify crypto data because user context is missing. Retry from your Nova account session.",
+      reply: "I couldn't verify crypto data because user context is missing. Retry from your U.B Agents account session.",
       source: "validation",
     };
   }
@@ -289,7 +289,7 @@ export async function runCryptoRequest({
       intent: "policy",
     });
     return {
-      reply: "Coinbase trade/transfer execution is out of scope in Nova v1. I can help with read-only prices, portfolio, transactions, and reports.",
+      reply: "Coinbase trade/transfer execution is out of scope in U.B Agents v1. I can help with read-only prices, portfolio, transactions, and reports.",
       source: "policy",
     };
   }

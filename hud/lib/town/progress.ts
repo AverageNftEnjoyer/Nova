@@ -1,5 +1,5 @@
 /**
- * Nova City progression engine: turns real activity (stats.ts) into XP, a level, quests, buildings and
+ * U.B Agents City progression engine: turns real activity (stats.ts) into XP, a level, quests, buildings and
  * once-only celebration events, persisting what must survive reloads in kv_state (state.ts).
  *
  * Free of `server-only` and `@/` runtime imports so scripts/smoke/town can run it in plain Node; server.ts adds the
@@ -179,7 +179,7 @@ export function buildTownProgress(userId: string, options: BuildTownProgressOpti
       newEvents.push({
         id: "founded",
         kind: "achievement",
-        title: "Nova City founded",
+        title: "U.B Agents City founded",
         detail: `Your city starts at level ${level.level} (${level.title}). Every real task, deployment, note and chat grows it from here.`,
         at: nowIso,
       })
@@ -191,10 +191,10 @@ export function buildTownProgress(userId: string, options: BuildTownProgressOpti
         title: `Level ${level.level}: ${level.title}`,
         detail:
           gained > 1
-            ? `Nova City grew ${gained} levels and is now a level ${level.level} ${level.title}.`
+            ? `U.B Agents City grew ${gained} levels and is now a level ${level.level} ${level.title}.`
             : level.title !== titleForLevel(state.celebratedLevel)
-              ? `Nova City is now a ${level.title}.`
-              : `Nova City reached level ${level.level}.`,
+              ? `U.B Agents City is now a ${level.title}.`
+              : `U.B Agents City reached level ${level.level}.`,
         at: nowIso,
       })
     }

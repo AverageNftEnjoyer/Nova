@@ -49,7 +49,7 @@ Set these in your environment:
 ### API
 
 - `POST /api/missions/trigger`
-  - body: `{ "message": "Hello from Nova", "chatIds": ["123456"] }`
+  - body: `{ "message": "Hello from U.B Agents", "chatIds": ["123456"] }`
 - `GET /api/missions`
 - `POST /api/missions`
   - body: `{ "mission": { ...nativeMissionGraph } }`
@@ -61,7 +61,7 @@ Scheduler checks every 30 seconds and sends once per local day per schedule.
 
 ## Local Auth
 
-Nova HUD is local-first. API routes use `requireLocalUser()` and a fixed local identity.
+U.B Agents HUD is local-first. API routes use `requireLocalUser()` and a fixed local identity.
 There is no hosted auth provider and no cloud database.
 
 ### Scriptable CLI
@@ -69,13 +69,13 @@ There is no hosted auth provider and no cloud database.
 Use:
 
 ```bash
-npm run notify:send -- --message "Nova check-in"
+npm run notify:send -- --message "U.B Agents check-in"
 ```
 
 Optional recipients override:
 
 ```bash
-npm run notify:send -- --message "Nova check-in" --chatIds "123456,789012"
+npm run notify:send -- --message "U.B Agents check-in" --chatIds "123456,789012"
 ```
 
 ## Mission Web Search Behavior

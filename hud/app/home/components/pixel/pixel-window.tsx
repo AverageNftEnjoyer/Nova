@@ -13,7 +13,7 @@ const SIZE_CLASS: Record<PixelWindowSize, string> = {
 }
 
 interface PixelWindowProps {
-  /** The place in the city, shown on the title plaque (e.g. "Nova HQ"). */
+  /** The place in the city, shown on the title plaque (e.g. "U.B Agents HQ"). */
   place: string
   /** What the place does (e.g. "Agent tasks"). */
   role: string

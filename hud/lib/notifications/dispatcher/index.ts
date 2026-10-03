@@ -49,7 +49,7 @@ export async function dispatchNotification(
     return sendEmailMessage({
       text: input.text,
       recipients: input.targets,
-      subject: input.label ? `Nova Mission: ${input.label}` : "Nova Mission Report",
+      subject: input.label ? `U.B Agents Mission: ${input.label}` : "U.B Agents Mission Report",
       accountId: input.accountId,
       threadId: input.threadId,
       inReplyTo: input.inReplyTo,

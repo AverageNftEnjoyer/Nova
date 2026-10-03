@@ -24,7 +24,7 @@
 //   31,782 Claude shape): gpt-6-astra 32,144 x $10/M + $0.09 = $0.411, claude-fable-5-1 $0.408; 3x = $1.23, so
 //   $2.00 is 4.9x the worst case.
 
-// Economy models: the cheapest tool-capable model of each provider in Nova's pickers (src/providers/pricing):
+// Economy models: the cheapest tool-capable model of each provider in U.B Agents' pickers (src/providers/pricing):
 //   openai gpt-5.6-luna (0.20 / 1.20), claude claude-haiku-4-5-20251001 (1.00 / 5.00),
 //   gemini gemini-3.1-flash-lite (0.25 / 1.50), grok grok-build-0.1 (1.00 / 2.00).
 // An economy model must be one of the SAME provider's current models, so a degraded task never needs another key.
@@ -206,9 +206,9 @@ export function budgetStateForSpend(spend, budget) {
 }
 
 /**
- * True when the budget cannot stop a task on `model`: the only limit is cost and Nova has no price for the model
+ * True when the budget cannot stop a task on `model`: the only limit is cost and U.B Agents has no price for the model
  * (its calls are recorded at $0). Such a task is NOT blocked; the runtime logs it and the HUD says so on the task,
- * so the user can add a token budget. Every model in Nova's pickers is priced, so this only affects custom IDs.
+ * so the user can add a token budget. Every model in U.B Agents' pickers is priced, so this only affects custom IDs.
  */
 export function isCostBudgetBlind(budget, model) {
   if (!budget?.active || (budget.tokens !== null && budget.tokens !== undefined)) return false;

@@ -1,6 +1,6 @@
 # Native Windows Notifications
 
-NovaAIO uses native Windows notifications via Electron's Notification API.
+U.B Agents uses native Windows notifications via Electron's Notification API.
 
 ## Architecture
 
@@ -46,7 +46,7 @@ if (runStatus === "succeeded") {
 
 ## Features
 
-- **Click to Focus**: Clicking a notification brings Nova window to front
+- **Click to Focus**: Clicking a notification brings U.B Agents window to front
 - **Platform Detection**: Falls back to console.log if not in Electron
 - **Non-blocking**: All notifications are async and don't interrupt UI
 - **Supported Platforms**: Windows 10+, Windows 11
@@ -79,13 +79,13 @@ window.novaTestNotifications.testAll()
 1. Start Electron app: `npm run electron:dev`
 2. Complete a task → verify notification appears
 3. Run a mission → verify notification appears
-4. Click notification → verify Nova window focuses
+4. Click notification → verify U.B Agents window focuses
 
 ## Windows Permissions
 
 Windows 10/11 may require notification permissions:
 - Settings → System → Notifications
-- Find "Nova" in the list
+- Find "U.B Agents" in the list
 - Ensure notifications are enabled
 
 ## Implementation Details

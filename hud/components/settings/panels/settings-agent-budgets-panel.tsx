@@ -167,7 +167,7 @@ export function SettingsAgentBudgetsPanel({ isLight }: Props) {
 
       <SettingInput
         label="Default token budget (optional)"
-        description={`Off by default: budgets are on cost. Cached input counts as tokens but costs about 10% of normal input on most providers, so a token limit trips long before the money it is meant to protect. Set one (${limits.tokens.min.toLocaleString("en-US")}–${limits.tokens.max.toLocaleString("en-US")} tokens, input incl. cached plus output) to also cap tokens, e.g. for a custom model Nova has no price for, where a cost limit cannot stop a task.`}
+        description={`Off by default: budgets are on cost. Cached input counts as tokens but costs about 10% of normal input on most providers, so a token limit trips long before the money it is meant to protect. Set one (${limits.tokens.min.toLocaleString("en-US")}–${limits.tokens.max.toLocaleString("en-US")} tokens, input incl. cached plus output) to also cap tokens, e.g. for a custom model U.B Agents has no price for, where a cost limit cannot stop a task.`}
         value={tokensText}
         onChange={(value) => {
           setTokensText(value)

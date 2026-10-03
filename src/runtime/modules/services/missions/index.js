@@ -8,7 +8,7 @@ import { runMissionBuildViaProviderAdapter } from "./provider-adapter/index.js";
 function resolveFailureReply(message) {
   const isUnauthorized = /\bunauthorized\b/i.test(message);
   if (isUnauthorized) {
-    return "I could not build that workflow because your session is not authorized for missions yet. Re-open Nova, sign in again, then retry and I will continue from your latest prompt.";
+    return "I could not build that workflow because your session is not authorized for missions yet. Re-open U.B Agents, sign in again, then retry and I will continue from your latest prompt.";
   }
   return `I couldn't build that workflow yet: ${message}`;
 }

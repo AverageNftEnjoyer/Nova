@@ -379,7 +379,7 @@ export function ChatSidebar({
               <div className="min-w-0 flex-1">
                 <div className="flex flex-col leading-tight">
                   <div className="flex flex-wrap items-baseline gap-x-2">
-                    <h1 className="pc-wordmark">NovaAIO</h1>
+                    <h1 className="pc-wordmark">U.B Agents</h1>
                     <p className="pc-version">{NOVA_VERSION}</p>
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">

@@ -976,7 +976,7 @@ export function startGateway() {
   } catch (err) {
     const details = describeUnknownError(err);
     console.error(`[Gateway] Failed to start HUD WebSocket server on 127.0.0.1:8765: ${details}`);
-    console.error("[Gateway] Another process may be using port 8765. Stop existing Nova/agent processes and retry.");
+    console.error("[Gateway] Another process may be using port 8765. Stop existing U.B Agents/agent processes and retry.");
     process.exit(1);
   }
 

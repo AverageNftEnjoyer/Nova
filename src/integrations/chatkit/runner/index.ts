@@ -20,7 +20,7 @@ export type AgentsSdkModule = {
   setTracingDisabled: (disabled: boolean) => void;
 };
 
-/** The part of the Agents SDK RunResult Nova reads. rawResponses holds one entry per model API call. */
+/** The part of the Agents SDK RunResult U.B Agents reads. rawResponses holds one entry per model API call. */
 type AgentsRunResult = {
   finalOutput?: unknown;
   finalOutputText?: string;
@@ -69,7 +69,7 @@ async function loadAgentsSdk(): Promise<AgentsSdkModule> {
     throw new Error("OpenAI Agents SDK shape mismatch.");
   }
   // The Agents SDK exports traces (prompt and output text plus user/conversation ids) to api.openai.com/v1/traces/ingest
-  // by default whenever an OpenAI key is present. Nova keeps prompts on this PC apart from the completion call itself.
+  // by default whenever an OpenAI key is present. U.B Agents keeps prompts on this PC apart from the completion call itself.
   moduleValue.setTracingDisabled(true);
   return moduleValue;
 }
@@ -177,11 +177,11 @@ export async function runChatKitWorkflow(
   }
 
   try {
-    const outputText = await sdk.withTrace("Nova ChatKit Workflow", async () => {
+    const outputText = await sdk.withTrace("U.B Agents ChatKit Workflow", async () => {
       const agent = new sdk.Agent({
-        name: "Nova ChatKit",
+        name: "U.B Agents ChatKit",
         instructions:
-          "You are Nova. Follow system safety and user-context boundaries. Do not fabricate unavailable data.",
+          "You are U.B Agents. Follow system safety and user-context boundaries. Do not fabricate unavailable data.",
         model: config.model,
         modelSettings: {
           reasoning: { effort: config.reasoningEffort },

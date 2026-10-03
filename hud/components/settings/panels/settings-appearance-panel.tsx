@@ -171,7 +171,7 @@ export function SettingsAppearancePanel({
         "fx-spotlight-card fx-border-glow p-4 rounded-xl border transition-colors duration-150",
         isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20"
       )}>
-        <p className={cn("text-sm mb-1", isLight ? "text-s-70" : "text-slate-200")}>Nova Orb Color</p>
+        <p className={cn("text-sm mb-1", isLight ? "text-s-70" : "text-slate-200")}>U.B Agents Orb Color</p>
         <p className={cn("text-xs mb-4", isLight ? "text-s-30" : "text-slate-500")}>Choose the orb color on the home screen</p>
         <div className="flex gap-3 flex-wrap">
           {(Object.keys(ORB_COLORS) as OrbColor[]).map((color) => {
@@ -350,7 +350,7 @@ export function SettingsAppearancePanel({
       {typeof window !== 'undefined' && window.electronAPI && !autoLaunchLoading ? (
         <SettingToggle
           label="Launch on Startup"
-          description="Automatically start Nova when you log in to Windows"
+          description="Automatically start U.B Agents when you log in to Windows"
           checked={autoLaunch}
           onChange={handleAutoLaunchToggle}
           isLight={isLight}

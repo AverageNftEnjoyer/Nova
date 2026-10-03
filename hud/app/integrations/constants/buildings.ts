@@ -3,7 +3,7 @@ import type { CityRect } from "@/components/pixel-city/types"
 import type { IntegrationSetupKey } from "@/lib/integrations/navigation"
 
 /**
- * How each integration's Nova City building is drawn on the Integrations page: its neon sign colour and the crop of the
+ * How each integration's U.B Agents City building is drawn on the Integrations page: its neon sign colour and the crop of the
  * painted city (the same painting Home uses) that shows the building. Names and levels are not here: names come from
  * lib/town/quests (`integrationBuildingName`), levels from GET /api/town. An integration with no painted building in the
  * painting (News: the Newsstand) has no crop and gets a pixel lot instead; nothing is invented.

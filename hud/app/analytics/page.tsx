@@ -185,7 +185,7 @@ export default function AnalyticsPage() {
       } catch (error) {
         if (controller.signal.aborted) return
         console.error("Failed to load analytics:", error)
-        setLoadError("Could not load analytics. Is Nova running?")
+        setLoadError("Could not load analytics. Is U.B Agents running?")
       } finally {
         if (!controller.signal.aborted) {
           setLoading(false)

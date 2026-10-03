@@ -39,7 +39,7 @@ function launch(label, command, args, cwd, env = process.env) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`[Nova] Failed to spawn ${label}: ${message}`);
+    throw new Error(`[U.B Agents] Failed to spawn ${label}: ${message}`);
   }
 
   child.stdout.on("data", (d) => process.stdout.write(`[${label}] ${d.toString()}`));
@@ -52,7 +52,7 @@ function launch(label, command, args, cwd, env = process.env) {
   child.on("exit", (code, signal) => {
     console.log(`[${label}] exited with code ${code}${signal ? ` signal ${signal}` : ""}`);
     if (label === "HUD" && !shuttingDown && code !== 0) {
-      console.error(`[Nova] HUD exited unexpectedly with code ${code}. Failing fast.`);
+      console.error(`[U.B Agents] HUD exited unexpectedly with code ${code}. Failing fast.`);
       cleanup(1);
     }
   });
@@ -65,7 +65,7 @@ function launch(label, command, args, cwd, env = process.env) {
 function cleanup(exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log("\nShutting down Nova...");
+  console.log("\nShutting down U.B Agents...");
   children.forEach((c) => { try { c.kill(); } catch {} });
   process.exit(exitCode);
 }
@@ -111,7 +111,7 @@ function clearPorts(ports) {
     for (const pid of pids) {
       try {
         process.kill(pid, "SIGKILL");
-        console.log(`[Nova] Cleared port ${port} by stopping PID ${pid}`);
+        console.log(`[U.B Agents] Cleared port ${port} by stopping PID ${pid}`);
       } catch {}
     }
   }
@@ -168,7 +168,7 @@ function ensureHudBuildIfNeeded() {
 
   if (buildExists && sourceMtime <= buildMtime) return;
 
-  console.log(`[Nova] ${buildExists ? "HUD build is stale" : "No production HUD build found"}. Building...`);
+  console.log(`[U.B Agents] ${buildExists ? "HUD build is stale" : "No production HUD build found"}. Building...`);
   try {
     execFileSync(process.execPath, ["scripts/next-runner.mjs", "build"], {
       cwd: HUD_DIR,
@@ -178,7 +178,7 @@ function ensureHudBuildIfNeeded() {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`[Nova] HUD build failed; startup aborted. ${message}`);
+    throw new Error(`[U.B Agents] HUD build failed; startup aborted. ${message}`);
   }
 }
 
@@ -221,13 +221,13 @@ function getMonitors() {
     });
 
     console.log(
-      `[Nova] Detected ${monitors.length} monitor(s): ` +
+      `[U.B Agents] Detected ${monitors.length} monitor(s): ` +
       monitors.map((m) => `${m.width}x${m.height} at (${m.x},${m.y})${m.primary ? " [PRIMARY]" : ""}`).join(", "),
     );
 
     return monitors;
   } catch (e) {
-    console.log("[Nova] Could not detect monitors, falling back to default.", e.message);
+    console.log("[U.B Agents] Could not detect monitors, falling back to default.", e.message);
     return [{ x: 0, y: 0, width: 1920, height: 1080, primary: true }];
   }
 }
@@ -277,33 +277,33 @@ if (-not $found) { Write-Output "Window with title *${titleMatch}* not found" }
     stderr += chunk.toString();
   });
   child.on("close", (code) => {
-    if (stdout.trim()) console.log(`[Nova] Window move: ${stdout.trim()}`);
+    if (stdout.trim()) console.log(`[U.B Agents] Window move: ${stdout.trim()}`);
     if (code !== 0 && stderr.trim()) {
-      console.log(`[Nova] Window move failed (${code}): ${stderr.trim()}`);
+      console.log(`[U.B Agents] Window move failed (${code}): ${stderr.trim()}`);
     }
   });
 }
 
 async function warmHudRoutes(baseUrl) {
   const routes = ["/home", "/chat", "/history", "/integrations", "/missions", "/analytics"];
-  console.log(`[Nova] Pre-warming HUD routes on ${baseUrl} ...`);
+  console.log(`[U.B Agents] Pre-warming HUD routes on ${baseUrl} ...`);
 
   await Promise.allSettled(
     routes.map(async (route) => {
       try {
         const res = await fetch(`${baseUrl}${route}`, { cache: "no-store" });
-        console.log(`[Nova] Warmed ${route} -> ${res.status}`);
+        console.log(`[U.B Agents] Warmed ${route} -> ${res.status}`);
       } catch (e) {
-        console.log(`[Nova] Warm failed ${route}: ${e.message}`);
+        console.log(`[U.B Agents] Warm failed ${route}: ${e.message}`);
       }
     }),
   );
 
-  console.log("[Nova] Route pre-warm complete.");
+  console.log("[U.B Agents] Route pre-warm complete.");
 }
 
 // ===== Boot sequence =====
-console.log("[Nova] Boot sequence started.");
+console.log("[U.B Agents] Boot sequence started.");
 
 prepareCleanLaunch();
 try {
@@ -323,8 +323,8 @@ const primaryMonitor = monitors[0];
 // not import legacy JSON state.
 const nativeSqlite = checkNativeSqlite();
 if (!nativeSqlite.ok) {
-  console.error(`[Nova] better-sqlite3 cannot load: ${nativeSqlite.error}`);
-  console.error(`[Nova] Fix: run "${nativeSqlite.fix}" (and do not install with --ignore-scripts).`);
+  console.error(`[U.B Agents] better-sqlite3 cannot load: ${nativeSqlite.error}`);
+  console.error(`[U.B Agents] Fix: run "${nativeSqlite.fix}" (and do not install with --ignore-scripts).`);
   cleanup(1);
 }
 
@@ -347,7 +347,7 @@ hud.stdout.on("data", (chunk) => {
   const localMatch = text.match(/Local:\s+(http:\/\/(?:127\.0\.0\.1|localhost):\d+)/i);
   if (localMatch) {
     hudBaseUrl = localMatch[1];
-    console.log(`[Nova] HUD URL detected: ${hudBaseUrl}`);
+    console.log(`[U.B Agents] HUD URL detected: ${hudBaseUrl}`);
   }
 
   if (text.includes("Ready") && !hudOpened) {
@@ -367,7 +367,7 @@ hud.stdout.on("data", (chunk) => {
       `--disable-features=PreloadMediaEngagementData,MediaEngagementBypassAutoplayPolicies`,
     );
 
-    console.log("[Nova] Opening Nova app on primary monitor");
+    console.log("[U.B Agents] Opening U.B Agents app on primary monitor");
 
     if (process.env.NOVA_FORCE_WINDOW_MOVE === "1") {
       setTimeout(() => {
@@ -382,8 +382,8 @@ hud.stdout.on("data", (chunk) => {
 
     if (HUD_MODE === "dev") warmHudRoutes(hudBaseUrl);
 
-    console.log("[Nova] Nova launched as standalone app.");
+    console.log("[U.B Agents] U.B Agents launched as standalone app.");
   }
 });
 
-console.log(`[Nova] All systems starting... (HUD mode: ${HUD_MODE})`);
+console.log(`[U.B Agents] All systems starting... (HUD mode: ${HUD_MODE})`);

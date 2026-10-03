@@ -3,7 +3,7 @@
 // How it works: `npm run electron:publish:win` uploads the NSIS installer plus `latest.yml` to a GitHub
 // Release on this repo. The installed app checks that release feed, downloads a newer installer in the
 // background, and offers "Restart now / Later". If the user picks Later, the update installs silently the
-// next time the app quits. Nova installs per-user, so updating needs no admin prompt.
+// next time the app quits. U.B Agents installs per-user, so updating needs no admin prompt.
 //
 // The app is NOT code-signed, so no publisher-name verification is configured; updates are fetched over
 // HTTPS from the public repo's release assets and checked against the SHA-512 in latest.yml.
@@ -55,8 +55,8 @@ function initAutoUpdater({ app, dialog, getMainWindow }) {
     if (!manualCheck) return
     void showBox({
       type: 'info',
-      title: 'Nova',
-      message: 'Nova is up to date.',
+      title: 'U.B Agents',
+      message: 'U.B Agents is up to date.',
       detail: `You are running version ${app.getVersion()}.`,
       buttons: ['OK'],
     })
@@ -67,9 +67,9 @@ function initAutoUpdater({ app, dialog, getMainWindow }) {
     if (!manualCheck) return
     void showBox({
       type: 'warning',
-      title: 'Nova',
+      title: 'U.B Agents',
       message: 'Could not check for updates.',
-      detail: 'Check your internet connection and try again. If this keeps happening, download the latest installer from the Nova releases page.',
+      detail: 'Check your internet connection and try again. If this keeps happening, download the latest installer from the U.B Agents releases page.',
       buttons: ['OK'],
     })
   })
@@ -79,9 +79,9 @@ function initAutoUpdater({ app, dialog, getMainWindow }) {
     promptedVersion = info.version
     const { response } = await showBox({
       type: 'info',
-      title: 'Nova update ready',
-      message: `Nova ${info.version} has been downloaded.`,
-      detail: 'Restart now to finish updating. If you choose Later, the update installs the next time you close Nova.',
+      title: 'U.B Agents update ready',
+      message: `U.B Agents ${info.version} has been downloaded.`,
+      detail: 'Restart now to finish updating. If you choose Later, the update installs the next time you close U.B Agents.',
       buttons: ['Restart now', 'Later'],
       defaultId: 0,
       cancelId: 1,

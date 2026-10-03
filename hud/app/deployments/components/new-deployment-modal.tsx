@@ -1,32 +1,15 @@
 "use client"
 
-import { ArrowUpRight, Loader2, X } from "lucide-react"
-import dynamic from "next/dynamic"
+import { ArrowUpRight, X } from "lucide-react"
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react"
 import { createPortal } from "react-dom"
 
-import { AdvancedTaskForm } from "@/components/agents/advanced-task-form"
 import { selectedSurfaceClass } from "@/lib/shared/surfaces"
 import { cn } from "@/lib/shared/utils"
 import { useHomeVisuals } from "@/app/home/hooks/use-home-visuals"
-import { useDeploymentActions } from "../hooks/use-deployment-actions"
-import { useDeploymentManager, type DeploymentNovaConnection } from "../hooks/use-deployment-manager"
-import { AutomationPanel } from "./automation-panel"
-import { ManagerPanel } from "./manager-panel"
+import type { DeploymentNovaConnection } from "../hooks/use-deployment-manager"
+import { NewDeploymentFlow } from "./new-deployment-flow"
 import { NEW_DEPLOYMENT_TABS, type NewDeploymentTab } from "./new-deployment-tabs"
-
-// The canvas pulls in ReactFlow, the node catalog and graph validation: its own chunk, preloaded when the
-// Automation tab is shown so opening it stays instant.
-const loadMissionCanvasModal = () =>
-  import("@/app/missions/components/mission-canvas-modal").then((module) => module.MissionCanvasModal)
-const MissionCanvasModal = dynamic(loadMissionCanvasModal, {
-  ssr: false,
-  loading: () => (
-    <div className="fixed inset-0 z-[130] grid place-items-center bg-zinc-950/90 backdrop-blur-sm">
-      <Loader2 className="h-6 w-6 animate-spin text-slate-300" aria-label="Loading automation canvas" />
-    </div>
-  ),
-})
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
@@ -61,23 +44,17 @@ export function NewDeploymentModal({
 }: NewDeploymentModalProps) {
   const [tab, setTab] = useState<NewDeploymentTab>(initialTab)
   const [status, setStatus] = useState("")
-  const manager = useDeploymentManager(nova, setStatus)
-  const actions = useDeploymentActions(setStatus)
   // Home's surfaces only; popups get no cursor spotlight or glow (the page behind keeps its own).
   const { panelStyle, subPanelClass } = useHomeVisuals({ isLight })
   const dialogRef = useRef<HTMLDivElement | null>(null)
   const titleId = useId()
   const restoreFocusRef = useRef<HTMLElement | null>(null)
-  const canvasOpen = Boolean(actions.mission)
+  const [canvasOpen, setCanvasOpen] = useState(false)
 
   const selectTab = (next: NewDeploymentTab) => {
     setTab(next)
     onTabChange?.(next)
   }
-
-  useEffect(() => {
-    if (tab === "automation") void loadMissionCanvasModal()
-  }, [tab])
 
   // Focus moves into the dialog on open and back to whatever opened it on close.
   useEffect(() => {
@@ -151,7 +128,7 @@ export function NewDeploymentModal({
             <h2 id={titleId} className={cn("text-lg font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>
               New deployment
             </h2>
-            <p className={cn("mt-1 text-xs", isLight ? "text-s-40" : "text-slate-400")}>Hand Nova an outcome to deliver</p>
+            <p className={cn("mt-1 text-xs", isLight ? "text-s-40" : "text-slate-400")}>Hand U.B Agents an outcome to deliver</p>
           </div>
 
           <div role="tablist" aria-orientation="vertical" className="no-scrollbar flex gap-1.5 overflow-x-auto p-2.5 md:flex-1 md:flex-col md:overflow-y-auto">
@@ -224,33 +201,20 @@ export function NewDeploymentModal({
           </div>
 
           <div role="tabpanel" aria-label={activeTab.label} className="min-h-0 flex-1 p-4 sm:p-6">
-            {tab === "describe" ? (
-              <ManagerPanel isLight={isLight} subPanelClass={subPanelClass} manager={manager} />
-            ) : tab === "task" ? (
-              <AdvancedTaskForm isLight={isLight} onCreate={actions.createTask} />
-            ) : (
-              <AutomationPanel
-                isLight={isLight}
-                subPanelClass={subPanelClass}
-                onOpenBuilder={onOpenGuidedBuilder}
-                onOpenCanvas={actions.openCanvas}
-                onViewAutomations={onViewAutomations}
-              />
-            )}
+            <NewDeploymentFlow
+              isLight={isLight}
+              nova={nova}
+              tab={tab}
+              subPanelClass={subPanelClass}
+              onStatus={setStatus}
+              onCanvasOpenChange={setCanvasOpen}
+              onOpenGuidedBuilder={onOpenGuidedBuilder}
+              onViewAutomations={onViewAutomations}
+              canvasClassName={className}
+            />
           </div>
         </div>
       </div>
-
-      {actions.mission ? (
-        <MissionCanvasModal
-          mission={actions.mission}
-          open
-          onClose={actions.closeCanvas}
-          onSave={actions.saveMissionDraft}
-          onRun={actions.runMission}
-          isSaving={actions.missionBusy}
-        />
-      ) : null}
     </div>,
     document.body,
   )

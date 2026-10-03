@@ -11,7 +11,7 @@ export function secretsUnavailableResponse(error: unknown): NextResponse | null 
   if (!(error instanceof SecretsUnavailableError)) return null
   return NextResponse.json(
     {
-      error: "Secure key storage is unavailable, so nothing was saved. Restart Nova, and make sure you are signed in to the same Windows account that created your keys.",
+      error: "Secure key storage is unavailable, so nothing was saved. Restart U.B Agents, and make sure you are signed in to the same Windows account that created your keys.",
       code: "SECRETS_UNAVAILABLE",
     },
     { status: 503 },

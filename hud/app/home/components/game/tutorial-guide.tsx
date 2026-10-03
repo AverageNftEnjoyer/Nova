@@ -94,7 +94,7 @@ function useTargetRect(target: PointerTarget | null): TargetRect | null {
 }
 
 /**
- * First-run guide: Nova speaks from a pixel bubble, points at the building for the current tutorial quest with a
+ * First-run guide: U.B Agents speaks from a pixel bubble, points at the building for the current tutorial quest with a
  * bobbing arrow, and moves on when the server reports the quest completed. Never blocks the city: only the bubble
  * takes clicks.
  */
@@ -179,7 +179,7 @@ export function TutorialGuide({ progress, assistantName, hotspots, minimized, on
                 <>
                   {step === 1 && completedCount === 0 ? (
                     <p className="font-pixel text-[13px] leading-snug text-(--px-muted)">
-                      Welcome to Nova City! I&apos;m {assistantName}. Every building here is a part of Nova, and it grows as we work together.
+                      Welcome to U.B Agents City! I&apos;m {assistantName}. Every building here is a part of U.B Agents, and it grows as we work together.
                     </p>
                   ) : null}
                   <p className="font-pixel text-[17px] leading-tight text-(--px-accent)">{current.title}</p>

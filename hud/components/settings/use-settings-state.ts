@@ -215,7 +215,7 @@ export function useSettingsState(isOpen: boolean) {
       key === "assistantName" && typeof value === "string"
         ? (() => {
             const candidate = value.trim().slice(0, MAX_ASSISTANT_NAME_LENGTH)
-            return isBlockedAssistantName(candidate) ? "Nova" : candidate
+            return !candidate || candidate === "Nova" || isBlockedAssistantName(candidate) ? "U.B Agents" : candidate
           })()
         : value
     const newSettings = { ...settings, personalization: { ...settings.personalization, [key]: nextValue } }

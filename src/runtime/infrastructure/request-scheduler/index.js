@@ -308,7 +308,7 @@ export function createRequestScheduler(options = {}) {
       return Promise.reject(
         createSchedulerError(
           "queue_full",
-          "Nova is currently processing too many requests. Please retry shortly.",
+          "U.B Agents is currently processing too many requests. Please retry shortly.",
           estimateRetryAfterMs(),
         ),
       );
@@ -321,7 +321,7 @@ export function createRequestScheduler(options = {}) {
       return Promise.reject(
         createSchedulerError(
           "queue_full",
-          "Nova is currently processing too many requests for this user. Please retry shortly.",
+          "U.B Agents is currently processing too many requests for this user. Please retry shortly.",
           estimateRetryAfterMs(),
         ),
       );

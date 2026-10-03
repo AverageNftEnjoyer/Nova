@@ -12,7 +12,7 @@
 //   Google     https://ai.google.dev/gemini-api/docs/deprecations
 //   xAI        https://docs.x.ai/developers/migration/may-15-retirement
 //
-// Replacement rule: same provider, same tier, and always a CURRENT model offered in Nova's pickers
+// Replacement rule: same provider, same tier, and always a CURRENT model offered in U.B Agents' pickers
 // (src/providers/pricing *_MODEL_PRICING_USD_PER_1M), so a rewritten choice shows up as a normal picker entry.
 // When the provider's documented replacement is itself a picker model it is used as is; otherwise (the documented
 // replacement is an older, still-served model) the picker model of the same tier is used:

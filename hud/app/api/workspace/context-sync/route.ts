@@ -22,8 +22,12 @@ function normalizeBody(body: unknown): WorkspaceContextSyncInput {
     : []
 
   const assistantNameCandidate = String(source.assistantName || "").trim().slice(0, MAX_ASSISTANT_NAME_LENGTH)
+  const assistantName =
+    !assistantNameCandidate || assistantNameCandidate === "Nova" || isBlockedAssistantName(assistantNameCandidate)
+      ? "U.B Agents"
+      : assistantNameCandidate
   return {
-    assistantName: isBlockedAssistantName(assistantNameCandidate) ? "Nova" : assistantNameCandidate,
+    assistantName,
     userName: String(source.userName || "").trim(),
     nickname: String(source.nickname || "").trim(),
     occupation: String(source.occupation || "").trim(),

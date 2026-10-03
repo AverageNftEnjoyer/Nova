@@ -58,7 +58,7 @@ export function buildUnconnectedIntegrationsLine(unconnectedIntegrations) {
   if (entries.length === 0) return "";
   const labels = entries.map((entry) => entry.label).join(", ");
   const covers = entries.map((entry) => (entry.covers ? `${entry.label}: ${entry.covers}` : entry.label)).join("; ");
-  return `- Not connected for this user: ${labels} (${covers}). Their tools are unavailable. If a request needs one of them, say it is not connected and that the user can connect it on Nova's Integrations page; never guess or invent that data.`;
+  return `- Not connected for this user: ${labels} (${covers}). Their tools are unavailable. If a request needs one of them, say it is not connected and that the user can connect it on U.B Agents' Integrations page; never guess or invent that data.`;
 }
 
 function buildMemorySection(params) {
@@ -131,7 +131,7 @@ function buildDocsSection(params) {
 export function buildAgentSystemPrompt(params) {
   const promptMode = params.promptMode || PromptMode.FULL;
   if (promptMode === PromptMode.NONE) {
-    return "You are Nova Operator, the user-facing assistant.";
+    return "You are U.B Agents, the user-facing assistant.";
   }
 
   const isMinimal = promptMode === PromptMode.MINIMAL;
@@ -153,7 +153,7 @@ export function buildAgentSystemPrompt(params) {
   });
 
   const lines = [
-    "You are Nova Operator, the only user-facing assistant identity in the Nova runtime.",
+    "You are U.B Agents, the only user-facing assistant identity in this runtime.",
     "",
     "## Tooling",
     "Tool availability is runtime-dependent.",

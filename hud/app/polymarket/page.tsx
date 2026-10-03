@@ -672,7 +672,7 @@ function PolymarketPageContent() {
             </button>
             <div className="min-w-0">
               <div className="flex items-baseline gap-3">
-                <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaAIO</h1>
+                <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>U.B Agents</h1>
                 <p className="text-[11px] font-mono text-accent">{NOVA_VERSION}</p>
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-3">
@@ -714,8 +714,8 @@ function PolymarketPageContent() {
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_auto] lg:items-center">
               <div>
                 <div className={cn("inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.2em]", isLight ? "border-[#d5dce8] bg-[#f4f7fd] text-s-70" : "border-white/12 bg-black/20 text-slate-300")}><PolymarketIcon className="h-4 w-4" />Polymarket Live</div>
-                <h2 className={cn("mt-3 text-[28px] font-semibold leading-tight tracking-tight", isLight ? "text-s-90" : "text-white")}>Prediction markets, Phantom wallet control, and Nova-native live execution.</h2>
-                <p className={cn("mt-2 max-w-3xl text-sm leading-6", isLight ? "text-s-60" : "text-slate-300")}>This now uses the same Nova shell language as the rest of the HUD: orb header, spotlight panels, compact status tiles, and integrated trading controls.</p>
+                <h2 className={cn("mt-3 text-[28px] font-semibold leading-tight tracking-tight", isLight ? "text-s-90" : "text-white")}>Prediction markets, Phantom wallet control, and U.B Agents-native live execution.</h2>
+                <p className={cn("mt-2 max-w-3xl text-sm leading-6", isLight ? "text-s-60" : "text-slate-300")}>This now uses the same U.B Agents shell language as the rest of the HUD: orb header, spotlight panels, compact status tiles, and integrated trading controls.</p>
               </div>
               <div className="grid gap-2 sm:grid-cols-2 lg:w-[25rem]">
                 <button type="button" onClick={settings.polymarket.connected ? handleDisconnect : handleConnect} disabled={savePending} className={cn("home-spotlight-card home-border-glow h-11 rounded-lg border px-3 text-sm font-medium transition-colors", settings.polymarket.connected ? "border-rose-300/30 bg-rose-500/12 text-rose-100 hover:bg-rose-500/18" : "border-emerald-300/30 bg-emerald-500/12 text-emerald-100 hover:bg-emerald-500/18")}><span className="inline-flex items-center gap-2"><Wallet className="h-4 w-4" />{savePending ? "Working..." : settings.polymarket.connected ? "Disconnect Wallet" : "Connect Wallet"}</span></button>
@@ -802,7 +802,7 @@ function PolymarketPageContent() {
               </div>
               <div className={cn(panelClass, "home-spotlight-shell p-4")}>
                 <SectionHeader icon={<ShieldCheck className="h-4 w-4 text-accent" />} title="Guardrails" isLight={isLight} />
-                <div className="mt-3 grid gap-2">{["Phantom must expose a verified EVM address before Polymarket can bind.", "Nova stores binding and preferences only. Keys and approvals stay in the wallet.", "Disconnecting Phantom clears stale Polymarket identity so wallet drift cannot persist."].map((copy) => <div key={copy} className={cn("home-spotlight-card home-border-glow rounded-xl border p-3 text-sm leading-6", subPanelClass, isLight ? "text-s-70" : "text-slate-300")}>{copy}</div>)}</div>
+                <div className="mt-3 grid gap-2">{["Phantom must expose a verified EVM address before Polymarket can bind.", "U.B Agents stores binding and preferences only. Keys and approvals stay in the wallet.", "Disconnecting Phantom clears stale Polymarket identity so wallet drift cannot persist."].map((copy) => <div key={copy} className={cn("home-spotlight-card home-border-glow rounded-xl border p-3 text-sm leading-6", subPanelClass, isLight ? "text-s-70" : "text-slate-300")}>{copy}</div>)}</div>
               </div>
             </section>
           </div>

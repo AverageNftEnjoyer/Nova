@@ -140,7 +140,7 @@ const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
 
 const RESERVED_SRC_USER_ENTRY = ".user";
 const RESERVED_SRC_USER_SENTINEL = [
-  "Reserved path: Nova user state must live at /.user, never at /src/.user.",
+  "Reserved path: U.B Agents user state must live at /.user, never at /src/.user.",
   "Do not replace this file with a directory.",
   "",
 ].join("\n");

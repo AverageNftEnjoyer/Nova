@@ -3,29 +3,13 @@
 import { useEffect, useRef, useState } from "react"
 import { LocateFixed, Minus, Plus } from "lucide-react"
 import { cn } from "@/lib/shared/utils"
-import { DISTRICT_SEA_COLOR } from "./district/image-plan"
-import { ImageDistrictRenderer } from "./district/image-renderer"
-import {
-  camerasClose,
-  clampCamera,
-  easeCamera,
-  initialCamera,
-  panBy,
-  zoomAround,
-  zoomLimits,
-  revealRect,
-  toView,
-  type Camera,
-  type CameraView,
-  type CameraViewport,
-} from "./scene-camera"
+import { DISTRICT_MAP, DISTRICT_PLACES, DISTRICT_SEA_COLOR } from "./district/image-plan"
+import { clampCamera, initialCamera, toView, zoomLimits, type Camera, type CameraView, type CameraViewport } from "./scene-camera"
+import type { CityBootPhase } from "./boot"
+import type { CityWorld } from "./world/world-types"
 import type { ResidentId } from "@/lib/town/residents"
-import { agentResidentId, type CityPlaceId, type CityRect, type CitySceneHit, type CitySceneRenderer, type CitySceneState } from "./types"
+import { agentResidentId, type CityPlaceId, type CityRect, type CitySceneHit, type CitySceneState } from "./types"
 
-const FRAME_INTERVAL_MS = 1000 / 20
-const REDUCED_MOTION_INTERVAL_MS = 1000
-/** Camera easing time constant: the camera covers ~63% of the way to its target every this many ms. */
-const EASE_TAU_MS = 90
 /** Plan-pixel box of a resident's focusable button around its feet (a figure is ~27 px tall). */
 const RESIDENT_BOX_W = 20
 const RESIDENT_BOX_H = 34
@@ -38,6 +22,7 @@ const DEFAULT_SAFE_TOP = 12
 const DEFAULT_SAFE_BOTTOM = 12
 /** Per-session camera memory (a per-viewer convenience; the scene works without it). */
 const CAMERA_STORAGE_KEY = "nova.city.camera.v1"
+const CAMERA_SAVE_DELAY_MS = 400
 
 export interface CityHotspot {
   id: CityPlaceId
@@ -51,6 +36,11 @@ interface PixelCitySceneProps {
   hotspots: readonly CityHotspot[]
   active: boolean
   onHotspot: (id: CityPlaceId) => void
+  /**
+   * The world moved to the next real load stage (charts while the engine chunk loads, engine once it has, map once
+   * the painting is decoded, gates once the first frame is drawn). Home's boot screen follows this.
+   */
+  onBoot?: (phase: CityBootPhase) => void
   /** A resident was clicked or activated (an agent, or an integration's worker): open its card. Without it, clicking one opens the "tasks" place. */
   onResident?: (id: ResidentId) => void
   className?: string
@@ -60,12 +50,10 @@ interface PixelCitySceneProps {
 }
 
 type ResidentHit = Extract<CitySceneHit, { kind: "resident" }>
+type RendererKind = "pending" | "pixi" | "static"
 
-/** Imperative camera controls the buttons call into; set up by the scene's mount effect. */
-interface CameraApi {
-  zoomBy: (factor: number) => void
-  recenter: () => void
-}
+/** Every place's hit rectangle in plan pixels (static art data). */
+const PLACE_RECTS: Partial<Record<CityPlaceId, CityRect>> = Object.fromEntries(DISTRICT_PLACES.map((place) => [place.id, place.hit]))
 
 interface StoredCamera {
   /** Zoom relative to the window's closest zoom, so it carries across window sizes. */
@@ -96,97 +84,88 @@ function storeCamera(cam: Camera, vp: CameraViewport): void {
   }
 }
 
-function sameView(a: CameraView | null, b: CameraView): boolean {
-  return !!a && a.zoom === b.zoom && a.offsetX === b.offsetX && a.offsetY === b.offsetY
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false)
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const sync = () => setReduced(query.matches)
+    sync()
+    query.addEventListener("change", sync)
+    return () => query.removeEventListener("change", sync)
+  }, [])
+  return reduced
 }
 
 /**
- * Home's Nova City: the painted daytime city on a canvas at screen resolution, live characters and effects on top,
- * and every place as a focusable button that opens its popup. Animates at 20 fps only while `active`.
+ * Home's U.B Agents City: the painted city as a PixiJS (WebGL) world (world/pixi-world.ts) with a pixi-viewport camera, live
+ * characters, ambient life and a day/night cycle, and every place as a focusable DOM button that opens its popup.
  *
- * A game-like camera frames it: drag (mouse or touch) to pan, wheel / pinch / +- to zoom out (the default view is the
- * closest zoom), arrow keys to pan.
- * The canvas is the viewport (device resolution); the renderer draws the plan through the camera transform, and the
- * buttons and resident tag are placed with the same transform. Every resident is also a focusable button that
- * follows its figure (placed imperatively each frame, so React does not re-render 20 times a second).
+ * The map always covers the window and the camera cannot leave it; drag (mouse or touch, with inertia), wheel and
+ * pinch zoom between the cover fit and the default closest view, arrow keys pan, +/- zoom, 0 recentres. Clicking a
+ * building glides the camera to it and then opens its room. The canvas draws the world; the buttons and the resident
+ * tag are placed with the camera's transform (`view`), and each resident's button follows its figure (placed
+ * imperatively every frame, so React does not re-render 60 times a second for it).
+ *
+ * Without WebGL the map is shown as a static image (default framing) with the same buttons over it.
  */
 export function PixelCityScene({
   state,
   hotspots,
   active,
   onHotspot,
+  onBoot,
   onResident,
   className,
   safeTop = DEFAULT_SAFE_TOP,
   safeBottom = DEFAULT_SAFE_BOTTOM,
 }: PixelCitySceneProps) {
   const hostRef = useRef<HTMLDivElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const rendererRef = useRef<CitySceneRenderer | null>(null)
+  const worldRef = useRef<CityWorld | null>(null)
+  const [renderer, setRenderer] = useState<RendererKind>("pending")
   const [view, setView] = useState<CameraView | null>(null)
-  const [rects, setRects] = useState<Partial<Record<CityPlaceId, CityRect>>>({})
   const [agentHover, setAgentHover] = useState<ResidentHit | null>(null)
   const residentButtons = useRef(new Map<string, HTMLButtonElement>())
   const [dragging, setDragging] = useState(false)
-  const apiRef = useRef<CameraApi | null>(null)
-  const invalidateRef = useRef<() => void>(() => {})
+  const draggingRef = useRef(false)
+  const remeasureRef = useRef<() => void>(() => {})
+  const reducedMotion = usePrefersReducedMotion()
 
   // Latest props for the long-lived listeners of the mount effect.
   const stateRef = useRef(state)
   const activeRef = useRef(active)
   const onHotspotRef = useRef(onHotspot)
   const onResidentRef = useRef(onResident)
+  const onBootRef = useRef(onBoot)
   const safeRef = useRef({ top: safeTop, bottom: safeBottom })
   useEffect(() => {
     onHotspotRef.current = onHotspot
     onResidentRef.current = onResident
-  }, [onHotspot, onResident])
+    onBootRef.current = onBoot
+  }, [onHotspot, onResident, onBoot])
 
   useEffect(() => {
     const host = hostRef.current
-    const canvas = canvasRef.current
-    if (!host || !canvas) return
-    if (!rendererRef.current) rendererRef.current = new ImageDistrictRenderer(canvas)
-    const renderer = rendererRef.current
-    renderer.setState(stateRef.current)
-    setRects(renderer.hotspots())
-    const placeRects = renderer.hotspots()
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)")
-
-    let vp: CameraViewport | null = null
-    let dpr = 0
-    let cam: Camera | null = null
-    let target: Camera | null = null
+    if (!host) return
+    let cancelled = false
+    let world: CityWorld | null = null
+    let vp: CameraViewport
     let lastView: CameraView | null = null
-    let raf = 0
-    let lastFrame = 0
-    let lastAnim = 0
-    let dirty = true
-    let unsaved = false
+    let saveTimer = 0
+    let fallback = false
 
-    // Pointer gesture state (drag to pan, two-finger pinch); the listeners are below.
-    const pointer = {
-      down: false,
-      dragged: false,
-      suppressClick: false,
-      startX: 0,
-      startY: 0,
-      lastX: 0,
-      lastY: 0,
-      pinchDist: 0,
-    }
     const measureViewport = (): CameraViewport => ({
       width: Math.max(1, host.clientWidth),
       height: Math.max(1, host.clientHeight),
       safeTop: safeRef.current.top,
       safeBottom: safeRef.current.bottom,
     })
+    vp = measureViewport()
 
     /** Moves each resident's focusable button onto its figure (imperatively: figures move every frame). */
     const placeResidents = () => {
-      if (!lastView) return
+      if (!world || !lastView) return
       const v = lastView
-      for (const anchor of renderer.residents()) {
+      for (const anchor of world.residents()) {
         const el = residentButtons.current.get(anchor.id)
         if (!el) continue
         el.style.display = anchor.visible ? "block" : "none"
@@ -198,96 +177,83 @@ export function PixelCityScene({
       }
     }
 
-    const frame = (now: number) => {
-      raf = 0
-      if (!vp || !cam || !target) return
-      const dt = lastFrame === 0 ? 16 : Math.min(100, now - lastFrame)
-      lastFrame = now
-      let moving = false
-      if (!camerasClose(cam, target)) {
-        const alpha = reducedMotion.matches ? 1 : 1 - Math.exp(-dt / EASE_TAU_MS)
-        cam = clampCamera(easeCamera(cam, target, alpha), vp)
-        if (camerasClose(cam, target)) cam = target
-        moving = true
-        dirty = true
-      }
-      if (dirty) {
-        applyCamera()
-        renderer.render(now / 1000)
-        placeResidents()
-        lastAnim = now
-        dirty = false
-      } else if (activeRef.current) {
-        const interval = reducedMotion.matches ? REDUCED_MOTION_INTERVAL_MS : FRAME_INTERVAL_MS
-        if (now - lastAnim >= interval) {
-          renderer.render(now / 1000)
-          placeResidents()
-          lastAnim = now
-        }
-      }
-      if (!moving && unsaved && !pointer.down) {
-        storeCamera(cam, vp)
-        unsaved = false
-      }
-      if (moving || activeRef.current) raf = window.requestAnimationFrame(frame)
-      else lastFrame = 0
-    }
-
-    const kick = () => {
-      if (!raf) raf = window.requestAnimationFrame(frame)
-    }
-
-    /** Pushes the current camera to the canvas backing, the renderer and the DOM overlay. */
-    const applyCamera = () => {
-      if (!vp || !cam) return
-      const ratio = window.devicePixelRatio || 1
-      if (ratio !== dpr) {
-        dpr = ratio
-        renderer.resize(vp.width * dpr, vp.height * dpr)
-      }
-      const raw = toView(cam, vp)
-      // Snap the origin to whole device pixels so the painting and the overlay never sit half a pixel apart.
-      const next: CameraView = { zoom: raw.zoom, offsetX: Math.round(raw.offsetX * dpr) / dpr, offsetY: Math.round(raw.offsetY * dpr) / dpr }
-      renderer.setCamera(next.zoom * dpr, -next.offsetX / next.zoom, -next.offsetY / next.zoom)
-      if (!sameView(lastView, next)) {
-        lastView = next
-        setView(next)
-      }
-    }
-
-    /** Moves the camera: `immediate` for direct manipulation (drag, pinch), eased otherwise. */
-    const moveTo = (next: Camera, immediate: boolean) => {
-      if (!vp) return
-      target = clampCamera(next, vp)
-      if (immediate || reducedMotion.matches) cam = target
-      dirty = true
-      unsaved = true
-      kick()
+    const onView = (next: CameraView) => {
+      lastView = next
+      setView(next)
+      host.dataset.zoom = next.zoom.toFixed(4)
+      host.dataset.offset = `${next.offsetX.toFixed(1)},${next.offsetY.toFixed(1)}`
+      window.clearTimeout(saveTimer)
+      saveTimer = window.setTimeout(() => {
+        if (world) storeCamera(world.getCamera(), vp)
+      }, CAMERA_SAVE_DELAY_MS)
     }
 
     const onResize = () => {
       const next = measureViewport()
-      if (vp && next.width === vp.width && next.height === vp.height && next.safeTop === vp.safeTop && next.safeBottom === vp.safeBottom) return
-      const first = !vp
+      if (next.width === vp.width && next.height === vp.height && next.safeTop === vp.safeTop && next.safeBottom === vp.safeBottom) return
       vp = next
-      renderer.resize(vp.width * (window.devicePixelRatio || 1), vp.height * (window.devicePixelRatio || 1))
-      dpr = window.devicePixelRatio || 1
-      if (first || !cam || !target) {
-        cam = loadStoredCamera(vp) ?? initialCamera(vp)
-        target = cam
-      } else {
-        cam = clampCamera(cam, vp)
-        target = clampCamera(target, vp)
-      }
-      dirty = true
-      kick()
+      if (world) world.resize(vp)
+      else if (fallback) onView(toView(initialCamera(vp), vp))
     }
-    onResize()
+    remeasureRef.current = onResize
     const observer = new ResizeObserver(onResize)
     observer.observe(host)
 
-    // ── Pointer: drag to pan, two-finger pinch, agent hover ─────────────────────
-    const touches = new Map<number, { x: number; y: number }>()
+    const reportBoot = (phase: CityBootPhase) => {
+      if (!cancelled) onBootRef.current?.(phase)
+    }
+
+    void (async () => {
+      try {
+        // PixiJS is client-only and heavy: it is loaded here, never during server rendering.
+        reportBoot("charts")
+        const { createCityWorld } = await import("./world/pixi-world")
+        // React development double-mounts the scene: the first mount is already cancelled, so skip building its world.
+        if (cancelled) return
+        reportBoot("engine")
+        const created = await createCityWorld({
+          host,
+          viewport: vp,
+          state: stateRef.current,
+          active: activeRef.current,
+          reducedMotion,
+          initialCamera: (v) => loadStoredCamera(v) ?? initialCamera(v),
+          onView,
+          onFrame: placeResidents,
+          onBoot: reportBoot,
+        })
+        if (cancelled) {
+          created.destroy()
+          return
+        }
+        world = created
+        worldRef.current = created
+        // The window may have changed size while the world was loading.
+        const now = measureViewport()
+        if (now.width !== vp.width || now.height !== vp.height) {
+          vp = now
+          created.resize(vp)
+        }
+        onView(created.getView())
+        host.dataset.renderer = "pixi"
+        host.dataset.ready = "true"
+        reportBoot("gates")
+        setRenderer("pixi")
+      } catch (error) {
+        if (cancelled) return
+        console.warn("[nova-city] WebGL is unavailable; showing the static map.", error)
+        fallback = true
+        host.dataset.renderer = "static"
+        host.dataset.ready = "true"
+        reportBoot("gates")
+        setRenderer("static")
+        onView(toView(initialCamera(vp), vp))
+      }
+    })()
+
+    // ── Pointer: click-vs-drag bookkeeping and resident hover (pan, zoom and pinch are pixi-viewport's) ─────────────
+    const pointer = { down: false, dragged: false, suppressClick: false, startX: 0, startY: 0 }
+    const touches = new Set<number>()
 
     const local = (event: { clientX: number; clientY: number }) => {
       const bounds = host.getBoundingClientRect()
@@ -297,10 +263,9 @@ export function PixelCityScene({
     // Residents are drawn on the canvas; the host tracks the pointer. Hovering one shows its tag and clicking it opens
     // its card (even when it stands over a building's button).
     const personAt = (event: { clientX: number; clientY: number }): ResidentHit | null => {
-      if (!vp || !cam) return null
+      if (!world || !lastView) return null
       const p = local(event)
-      const v = lastView ?? toView(cam, vp)
-      const hit = renderer.hitTest((p.x - v.offsetX) / v.zoom, (p.y - v.offsetY) / v.zoom)
+      const hit = world.hitTest((p.x - lastView.offsetX) / lastView.zoom, (p.y - lastView.offsetY) / lastView.zoom)
       return hit && hit.kind === "resident" ? hit : null
     }
     const openResident = (id: ResidentId) => {
@@ -317,84 +282,41 @@ export function PixelCityScene({
 
     const isControl = (target: EventTarget | null) => target instanceof Element && !!target.closest("[data-camera-controls]")
 
+    const setDrag = (on: boolean) => {
+      draggingRef.current = on
+      setDragging(on)
+      if (on) world?.setHover(null)
+    }
+
     const onPointerDown = (event: PointerEvent) => {
       if (isControl(event.target)) return
       if (event.pointerType === "mouse" && event.button !== 0) return
+      if (event.pointerType === "touch") touches.add(event.pointerId)
       const p = local(event)
-      if (event.pointerType === "touch") touches.set(event.pointerId, p)
-      if (touches.size === 2) {
-        // Second finger: pinch. It is a gesture, never a click.
-        const [a, b] = [...touches.values()]
-        pointer.pinchDist = Math.hypot(a.x - b.x, a.y - b.y)
-        pointer.lastX = (a.x + b.x) / 2
-        pointer.lastY = (a.y + b.y) / 2
+      if (touches.size >= 2) {
+        // Second finger: a pinch. It is a gesture, never a click.
         pointer.dragged = true
-        setDragging(true)
-        try {
-          host.setPointerCapture(event.pointerId)
-        } catch {
-          // The pointer may already be gone.
-        }
+        setDrag(true)
         return
       }
       pointer.down = true
       pointer.dragged = false
-      pointer.startX = pointer.lastX = p.x
-      pointer.startY = pointer.lastY = p.y
+      pointer.startX = p.x
+      pointer.startY = p.y
     }
 
     const onPointerMove = (event: PointerEvent) => {
-      if (!vp || !target) return
       const p = local(event)
-      if (event.pointerType === "touch" && touches.has(event.pointerId)) touches.set(event.pointerId, p)
-      if (touches.size >= 2) {
-        const [a, b] = [...touches.values()]
-        const dist = Math.hypot(a.x - b.x, a.y - b.y)
-        const mx = (a.x + b.x) / 2
-        const my = (a.y + b.y) / 2
-        let next = target
-        if (pointer.pinchDist > 0 && dist > 0) next = zoomAround(next, dist / pointer.pinchDist, mx, my, vp)
-        next = panBy(next, mx - pointer.lastX, my - pointer.lastY, vp)
-        pointer.pinchDist = dist
-        pointer.lastX = mx
-        pointer.lastY = my
-        moveTo(next, true)
-        return
+      if (pointer.down && !pointer.dragged && Math.hypot(p.x - pointer.startX, p.y - pointer.startY) > DRAG_THRESHOLD_PX) {
+        pointer.dragged = true
+        setHover(null)
+        setDrag(true)
       }
-      if (pointer.down) {
-        if (!pointer.dragged && Math.hypot(p.x - pointer.startX, p.y - pointer.startY) > DRAG_THRESHOLD_PX) {
-          pointer.dragged = true
-          setDragging(true)
-          setHover(null)
-          try {
-            host.setPointerCapture(event.pointerId)
-          } catch {
-            // The pointer may already be gone.
-          }
-        }
-        if (pointer.dragged) {
-          moveTo(panBy(target, p.x - pointer.lastX, p.y - pointer.lastY, vp), true)
-          pointer.lastX = p.x
-          pointer.lastY = p.y
-          return
-        }
-      }
-      if (event.pointerType === "mouse") {
-        setHover(personAt(event))
-      }
+      if (!pointer.dragged && event.pointerType === "mouse") setHover(personAt(event))
     }
 
     const onPointerEnd = (event: PointerEvent) => {
       touches.delete(event.pointerId)
-      if (touches.size === 1) {
-        // One finger lifted from a pinch: carry on panning with the other.
-        const [rest] = [...touches.values()]
-        pointer.down = true
-        pointer.lastX = rest.x
-        pointer.lastY = rest.y
-        pointer.pinchDist = 0
-        return
-      }
       if (touches.size > 0) return
       if (!pointer.down && !pointer.dragged) return
       pointer.down = false
@@ -406,8 +328,7 @@ export function PixelCityScene({
         }, 0)
       }
       pointer.dragged = false
-      setDragging(false)
-      kick()
+      setDrag(false)
     }
 
     const onPointerLeave = () => {
@@ -433,63 +354,41 @@ export function PixelCityScene({
       }
     }
 
-    // ── Wheel / trackpad ────────────────────────────────────────────────────────
-    const onWheel = (event: WheelEvent) => {
-      if (!vp || !target) return
-      event.preventDefault()
-      const p = local(event)
-      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? vp.height : 1
-      const dy = event.deltaY * unit
-      const dx = event.deltaX * unit
-      if (event.ctrlKey) {
-        // Trackpad pinch (Chromium reports it as a ctrl+wheel): follow the fingers directly.
-        moveTo(zoomAround(target, Math.exp(-dy * 0.01), p.x, p.y, vp), true)
-        return
-      }
-      let next = zoomAround(target, Math.exp(-dy * 0.0015), p.x, p.y, vp)
-      if (dx !== 0) next = panBy(next, -dx, 0, vp)
-      moveTo(next, false)
-    }
-
     // ── Keyboard ────────────────────────────────────────────────────────────────
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!vp || !target || event.altKey || event.ctrlKey || event.metaKey) return
+      if (!world || event.altKey || event.ctrlKey || event.metaKey) return
       if (isControl(event.target)) return
-      const cx = vp.width / 2
-      const cy = vp.safeTop + (vp.height - vp.safeTop - vp.safeBottom) / 2
       const stepX = vp.width * KEY_PAN_FRACTION
       const stepY = vp.height * KEY_PAN_FRACTION
-      let next: Camera | null = null
       switch (event.key) {
         case "ArrowLeft":
-          next = panBy(target, stepX, 0, vp)
+          world.panBy(stepX, 0)
           break
         case "ArrowRight":
-          next = panBy(target, -stepX, 0, vp)
+          world.panBy(-stepX, 0)
           break
         case "ArrowUp":
-          next = panBy(target, 0, stepY, vp)
+          world.panBy(0, stepY)
           break
         case "ArrowDown":
-          next = panBy(target, 0, -stepY, vp)
+          world.panBy(0, -stepY)
           break
         case "+":
         case "=":
-          next = zoomAround(target, KEY_ZOOM_STEP, cx, cy, vp)
+          world.zoomBy(KEY_ZOOM_STEP)
           break
         case "-":
         case "_":
-          next = zoomAround(target, 1 / KEY_ZOOM_STEP, cx, cy, vp)
+          world.zoomBy(1 / KEY_ZOOM_STEP)
           break
         case "0":
         case "Home":
-          next = initialCamera(vp)
+          world.recenter()
           break
         default:
           return
       }
       event.preventDefault()
-      moveTo(next, false)
     }
 
     // ── Focus: tabbing to a place that is off screen pans to it ──────────────────
@@ -506,21 +405,16 @@ export function PixelCityScene({
       if (!(el instanceof HTMLElement)) return
       resetAncestorScroll()
       window.requestAnimationFrame(resetAncestorScroll)
-      if (el.dataset.resident && vp && target && el.matches(":focus-visible")) {
-        const anchor = renderer.residents().find((candidate) => candidate.id === el.dataset.resident)
-        const next = anchor ? revealRect(target, { x: anchor.x - RESIDENT_BOX_W, y: anchor.y - RESIDENT_BOX_H, w: RESIDENT_BOX_W * 2, h: RESIDENT_BOX_H + 6 }, vp) : null
-        if (next) moveTo(next, false)
+      if (!world || !el.matches(":focus-visible")) return
+      if (el.dataset.resident) {
+        const anchor = world.residents().find((candidate) => candidate.id === el.dataset.resident)
+        if (anchor) world.revealRect({ x: anchor.x - RESIDENT_BOX_W, y: anchor.y - RESIDENT_BOX_H, w: RESIDENT_BOX_W * 2, h: RESIDENT_BOX_H + 6 })
         return
       }
       const id = el.dataset.place as CityPlaceId | undefined
-      if (!id || !vp || !target || !el.matches(":focus-visible")) return
-      const rect = placeRects[id]
-      if (!rect) return
-      const next = revealRect(target, rect, vp)
-      if (next) moveTo(next, false)
+      const rect = id ? PLACE_RECTS[id] : undefined
+      if (rect) world.revealRect(rect)
     }
-
-    const onMotionChange = () => kick()
 
     host.addEventListener("pointerdown", onPointerDown)
     host.addEventListener("pointermove", onPointerMove)
@@ -528,26 +422,11 @@ export function PixelCityScene({
     host.addEventListener("pointercancel", onPointerEnd)
     host.addEventListener("pointerleave", onPointerLeave)
     host.addEventListener("click", onClickCapture, true)
-    host.addEventListener("wheel", onWheel, { passive: false })
     host.addEventListener("keydown", onKeyDown)
     host.addEventListener("focusin", onFocusIn)
-    reducedMotion.addEventListener("change", onMotionChange)
-
-    invalidateRef.current = () => {
-      dirty = true
-      kick()
-    }
-    apiRef.current = {
-      zoomBy: (factor) => {
-        if (!vp || !target) return
-        moveTo(zoomAround(target, factor, vp.width / 2, vp.safeTop + (vp.height - vp.safeTop - vp.safeBottom) / 2, vp), false)
-      },
-      recenter: () => {
-        if (vp) moveTo(initialCamera(vp), false)
-      },
-    }
 
     return () => {
+      cancelled = true
       observer.disconnect()
       host.removeEventListener("pointerdown", onPointerDown)
       host.removeEventListener("pointermove", onPointerMove)
@@ -555,36 +434,58 @@ export function PixelCityScene({
       host.removeEventListener("pointercancel", onPointerEnd)
       host.removeEventListener("pointerleave", onPointerLeave)
       host.removeEventListener("click", onClickCapture, true)
-      host.removeEventListener("wheel", onWheel)
       host.removeEventListener("keydown", onKeyDown)
       host.removeEventListener("focusin", onFocusIn)
-      reducedMotion.removeEventListener("change", onMotionChange)
-      if (raf) window.cancelAnimationFrame(raf)
-      if (vp && cam) storeCamera(cam, vp)
-      invalidateRef.current = () => {}
-      apiRef.current = null
+      window.clearTimeout(saveTimer)
+      if (world) {
+        storeCamera(world.getCamera(), vp)
+        world.destroy()
+      }
+      worldRef.current = null
+      remeasureRef.current = () => {}
+      delete host.dataset.ready
+      delete host.dataset.renderer
     }
-  }, [])
+    // The world is rebuilt only when the motion preference flips; every other input reaches it through refs.
+  }, [reducedMotion])
 
   useEffect(() => {
     stateRef.current = state
-    rendererRef.current?.setState(state)
-    invalidateRef.current()
+    worldRef.current?.setState(state)
   }, [state])
 
   useEffect(() => {
     activeRef.current = active
-    invalidateRef.current()
+    worldRef.current?.setActive(active)
   }, [active])
 
   useEffect(() => {
     safeRef.current = { top: safeTop, bottom: safeBottom }
+    remeasureRef.current()
   }, [safeTop, safeBottom])
 
-  const residentList: Array<{ id: ResidentId; label: string }> = [
-    ...state.agents.map((agent) => ({ id: agentResidentId(agent.id), label: `${agent.name}, agent` })),
-    ...state.workers.map((worker) => ({ id: worker.id, label: `${worker.name}, integration worker` })),
-  ]
+  /** A building was chosen: glide the camera to it, then open its room. */
+  const openPlace = (id: CityPlaceId) => {
+    const rect = PLACE_RECTS[id]
+    const world = worldRef.current
+    if (!world || !rect) {
+      onHotspot(id)
+      return
+    }
+    world.glideToRect(rect, () => onHotspotRef.current(id))
+  }
+  const hoverPlace = (id: CityPlaceId | null) => {
+    if (id && draggingRef.current) return
+    worldRef.current?.setHover(id)
+  }
+
+  const residentList: Array<{ id: ResidentId; label: string }> =
+    renderer === "static"
+      ? []
+      : [
+          ...state.agents.map((agent) => ({ id: agentResidentId(agent.id), label: `${agent.name}, agent` })),
+          ...state.workers.map((worker) => ({ id: worker.id, label: `${worker.name}, integration worker` })),
+        ]
   const zoom = view?.zoom ?? 1
   const offsetX = view?.offsetX ?? 0
   const offsetY = view?.offsetY ?? 0
@@ -594,7 +495,7 @@ export function PixelCityScene({
   const placedHotspots = view
     ? hotspots
         .flatMap((spot) => {
-          const r = rects[spot.id]
+          const r = PLACE_RECTS[spot.id]
           return r ? [{ spot, r }] : []
         })
         .sort((a, b) => a.r.y + a.r.h - (b.r.y + b.r.h))
@@ -606,20 +507,36 @@ export function PixelCityScene({
       tabIndex={0}
       role="application"
       aria-roledescription="city map"
-      aria-label="Nova City. Drag or use the arrow keys to look around, scroll or press minus and plus to zoom out and back in, 0 to recenter."
+      aria-label="U.B Agents City. Drag or use the arrow keys to look around, scroll or press minus and plus to zoom out and back in, 0 to recenter."
       className={cn("pixel-camera absolute inset-0 overflow-clip", className)}
       style={{ backgroundColor: DISTRICT_SEA_COLOR }}
       data-scene="city"
       data-agent-hover={agentHover ? "true" : undefined}
       data-dragging={dragging ? "true" : undefined}
     >
-      <canvas ref={canvasRef} aria-hidden="true" className="absolute inset-0 h-full w-full [image-rendering:pixelated]" />
+      {renderer === "static" && view ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={DISTRICT_MAP.src}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          className="absolute max-w-none"
+          style={{ left: offsetX + DISTRICT_MAP.x * zoom, top: offsetY + DISTRICT_MAP.y * zoom, width: DISTRICT_MAP.w * zoom, height: DISTRICT_MAP.h * zoom }}
+        />
+      ) : null}
       {placedHotspots.map(({ spot, r }) => (
         <button
           key={spot.id}
           type="button"
           data-place={spot.id}
-          onClick={() => onHotspot(spot.id)}
+          onClick={() => openPlace(spot.id)}
+          onPointerEnter={() => hoverPlace(spot.id)}
+          onPointerLeave={() => hoverPlace(null)}
+          onFocus={(event) => {
+            if (event.currentTarget.matches(":focus-visible")) hoverPlace(spot.id)
+          }}
+          onBlur={() => hoverPlace(null)}
           className="pixel-hotspot group absolute"
           style={{ left: offsetX + r.x * zoom, top: offsetY + r.y * zoom, width: r.w * zoom, height: r.h * zoom }}
           aria-label={spot.detail ? `${spot.label}: ${spot.detail}` : spot.label}
@@ -664,17 +581,19 @@ export function PixelCityScene({
           aria-label={resident.label}
         />
       ))}
-      <div className="pixel-camera-controls" data-camera-controls="" style={{ bottom: safeBottom + 10 }}>
-        <button type="button" className="pixel-chip pixel-chip--icon" onClick={() => apiRef.current?.zoomBy(1 / KEY_ZOOM_STEP)} aria-label="Zoom out" title="Zoom out (-)">
-          <Minus className="h-4 w-4" />
-        </button>
-        <button type="button" className="pixel-chip pixel-chip--icon" onClick={() => apiRef.current?.zoomBy(KEY_ZOOM_STEP)} aria-label="Zoom in" title="Zoom in (+)">
-          <Plus className="h-4 w-4" />
-        </button>
-        <button type="button" className="pixel-chip pixel-chip--icon" onClick={() => apiRef.current?.recenter()} aria-label="Recenter the city" title="Recenter (0)">
-          <LocateFixed className="h-4 w-4" />
-        </button>
-      </div>
+      {renderer !== "static" ? (
+        <div className="pixel-camera-controls" data-camera-controls="" style={{ bottom: safeBottom + 10 }}>
+          <button type="button" className="pixel-chip pixel-chip--icon" onClick={() => worldRef.current?.zoomBy(1 / KEY_ZOOM_STEP)} aria-label="Zoom out" title="Zoom out (-)">
+            <Minus className="h-4 w-4" />
+          </button>
+          <button type="button" className="pixel-chip pixel-chip--icon" onClick={() => worldRef.current?.zoomBy(KEY_ZOOM_STEP)} aria-label="Zoom in" title="Zoom in (+)">
+            <Plus className="h-4 w-4" />
+          </button>
+          <button type="button" className="pixel-chip pixel-chip--icon" onClick={() => worldRef.current?.recenter()} aria-label="Recenter the city" title="Recenter (0)">
+            <LocateFixed className="h-4 w-4" />
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }

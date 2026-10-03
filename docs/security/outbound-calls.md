@@ -88,9 +88,9 @@ Findings 4-8 remain open or accepted by design and should be reviewed before rel
    agent or earlier node placed it in those values.
 5. **LOW - plaintext keys in `.env`.** `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `FISH_API_KEY`, etc. read from `.env`
    are plain text on disk and used by the runtime (LLM, embeddings, TTS). They are not covered by the DPAPI encryption.
-6. **LOW - direct browser-to-third-party requests.** The user's browser (not the Nova server) contacts Open-Meteo
+6. **LOW - direct browser-to-third-party requests.** The user's browser (not the U.B Agents server) contacts Open-Meteo
    (city name, then coordinates), Polymarket public APIs/WebSocket, `www.youtube.com` (embedded player) and
-   `i.ytimg.com` (thumbnails). No Nova credentials are involved, but those services see the user's IP.
+   `i.ytimg.com` (thumbnails). No U.B Agents credentials are involved, but those services see the user's IP.
 7. **INFO - build/install-time downloads.** `npm install`, `npm run db:fix-native` (better-sqlite3 prebuilt from GitHub),
    Playwright browsers, and `next/font/google` (Geist fonts fetched at `next build`/`next dev` and then self-hosted, so
    the running app does not contact Google Fonts). Electron/Chromium's own background traffic was not audited.

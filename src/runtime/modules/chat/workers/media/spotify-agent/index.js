@@ -303,7 +303,7 @@ Output ONLY valid JSON, nothing else.`;
       if (!hudResult.attempted && requiresVerifiedSpotifyApiAction.has(action)) {
         summary.ok = false;
         summary.error = hudResult.code === "spotify.unauthorized"
-          ? "I need your authenticated Nova session for that Spotify command. Sign in and retry."
+          ? "I need your authenticated U.B Agents session for that Spotify command. Sign in and retry."
           : "I need your connected Spotify account for that command. Reconnect Spotify and retry.";
         reply = summary.error;
       } else if (

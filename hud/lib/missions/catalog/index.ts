@@ -70,7 +70,7 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
   {
     type: "manual-trigger",
     label: "Manual",
-    description: "Trigger this mission manually from the Nova dashboard or via the API.",
+    description: "Trigger this mission manually from the U.B Agents dashboard or via the API.",
     category: "triggers",
     icon: "Play",
     color: "bg-amber-500/10",
@@ -83,7 +83,7 @@ export const NODE_CATALOG: NodeCatalogEntry[] = [
   {
     type: "event-trigger",
     label: "Event",
-    description: "React to internal Nova events like message.received or skill.completed.",
+    description: "React to internal U.B Agents events like message.received or skill.completed.",
     category: "triggers",
     icon: "Zap",
     color: "bg-amber-500/10",

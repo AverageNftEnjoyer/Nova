@@ -440,7 +440,7 @@ export async function handleHudGatewayMessage({
             conversationId,
             code === "queue_stale"
               ? "Queued request expired before execution. Please retry."
-              : `Nova is busy right now. Please retry in ${Math.max(1, Math.ceil(retryAfterMs / 1000))}s.`,
+              : `U.B Agents is busy right now. Please retry in ${Math.max(1, Math.ceil(retryAfterMs / 1000))}s.`,
             ws,
             retryAfterMs,
             incomingUserId,
@@ -517,7 +517,7 @@ export async function handleHudGatewayMessage({
         syncRuntime: true,
         broadcastRuntimeState: true,
       });
-      console.log("[Nova] Muted:", nextVoiceState.muted);
+      console.log("[U.B Agents] Muted:", nextVoiceState.muted);
       if (!getMuted({ userContextId: scopedUserContextId })) {
         const UNMUTE_SUPPRESS_MS = 1200;
         setSuppressVoiceWakeUntilMs(Date.now() + UNMUTE_SUPPRESS_MS, { userContextId: scopedUserContextId });

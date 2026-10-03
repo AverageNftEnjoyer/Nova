@@ -111,7 +111,7 @@ export function buildStructuredWorkflowPlan(input: {
       kind: "display",
       skillName: "nova-core",
       instruction:
-        "Format the final answer for Nova response UX: clear sections, actionable takeaways, and confidence callout.",
+        "Format the final answer for U.B Agents response UX: clear sections, actionable takeaways, and confidence callout.",
     },
   ];
   return { steps, skillContext };

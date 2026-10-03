@@ -51,7 +51,7 @@ export function buildDeploymentPlanningPrompt({ outcome, userContextId = "", con
   return {
     routing,
     systemText: [
-      "You are Nova's deployment manager. Convert the user's requested outcome into one executable deployment plan.",
+      "You are U.B Agents' deployment manager. Convert the user's requested outcome into one executable deployment plan.",
       "Choose kind=task for a one-off outcome and kind=automation only for recurring, scheduled, event-triggered, or reusable work.",
       "Return exactly one JSON object and no prose.",
       `Allowed specialist IDs: ${allowedSpecialists.join(", ")}.`,

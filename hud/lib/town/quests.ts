@@ -1,5 +1,5 @@
 /**
- * Nova City quest catalogue: the tutorial chain, milestone tiers, per-integration building quests and daily quests.
+ * U.B Agents City quest catalogue: the tutorial chain, milestone tiers, per-integration building quests and daily quests.
  *
  * Every quest's progress is a real count (TownQuestContext, built from nova.db and the workspace docs). Pure and free
  * of `server-only` / `@/` runtime imports so the town smoke can run it in plain Node.
@@ -58,7 +58,7 @@ const INTEGRATION_LABELS: Record<IntegrationSetupKey, string> = {
   "gmail-calendar": "Google Calendar",
 }
 
-/** The building each integration raises in Nova City (see docs/frontend/nova-town-concept.md, section 3.1). */
+/** The building each integration raises in U.B Agents City (see docs/frontend/nova-town-concept.md, section 3.1). */
 const INTEGRATION_BUILDINGS: Record<IntegrationSetupKey, string> = {
   telegram: "Telegraph Office",
   discord: "Arcade",
@@ -96,8 +96,8 @@ export const TUTORIAL_QUESTS: readonly QuestDefinition[] = [
   {
     id: "tutorial-meet-nova",
     category: "tutorial",
-    title: "Meet Nova",
-    description: "Open the chat and send Nova your first message.",
+    title: "Meet U.B Agents",
+    description: "Open the chat and send U.B Agents your first message.",
     goal: 1,
     xpReward: 50,
     target: { place: "chat" },
@@ -157,7 +157,7 @@ export const TUTORIAL_QUESTS: readonly QuestDefinition[] = [
     id: "tutorial-messaging",
     category: "tutorial",
     title: "Send word",
-    description: "Connect Telegram, Discord or Slack so Nova can reach you anywhere.",
+    description: "Connect Telegram, Discord or Slack so U.B Agents can reach you anywhere.",
     goal: 1,
     xpReward: 75,
     target: { place: "integrations", route: "/integrations" },
@@ -166,7 +166,7 @@ export const TUTORIAL_QUESTS: readonly QuestDefinition[] = [
   {
     id: "tutorial-first-skill",
     category: "tutorial",
-    title: "Teach Nova a skill",
+    title: "Teach U.B Agents a skill",
     description: "Add your own skill in Settings > Skills.",
     goal: 1,
     xpReward: 100,
@@ -222,7 +222,7 @@ export const MILESTONE_SERIES: readonly MilestoneSeries[] = [
   {
     id: "conversations",
     title: "Town square",
-    description: "Start {n} conversations with Nova.",
+    description: "Start {n} conversations with U.B Agents.",
     tiers: [10, 50, 200, 500],
     xp: (i) => 80 * (i + 1),
     target: { place: "chat" },
@@ -314,7 +314,7 @@ export function dailyDefinitions(dayKey: string): QuestDefinition[] {
       id: `daily-chat-${dayKey}`,
       category: "daily",
       title: "Daily check-in",
-      description: "Send Nova 5 messages today.",
+      description: "Send U.B Agents 5 messages today.",
       goal: 5,
       xpReward: 30,
       target: { place: "chat" },

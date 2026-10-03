@@ -34,7 +34,7 @@ export function SettingsNav({ isLight, activeSection, onSectionChange, onReset }
     )}>
       <div className={cn("px-4 py-4 border-b", isLight ? "border-[#e2e8f2]" : "border-white/10")}>
         <h2 className={cn("text-base sm:text-lg font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>Settings</h2>
-        <p className={cn("text-xs mt-1", isLight ? "text-s-40" : "text-slate-400")}>Tune Nova to your workflow</p>
+        <p className={cn("text-xs mt-1", isLight ? "text-s-40" : "text-slate-400")}>Tune U.B Agents to your workflow</p>
         <p className="mt-1.5 font-mono text-[10px] text-accent">{NOVA_VERSION}</p>
       </div>
 

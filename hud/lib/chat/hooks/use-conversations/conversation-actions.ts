@@ -245,7 +245,7 @@ export function useConversationActions(params: {
         content: content.trim(),
         createdAt: new Date().toISOString(),
         source: "agent",
-        sender: String(options?.sender || "Nova").trim() || "Nova",
+        sender: String(options?.sender || "U.B Agents").trim() || "U.B Agents",
       }
 
       const updated: Conversation = {
@@ -387,7 +387,7 @@ export function useConversationActions(params: {
             content: "Still processing your mission request. I did not send a duplicate. I will update you once it finishes.",
             createdAt: new Date().toISOString(),
             source: "agent",
-            sender: "Nova",
+            sender: "U.B Agents",
           }
           const updated = { ...activeSnapshot, messages: [...activeSnapshot.messages, notice], updatedAt: new Date().toISOString() }
           const nextConvos = latestConversationsRef.current.map((entry) => (entry.id === updated.id ? updated : entry))

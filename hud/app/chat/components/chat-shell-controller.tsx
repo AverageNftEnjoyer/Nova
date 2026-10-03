@@ -41,7 +41,7 @@ export interface Message {
 export function ChatShellController() {
   const router = useRouter()
 
-  // Nova state
+  // U.B Agents state
   const {
     state: novaState,
     thinkingStatus,
@@ -575,11 +575,11 @@ export function ChatShellController() {
                 </div>
                 <div className="pc-title-wrap">
                   <div className="pixel-plaque pc-plaque">
-                    <h2 className="pixel-title pc-dialog-name">Nova</h2>
+                    <h2 className="pixel-title pc-dialog-name">U.B Agents</h2>
                     <p className="pc-dialog-topic truncate" title={activeTitle}>{activeTitle}</p>
                   </div>
                 </div>
-                <span className="pc-state" data-state={catState} role="status" aria-label={`Nova is ${CAT_STATE_LABEL[catState].toLowerCase()}`}>
+                <span className="pc-state" data-state={catState} role="status" aria-label={`U.B Agents is ${CAT_STATE_LABEL[catState].toLowerCase()}`}>
                   <i aria-hidden="true" />
                   {CAT_STATE_LABEL[catState]}
                 </span>
@@ -628,7 +628,7 @@ export function ChatShellController() {
                   </button>
                 </div>
                 <div className="pc-panel-body flex min-h-0 flex-1 flex-col">
-                  <p className="pc-hint pc-hint--flush">Scheduled Nova workflows</p>
+                  <p className="pc-hint pc-hint--flush">Scheduled U.B Agents workflows</p>
 
                   <div className="mt-2.5 min-h-0 flex-1 overflow-y-auto no-scrollbar space-y-2">
                     {missions.length === 0 && (
