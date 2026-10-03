@@ -186,7 +186,6 @@ function Shore() {
       <Spire x={124} />
       <Dome x={152} />
       <Pier x={196} />
-      <Boat x={214} />
     </svg>
   )
 }
@@ -264,17 +263,6 @@ function Pier({ x }: { x: number }) {
       <rect x={x + 22} y={46} width="3" height="8" fill="#6b4424" />
       <rect x={x + 6} y={34} width="12" height="8" fill="#e5483f" />
       <rect x={x + 8} y={36} width="4" height="4" fill="#ffcf4a" />
-    </g>
-  )
-}
-
-function Boat({ x }: { x: number }) {
-  return (
-    <g>
-      <rect x={x} y={40} width="16" height="4" fill={INK} />
-      <rect x={x + 2} y={38} width="12" height="3" fill="#f4fbff" />
-      <rect x={x + 6} y={32} width="2" height="6" fill="#8a5a32" />
-      <rect x={x + 8} y={33} width="6" height="5" fill="#e5483f" />
     </g>
   )
 }

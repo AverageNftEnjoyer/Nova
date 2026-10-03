@@ -164,7 +164,6 @@ const SPECS: Readonly<Record<RoomId, RoomSpec>> = {
     role: "Deployments",
     emblem: "default",
     sections: [{ kind: "data", panel: "deployments", label: "Runs" }, { kind: "data", panel: "deployment-list", label: "Deployments" }, { kind: "data", panel: "new-deployment", label: "New", keepAlive: true }],
-    page: "deployments",
     stage: DEPOT_STAGE,
   },
   "power-plant": { place: "analytics", role: "Analytics", emblem: "analytics", sections: [{ kind: "data", panel: "analytics", label: "Usage" }], page: "analytics" },

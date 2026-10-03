@@ -27,6 +27,7 @@ import type { ResidentId } from "@/lib/town/residents"
 import type { IntegrationSetupKey } from "@/lib/integrations/navigation"
 import { isRunActive, useDeploymentsData } from "@/app/deployments/hooks/use-deployments-data"
 import { preloadNewDeploymentFlow } from "@/app/deployments/components/new-deployment-flow-lazy"
+import { NEW_DEPLOYMENT_TABS, type NewDeploymentTab } from "@/app/deployments/components/new-deployment-tabs"
 import { getNovaPresence } from "@/lib/chat/nova-presence"
 import { usePageActive } from "@/lib/hooks/use-page-active"
 import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
@@ -58,7 +59,9 @@ import { YouTubeHomeModule } from "./youtube-home-module"
 import { BuildingRoom, type RoomPanelControls, type RoomPanelVariant } from "./rooms/building-room"
 import { RoomDeploymentsPanel } from "./rooms/room-deployments-panel"
 import { RoomNewDeployment } from "./rooms/room-new-deployment"
-import { ROOMS, roomForIntegration, roomForPlace, type RoomDefinition, type RoomId, type RoomPanelId, type RoomSectionId } from "./rooms/room-registry"
+import { preloadRoomPicture, whenRoomPictureReady } from "./rooms/room-picture"
+import { preloadTravelMap } from "./rooms/room-travel-map"
+import { ROOMS, ROOM_IDS, roomForIntegration, roomForPlace, sectionId, type RoomDefinition, type RoomId, type RoomPanelId, type RoomSectionId } from "./rooms/room-registry"
 
 /** Modules inside pixel windows get these instead of Home's old glass panels. */
 const PIXEL_PANEL = "pixel-panel h-full"
@@ -103,6 +106,15 @@ export function HomeMainScreen() {
   // U.B Agents City is one daytime pixel theme: Home and its popups never follow the app's light / dark setting.
   const isLight = false
   const assistantName = home.assistantName
+
+  // Immersive rooms open instantly: their pictures are fetched in the background right after Home shows.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      for (const room of Object.values(ROOMS)) if (room.stage) preloadRoomPicture(room.backgrounds)
+      preloadTravelMap()
+    }, 600)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   useEffect(() => {
     const syncProfile = () => {
@@ -186,9 +198,14 @@ export function HomeMainScreen() {
   // Every building opens its own room (rooms/room-registry.ts). An integration's setup opens in its building's room;
   // an integration with no building (News) keeps the /integrations page.
   // `seq` remounts the room on every open, so asking for a section of the room already open switches to it.
-  const [openRoom, setOpenRoomState] = useState<{ id: RoomId; section?: RoomSectionId; seq: number } | null>(null)
-  const setOpenRoom = useCallback((next: { id: RoomId; section?: RoomSectionId } | null) => {
-    setOpenRoomState((previous) => (next ? { ...next, seq: (previous?.seq ?? 0) + 1 } : null))
+  // `tab` picks the Depot creation view's first tab (Describe / One-off task / Automation).
+  const [openRoom, setOpenRoomState] = useState<{ id: RoomId; section?: RoomSectionId; tab?: NewDeploymentTab; seq: number } | null>(null)
+  const setOpenRoom = useCallback((next: { id: RoomId; section?: RoomSectionId; tab?: NewDeploymentTab } | null) => {
+    const open = () => setOpenRoomState((previous) => (next ? { ...next, seq: (previous?.seq ?? 0) + 1 } : null))
+    // An immersive room opens once its picture is in (normally already preloaded), never onto an empty screen.
+    const stageRoom = next ? ROOMS[next.id] : null
+    if (stageRoom?.stage) void whenRoomPictureReady(stageRoom.backgrounds).then(open)
+    else open()
   }, [])
   const openHotspot = useCallback(
     (id: CityPlaceId) => {
@@ -197,6 +214,31 @@ export function HomeMainScreen() {
     },
     [setOpenRoom],
   )
+  // Deep links land here: `/home?room=<id>[&section=<id>][&tab=describe|task|automation]` (the retired /deployments page redirects
+  // to the Depot this way). Read once on mount, unknown values are ignored, then the URL is cleaned without navigating.
+  // The room opens once the city's boot screen is gone: until then everything under it is inert, so it could not take focus.
+  const [pendingRoom, setPendingRoom] = useState<{ id: RoomId; section?: RoomSectionId; tab?: NewDeploymentTab } | null>(null)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const roomParam = params.get("room")
+    const sectionParam = params.get("section")
+    const tabParam = params.get("tab")
+    if (roomParam === null && sectionParam === null && tabParam === null) return
+    const id = ROOM_IDS.find((candidate) => candidate === roomParam)
+    if (id) {
+      const section = ROOMS[id].sections.map(sectionId).find((candidate) => candidate === sectionParam)
+      const tab = NEW_DEPLOYMENT_TABS.find((candidate) => candidate.id === tabParam)?.id
+      setPendingRoom({ id, section, tab: section === "new-deployment" ? tab : undefined })
+    }
+    for (const key of ["room", "section", "tab", "mode", "kind"]) params.delete(key)
+    const query = params.toString()
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`)
+  }, [])
+  useEffect(() => {
+    if (booting || !pendingRoom) return
+    setOpenRoom(pendingRoom)
+    setPendingRoom(null)
+  }, [booting, pendingRoom, setOpenRoom])
   const goToIntegrations = home.goToIntegrations
   const openSetup = useCallback(
     (setup: IntegrationSetupKey) => {
@@ -209,6 +251,7 @@ export function HomeMainScreen() {
   // Creating and running U.B Agents tasks happens on the Depot's hologram screen (its "New" section), never in a popup over the city.
   const [launchNote, setLaunchNote] = useState("")
   const openNewDeployment = useCallback(() => setOpenRoom({ id: "depot", section: "new-deployment" }), [setOpenRoom])
+  const openDepot = useCallback(() => setOpenRoom({ id: "depot" }), [setOpenRoom])
   const closeRoom = useCallback(() => {
     setLaunchNote("")
     setOpenRoom(null)
@@ -251,7 +294,7 @@ export function HomeMainScreen() {
   const roomPageAction = (room: RoomDefinition) => {
     switch (room.page) {
       case "deployments":
-        return pageAction("Deployments", home.openMissions)
+        return pageAction("Deployments", openDepot)
       case "calendar":
         return pageAction("Calendar", home.openCalendar)
       case "analytics":
@@ -281,7 +324,7 @@ export function HomeMainScreen() {
             panelStyle={NO_PANEL_STYLE}
             className="h-full"
             agentTasks={agentTasks}
-            onOpenMissions={home.openMissions}
+            onOpenMissions={openDepot}
             onCreateDeployment={openNewDeployment}
             onPrefetchDeployment={preloadNewDeploymentFlow}
           />
@@ -296,7 +339,6 @@ export function HomeMainScreen() {
             notice={launchNote}
             onNewDeployment={() => (controls ? controls.showSection("new-deployment") : openNewDeployment())}
             onPrefetchDeployment={preloadNewDeploymentFlow}
-            onOpenDeployments={home.openMissions}
           />
         )
       case "new-deployment": {
@@ -304,6 +346,7 @@ export function HomeMainScreen() {
           <RoomNewDeployment
             isLight={isLight}
             nova={home.nova}
+            initialTab={openRoom?.id === "depot" ? openRoom.tab : undefined}
             onLaunched={(message) => {
               setLaunchNote(message)
               void deployments.refresh()
@@ -413,7 +456,7 @@ export function HomeMainScreen() {
       room={activeRoom}
       initialSection={openRoom?.section}
       // An integration's own building says "Connected" on its lamp plaque; civic places also show their live tag.
-      detail={activeRoomOwnLot ? "" : activeRoom.place === "deploy" && !activeRuns ? "No boats out" : (hotspots.find((spot) => spot.id === activeRoom.place)?.detail ?? "")}
+      detail={activeRoomOwnLot ? "" : activeRoom.place === "deploy" && !activeRuns ? "No runs" : (hotspots.find((spot) => spot.id === activeRoom.place)?.detail ?? "")}
       connected={activeRoomNode ? activeRoomNode.connected : null}
       building={activeRoom.integration ? (town.progress?.buildings.find((candidate) => candidate.integration === activeRoom.integration) ?? null) : null}
       icon={activeRoomOwnLot ? activeRoomNode?.icon : undefined}

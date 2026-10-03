@@ -2,7 +2,6 @@
 
 import type { ReactNode } from "react"
 
-import type { DeploymentRunStatus, DeploymentStatus } from "@/lib/deployments/types"
 import { cn } from "@/lib/shared/utils"
 
 type Tone = "neutral" | "accent" | "info" | "success" | "warning" | "danger"
@@ -14,36 +13,6 @@ const TONE_CLASSES: Record<Tone, { light: string; dark: string; dot: string }> =
   success: { light: "border-emerald-300 bg-emerald-50 text-emerald-700", dark: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300", dot: "bg-emerald-400" },
   warning: { light: "border-amber-300 bg-amber-50 text-amber-700", dark: "border-amber-400/30 bg-amber-400/10 text-amber-300", dot: "bg-amber-400" },
   danger: { light: "border-rose-300 bg-rose-50 text-rose-700", dark: "border-rose-400/30 bg-rose-400/10 text-rose-300", dot: "bg-rose-400" },
-}
-
-const RUN_TONE: Record<DeploymentRunStatus, Tone> = {
-  pending: "neutral",
-  queued: "accent",
-  running: "info",
-  paused: "warning",
-  succeeded: "success",
-  failed: "danger",
-  dead: "danger",
-  cancelled: "neutral",
-}
-
-const RUN_LABEL: Record<DeploymentRunStatus, string> = {
-  pending: "Pending",
-  queued: "Queued",
-  running: "Running",
-  paused: "Paused",
-  succeeded: "Succeeded",
-  failed: "Failed",
-  dead: "Failed",
-  cancelled: "Cancelled",
-}
-
-const DEPLOYMENT_TONE: Record<DeploymentStatus, Tone> = {
-  draft: "neutral",
-  ready: "accent",
-  active: "success",
-  paused: "warning",
-  archived: "neutral",
 }
 
 interface ChipProps {
@@ -68,81 +37,4 @@ export function StatusChip({ isLight, tone, children, pulse = false, className }
       {children}
     </span>
   )
-}
-
-export function RunStatusChip({
-  isLight,
-  status,
-  needsReview = false,
-}: {
-  isLight: boolean
-  status: DeploymentRunStatus
-  needsReview?: boolean
-}) {
-  if (needsReview) {
-    return (
-      <StatusChip isLight={isLight} tone="warning" pulse>
-        Needs review
-      </StatusChip>
-    )
-  }
-  return (
-    <StatusChip isLight={isLight} tone={RUN_TONE[status]} pulse={status === "running"}>
-      {RUN_LABEL[status]}
-    </StatusChip>
-  )
-}
-
-export function DeploymentStatusChip({ isLight, status }: { isLight: boolean; status: DeploymentStatus }) {
-  return (
-    <StatusChip isLight={isLight} tone={DEPLOYMENT_TONE[status]} className="capitalize">
-      {status}
-    </StatusChip>
-  )
-}
-
-/** Mirrors Home's module header: icon left, centered tracked title, actions right. */
-export function PanelHeader({
-  isLight,
-  icon,
-  title,
-  action,
-}: {
-  isLight: boolean
-  icon: ReactNode
-  title: ReactNode
-  action?: ReactNode
-}) {
-  return (
-    <div className="grid shrink-0 grid-cols-[4.5rem_minmax(0,1fr)_4.5rem] items-center gap-2">
-      <div className="flex items-center gap-2">{icon}</div>
-      <h2
-        className={cn(
-          "flex min-w-0 items-center justify-center gap-2 truncate text-sm font-semibold uppercase tracking-[0.18em]",
-          isLight ? "text-s-90" : "text-slate-200",
-        )}
-      >
-        {title}
-      </h2>
-      <div className="flex min-w-0 items-center justify-end gap-1.5">{action}</div>
-    </div>
-  )
-}
-
-const RELATIVE_UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-  ["day", 86_400_000],
-  ["hour", 3_600_000],
-  ["minute", 60_000],
-]
-const relativeFormatter = new Intl.RelativeTimeFormat("en-US", { numeric: "auto", style: "short" })
-
-export function formatRelativeTime(iso: string | null | undefined, now = Date.now()): string {
-  const ts = iso ? Date.parse(iso) : Number.NaN
-  if (!Number.isFinite(ts)) return ""
-  const diff = ts - now
-  if (Math.abs(diff) < 45_000) return "just now"
-  for (const [unit, ms] of RELATIVE_UNITS) {
-    if (Math.abs(diff) >= ms || unit === "minute") return relativeFormatter.format(Math.round(diff / ms), unit)
-  }
-  return ""
 }

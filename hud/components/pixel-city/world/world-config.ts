@@ -1,7 +1,7 @@
 import { DISTRICT_MAP } from "../district/image-plan"
 
 /**
- * Everything the PixiJS world places on the map that is not game data: lit windows, waterfalls, ambient boats, water
+ * Everything the PixiJS world places on the map that is not game data: lit windows, waterfalls, water
  * detection, clouds. Positions are authored on a 2000 x 1504 preview of the map (`TRACE_SIZE`; the source map is 2.5x
  * that) and converted to plan pixels through DISTRICT_MAP, so swapping in the same composition at another resolution
  * needs no change here. A map with a different composition needs these re-traced (look at the map, read the
@@ -117,32 +117,6 @@ export const WATERFALLS: readonly Waterfall[] = [
 
 /** Total particle budgets (shared across falls). */
 export const PARTICLE_CAPS = { spray: 54, mist: 18 } as const
-
-// ── Ambient boats ─────────────────────────────────────────────────────────────
-
-export interface AmbientBoat {
-  /** Centre of its drift (plan pixels) and half-extent of the drift. */
-  x: number
-  y: number
-  rx: number
-  ry: number
-  /** Seconds for one slow loop. */
-  period: number
-  phase: number
-  kind: "dinghy" | "skiff"
-}
-
-const ambient = (x: number, y: number, rx: number, ry: number, period: number, phase: number, kind: AmbientBoat["kind"]): AmbientBoat => {
-  const c = traced(x, y)
-  return { x: c.x, y: c.y, rx: rx * TRACE_TO_PLAN, ry: ry * TRACE_TO_PLAN, period, phase, kind }
-}
-
-/** Cosmetic boats: they carry no data and stay clear of the run boats' lanes (HARBOUR_LANES, along the bay's south edge). */
-export const AMBIENT_BOATS: readonly AmbientBoat[] = [
-  ambient(110, 770, 40, 9, 150, 0.1, "dinghy"),
-  ambient(930, 1372, 70, 8, 190, 0.45, "skiff"),
-  ambient(1410, 1285, 25, 6, 170, 0.8, "dinghy"),
-]
 
 // ── Clouds ────────────────────────────────────────────────────────────────────
 

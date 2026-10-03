@@ -492,13 +492,3 @@ export const NOTICE_FACE: SignRect = { x: 276, y: 628, w: 32, h: 20 }
 export const FOUNTAIN = { x: 644, y: 395, basinY: 432 }
 /** U.B Agents the cat's seat beside the fountain. */
 export const CAT_SPOT = { x: 668, y: 450 }
-
-/**
- * Sea lanes the boats of active deployment runs sail along (one lane per boat, back and forth), in the open water of
- * the bay clear of the painted moorings.
- */
-export const HARBOUR_LANES: ReadonlyArray<ReadonlyArray<readonly [number, number]>> = [
-  [[40, 905], [380, 1008]],
-  [[480, 988], [1000, 1014]],
-  [[1150, 1014], [1500, 962]],
-]

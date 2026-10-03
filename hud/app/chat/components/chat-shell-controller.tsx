@@ -619,7 +619,7 @@ export function ChatShellController() {
                   </div>
                   <button
                     onClick={() => {
-                      router.push("/deployments?mode=advanced&kind=automation")
+                      router.push("/home?room=depot&section=new-deployment&tab=automation")
                     }}
                     className="pixel-btn pixel-btn--ghost pc-icon-btn group/mission-gear"
                     aria-label="Open mission settings"

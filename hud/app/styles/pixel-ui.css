@@ -4107,11 +4107,6 @@ button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); out
   font-size: var(--holo-small);
 }
 
-.holo-stats-link {
-  margin-left: auto;
-  align-self: center;
-}
-
 .holo-error {
   margin: 0;
   padding: 4px 8px;

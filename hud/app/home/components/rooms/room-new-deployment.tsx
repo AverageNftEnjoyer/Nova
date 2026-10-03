@@ -9,6 +9,8 @@ import type { DeploymentNovaConnection } from "@/app/deployments/hooks/use-deplo
 interface RoomNewDeploymentProps {
   isLight: boolean
   nova: DeploymentNovaConnection
+  /** The tab shown first (a deep link from the retired /deployments page); Describe by default. */
+  initialTab?: NewDeploymentTab
   /** A run now exists (the room switches to Runs and shows the message). */
   onLaunched: (message: string) => void
   onOpenGuidedBuilder: () => void
@@ -19,8 +21,8 @@ interface RoomNewDeploymentProps {
  * The Depot's creation view, drawn on the hologram screen (or the window panel): the same flow as the New deployment
  * popup (deployments/components/new-deployment-flow.tsx), under hologram tabs. Skin: ".holo-new*" / ".holo-flow" in pixel-ui.css.
  */
-export function RoomNewDeployment({ isLight, nova, onLaunched, onOpenGuidedBuilder, onViewAutomations }: RoomNewDeploymentProps) {
-  const [tab, setTab] = useState<NewDeploymentTab>("describe")
+export function RoomNewDeployment({ isLight, nova, initialTab = "describe", onLaunched, onOpenGuidedBuilder, onViewAutomations }: RoomNewDeploymentProps) {
+  const [tab, setTab] = useState<NewDeploymentTab>(initialTab)
   const [status, setStatus] = useState("")
   const [canvasOpen, setCanvasOpen] = useState(false)
 

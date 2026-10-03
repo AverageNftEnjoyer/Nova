@@ -53,7 +53,6 @@ interface RoomDeploymentsPanelProps {
   notice?: string
   onNewDeployment: () => void
   onPrefetchDeployment?: () => void
-  onOpenDeployments: () => void
 }
 
 const RECENT_RUNS = 8
@@ -61,8 +60,8 @@ const RECENT_RUNS_HOLO = 30
 const KIND_LABEL: Record<Deployment["kind"], string> = { task: "Task", automation: "Automation" }
 const DEPLOYMENT_STATUS_LABEL: Record<Deployment["status"], string> = { draft: "Draft", ready: "Ready", active: "Active", paused: "Paused", archived: "Archived" }
 
-/** The Depot: deployments out on the water (the boats in the harbour), recent runs, and the way to launch a new one. */
-export function RoomDeploymentsPanel({ deployments, view, variant, notice, onNewDeployment, onPrefetchDeployment, onOpenDeployments }: RoomDeploymentsPanelProps) {
+/** The Depot: deployments that are running, recent runs, and the way to launch a new one. */
+export function RoomDeploymentsPanel({ deployments, view, variant, notice, onNewDeployment, onPrefetchDeployment }: RoomDeploymentsPanelProps) {
   const { runs, loading, error, busyRunId, decide, act } = deployments
   const holo = variant === "holo"
   const active = runs.filter(isRunActive).length
@@ -74,7 +73,7 @@ export function RoomDeploymentsPanel({ deployments, view, variant, notice, onNew
   const list = [...deployments.deployments].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 
   const stats = [
-    { value: active, label: "Boats out" },
+    { value: active, label: "Running" },
     { value: review, label: "Need review" },
     { value: deployments.deployments.length, label: "Deployments" },
   ]
@@ -88,7 +87,7 @@ export function RoomDeploymentsPanel({ deployments, view, variant, notice, onNew
     )
   }
 
-  /** The same run actions as the Deployments page: approve or deny a run waiting for review, cancel an active one. */
+  /** Run actions: approve or deny a run waiting for review, cancel an active one. */
   const runActions = (run: DeploymentRun) => {
     const busy = busyRunId === run.id
     const buttonClass = holo ? "holo-btn holo-btn--small" : "pixel-btn pixel-btn--ghost"
@@ -126,10 +125,10 @@ export function RoomDeploymentsPanel({ deployments, view, variant, notice, onNew
           <li className={holo ? "holo-empty" : "font-pixel text-[14px] text-(--px-muted)"}>
             {holo ? (
               <>
-                <strong>No runs yet.</strong> Launch a deployment and its boat sails from this pier.
+                <strong>No runs yet.</strong> Launch a deployment and its run shows up here.
               </>
             ) : (
-              "No runs yet. Launch a deployment and its boat sails from this pier."
+              "No runs yet. Launch a deployment and its run shows up here."
             )}
           </li>
         ) : (
@@ -187,9 +186,6 @@ export function RoomDeploymentsPanel({ deployments, view, variant, notice, onNew
               <span className="holo-stat-label">{stat.label}</span>
             </span>
           ))}
-          <button type="button" className="holo-btn holo-stats-link" onClick={onOpenDeployments}>
-            All runs
-          </button>
         </div>
         {errorLine}
         {noticeLine}
@@ -210,9 +206,6 @@ export function RoomDeploymentsPanel({ deployments, view, variant, notice, onNew
         <span className="ml-auto flex gap-2">
           <button type="button" className="pixel-btn pixel-btn--teal" onClick={onNewDeployment} onPointerEnter={onPrefetchDeployment} onFocus={onPrefetchDeployment}>
             New deployment
-          </button>
-          <button type="button" className="pixel-btn pixel-btn--ghost" onClick={onOpenDeployments}>
-            All runs
           </button>
         </span>
       </div>

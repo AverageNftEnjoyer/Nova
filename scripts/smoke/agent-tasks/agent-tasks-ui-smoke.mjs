@@ -12,8 +12,8 @@ const uiFiles = [
   "components/agents/advanced-task-form.tsx",
   "app/home/components/agent-tasks-home-module.tsx",
   "app/deployments/page.tsx",
-  "app/deployments/components/deployments-screen.tsx",
-  "app/deployments/components/new-deployment-modal.tsx",
+  "app/deployments/components/new-deployment-flow.tsx",
+  "app/home/components/rooms/room-new-deployment.tsx",
 ];
 
 let passed = 0;
@@ -37,17 +37,25 @@ check("home-main-screen wires AgentTasksHomeModule and NotesHomeModule", () => {
   assert.doesNotMatch(screen, /Placeholder(One|Two)HomeModule/);
 });
 
-check("module is driven by useAgentTasks and opens the New deployment popup in place", () => {
+check("module is driven by useAgentTasks and opens the Depot creation view in place", () => {
   const mod = read("app/home/components/agent-tasks-home-module.tsx");
   const state = read("app/home/hooks/use-home-main-screen-state.ts");
   const screen = read("app/home/components/home-main-screen.tsx");
-  assert.doesNotMatch(state, /router\.push\("\/deployments\?mode=/, "New deployment must not navigate away from Home");
-  assert.match(screen, /<LazyNewDeploymentModal/);
-  assert.match(mod, /useAgentTasks\(\)/);
+  assert.doesNotMatch(state, /\/deployments/, "Home must not navigate to the retired /deployments page");
+  assert.doesNotMatch(screen, /"\/deployments/, "Home must not navigate to the retired /deployments page");
+  assert.match(screen, /<RoomNewDeployment/);
+  assert.match(mod, /agentTasks/); // the tasks come from Home (useAgentTasks in home-main-screen), not a poll of its own
   assert.match(mod, /onCreateDeployment/);
   assert.doesNotMatch(mod, /<CreateTaskModal/);
   assert.match(mod, /<TaskList/);
   assert.doesNotMatch(mod, /setInterval/);
+});
+
+check("/deployments only redirects to the Depot room on Home", () => {
+  const page = read("app/deployments/page.tsx");
+  assert.match(page, /redirect\("\/home\?room=depot"\)/);
+  assert.match(page, /section=new-deployment&tab=/);
+  assert.ok(!fs.existsSync(path.join(hudRoot, "app/deployments/components/deployments-screen.tsx")), "legacy page UI must stay deleted");
 });
 
 check("task card renders all 6 statuses", () => {

@@ -12,6 +12,12 @@ const PINS = ROOM_IDS.flatMap((id) => {
   return [{ id, name: ROOMS[id].building, left: ((place.hit.x + place.hit.w / 2) / DISTRICT_IMAGE_WIDTH) * 100, top: ((place.hit.y + place.hit.h / 2) / DISTRICT_IMAGE_HEIGHT) * 100 }]
 })
 
+/** Fetches the map's picture ahead of time so the fast-travel map opens drawn, never as a black box. */
+export function preloadTravelMap(): void {
+  const image = new Image()
+  image.src = DISTRICT_IMAGE_SRC
+}
+
 interface RoomTravelMapProps {
   /** The room the player is in. */
   roomId: RoomId

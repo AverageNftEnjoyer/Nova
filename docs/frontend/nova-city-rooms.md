@@ -13,6 +13,14 @@ live tag), and tabs for what the building does:
 Quests, the tutorial, Town Hall's building list, a resident's "set up" button and the music window's "Setup" all open
 the matching room's Connect tab. News has no building and keeps the `/integrations` page.
 
+## Deep links
+
+Home reads `?room=<room id>[&section=<section id>][&tab=describe|task|automation]` once on mount, opens that room (valid ids only;
+the section only when the room has it; `tab` only for the Depot's `new-deployment` section), then removes those parameters with
+`history.replaceState`. The retired `/deployments` page redirects here: `/deployments` -> `/home?room=depot`, and
+`/deployments?mode=simple|advanced&kind=task|automation` -> `/home?room=depot&section=new-deployment&tab=...`. U.B Agents HQ's
+"Deployments" frame link opens the Depot room.
+
 ## Code
 
 | Piece | File |
@@ -105,12 +113,12 @@ The painted portal ("New deployment") and every Home entry point (Agent tasks "N
 
 - One implementation: `NewDeploymentFlow` (`app/deployments/components/new-deployment-flow.tsx`) holds `useDeploymentManager`,
   `useDeploymentActions`, the Describe / One-off task / Automation bodies and the automation canvas (portaled to the body: it is a
-  fullscreen tool). The popup (`NewDeploymentModal`, still used on /deployments and for `?mode=` deep links) and
-  `RoomNewDeployment` (`rooms/room-new-deployment.tsx`, hologram tabs) only draw their own chrome around it.
+  fullscreen tool). `RoomNewDeployment` (`rooms/room-new-deployment.tsx`, hologram tabs; `initialTab` picks the first tab) only draws
+  its own chrome around it. The old popup and the `/deployments` page are gone.
 - Skin: scoped under `.holo-new .holo-flow` in `pixel-ui.css` ("Depot creation view"); the task form's pickers get `.holo-select*`
   classes through `AdvancedTaskForm tone="holo"`. The window layout (picture failed to load) renders the same view in the window panel.
-- After a launch the room switches to **Runs** with a notice; runs there carry the Deployments page's actions (Approve / Deny /
-  Cancel run, budget state). Deep inspection (events, history) stays on the full /deployments page (header link).
+- After a launch the room switches to **Runs** with a notice; runs there carry Approve / Deny / Cancel run and the budget state. The Depot has no
+  page link: the room is the runs view.
 - Escape: an open picker menu or the canvas takes it first; in New it returns to Runs, a second Escape leaves the room.
 - `preloadNewDeploymentFlow` (`new-deployment-flow-lazy.tsx`) runs on portal hover/focus.
 

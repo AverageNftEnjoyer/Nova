@@ -19,7 +19,7 @@ import type { CityWorld, CreateCityWorldOptions } from "./world-types"
  * rectangle, walk node and occluder in image-plan.ts is used unchanged; the map is positioned from DISTRICT_MAP and is
  * the only thing that knows the art's size. Layers, back to front:
  *   map, water glints + waterfalls, notice board + fountain, agent trails,
- *   [depth-sorted by feet y: structure cut-outs, walkers, run boats, ambient boats, U.B Agents the cat],
+ *   [depth-sorted by feet y: structure cut-outs, walkers, U.B Agents the cat],
  *   cloud shadows, day/night tint (multiply), window lights (additive), lamps + HQ lights, status badges, weather, hover.
  * The scene component keeps hotspots, residents and controls as real DOM buttons positioned from `getView()`.
  */
@@ -162,7 +162,6 @@ export async function createCityWorld(options: CreateCityWorldOptions): Promise<
     occluder.sprite.zIndex = occluder.baseY - 0.5
     sorted.addChild(occluder.sprite)
   }
-  for (const boat of ambient.boats) sorted.addChild(boat)
   viewport.addChild(
     mapSprites,
     ambient.ground,

@@ -3,7 +3,6 @@ import {
   CAT_SPOT,
   DISTRICT_PLACES,
   FOUNTAIN,
-  HARBOUR_LANES,
   HQ_FLOORS,
   HQ_PANEL,
   HQ_SIGN,
@@ -12,20 +11,16 @@ import {
 import { CAT_CELL, CAT_FOOT_Y, CAT_HEIGHT, CAT_PX, PRESCALE, catSheet } from "../district/people"
 import { cellNoise } from "../random"
 import type { CityIntegration, CitySceneState, CityTaskLight } from "../types"
-import { buildRunBoat } from "./boat-art"
 import { glyphTexture, rect } from "./textures"
 
 /**
  * The live details drawn from real state: a status lamp on every integration building, U.B Agents HQ's task floors, the
- * noticeboard's papers, the fountain's spray, a boat per active deployment run, and U.B Agents the cat. Emissive parts
+ * noticeboard's papers, the fountain's spray, and U.B Agents the cat. Emissive parts
  * (lamps, HQ lights) are drawn above the night tint so they stay bright after dark; the rest sits with the scene.
  */
 
 const INK = 0x1b1530
 const NOVA_CYAN_LIGHT = 0x7ef6ea
-const MAX_BOATS = HARBOUR_LANES.length
-const HULLS = [0xe0452e, 0x2f7fe0, 0xf2b21c]
-const SAILS = [0xfff4d6, 0xffd24a, 0xff7a4a]
 const SPRAY = 14
 
 interface Lamp {
@@ -63,7 +58,6 @@ export class LiveLayer {
   private readonly notices = new Container()
   private noticeCount = -1
   private readonly spray: Sprite[] = []
-  private readonly boats: Container[] = []
   private readonly cat = new Container()
   private readonly catBody = new Sprite()
   private readonly catAwake: { texture: Texture | null } = { texture: null }
@@ -73,22 +67,14 @@ export class LiveLayer {
   private readonly bubbleVoice: Sprite
   private readonly zees: Sprite[] = []
   private state: CitySceneState
-  private activeBoats = 0
 
-  /** `sorted`: the depth-sorted layer that holds boats and the cat. */
+  /** `sorted`: the depth-sorted layer that holds the cat. */
   constructor(sorted: Container, state: CitySceneState, private readonly animated: boolean) {
     this.state = state
     this.buildLamps()
     this.buildHq()
     this.scene.addChild(this.notices)
     this.buildSpray()
-
-    for (let i = 0; i < MAX_BOATS; i++) {
-      const boat = buildRunBoat(HULLS[i % HULLS.length], SAILS[i % SAILS.length])
-      boat.visible = false
-      this.boats.push(boat)
-      sorted.addChild(boat)
-    }
 
     this.catBody.anchor.set(0.5, CAT_FOOT_Y / CAT_CELL)
     this.catBody.scale.set(CAT_PX / PRESCALE)
@@ -169,10 +155,6 @@ export class LiveLayer {
       floor.lamp.visible = !!light
       if (light) floor.lamp.tint = TASK_COLOR[light]
     })
-    this.activeBoats = Math.min(MAX_BOATS, Math.max(0, Math.floor(state.activeRuns)))
-    this.boats.forEach((boat, i) => {
-      boat.visible = i < this.activeBoats
-    })
     this.buildNotices(Math.min(6, Math.max(0, state.notesCount)))
   }
 
@@ -222,18 +204,6 @@ export class LiveLayer {
         const side = cellNoise(i, 1, 61) * 2 - 1
         this.spray[i].position.set(Math.round(FOUNTAIN.x + side * 9 * phase), Math.round(FOUNTAIN.y - 14 * Math.sin(phase * Math.PI) + phase * (FOUNTAIN.basinY - FOUNTAIN.y)))
       }
-    }
-
-    for (let i = 0; i < this.activeBoats; i++) {
-      const [[x0, y0], [x1, y1]] = HARBOUR_LANES[i] as ReadonlyArray<readonly [number, number]>
-      // Triangle wave 0 -> 1 -> 0: out and back along the lane, slowly.
-      const cycle = (motion * 0.012 + i * 0.37) % 1
-      const p = cycle < 0.5 ? cycle * 2 : 2 - cycle * 2
-      const east = cycle < 0.5 ? x1 >= x0 : x1 < x0
-      const boat = this.boats[i]
-      boat.position.set(Math.round(x0 + (x1 - x0) * p), Math.round(y0 + (y1 - y0) * p + Math.sin(motion * 1.6 + i) * 1))
-      boat.scale.x = east ? 1 : -1
-      boat.zIndex = boat.y
     }
 
     this.updateCat(motion)

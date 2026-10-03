@@ -150,7 +150,7 @@ export const TUTORIAL_QUESTS: readonly QuestDefinition[] = [
     description: "Launch a deployment and see a run finish successfully.",
     goal: 1,
     xpReward: 125,
-    target: { place: "deploy", route: "/deployments" },
+    target: { place: "deploy" },
     progress: (ctx) => ctx.counts.deploymentRunsSucceeded,
   },
   {
@@ -216,7 +216,7 @@ export const MILESTONE_SERIES: readonly MilestoneSeries[] = [
     description: "Finish {n} successful deployment runs.",
     tiers: [5, 25, 100, 250],
     xp: (i) => 120 * (i + 1),
-    target: { place: "deploy", route: "/deployments" },
+    target: { place: "deploy" },
     progress: (ctx) => ctx.counts.deploymentRunsSucceeded,
   },
   {

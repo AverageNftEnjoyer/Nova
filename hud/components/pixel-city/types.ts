@@ -62,7 +62,7 @@ export interface CitySceneState {
   presence: CityPresence
   /** Up to five task floors on U.B Agents HQ's gate, lit from the top down. */
   taskLights: CityTaskLight[]
-  /** Active deployment runs; each one is a boat sailing in the harbour bay (capped by the renderer). */
+  /** Active deployment runs (the Depot's tag and the HUD read it; the map draws nothing for it). */
   activeRuns: number
   /** Pinned papers on the noticeboard by the glasshouse (capped by the renderer). */
   notesCount: number

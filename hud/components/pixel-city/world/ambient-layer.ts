@@ -2,13 +2,12 @@ import { Container, Sprite } from "pixi.js"
 import { DISTRICT_MAP } from "../district/image-plan"
 import { cellNoise } from "../random"
 import type { CityWeather } from "../types"
-import { buildDinghy, buildSkiff } from "./boat-art"
 import { rect, softCircleTexture } from "./textures"
-import { AMBIENT_BOATS, CLOUDS, PARTICLE_CAPS, WATERFALLS, WATER_MASK, type Waterfall } from "./world-config"
+import { CLOUDS, PARTICLE_CAPS, WATERFALLS, WATER_MASK, type Waterfall } from "./world-config"
 
 /**
  * Cosmetic life that carries no data: glints on the water (placed on the map's detected water), waterfall streaks,
- * spray and mist, a few drifting boats, and cloud shadows that lag the camera a little for depth. With reduced motion
+ * spray and mist, and cloud shadows that lag the camera a little for depth. With reduced motion
  * the world is drawn still: glints at a fixed brightness, no particles, no drift.
  */
 
@@ -45,16 +44,6 @@ interface Cloud {
   speed: number
 }
 
-interface DriftingBoat {
-  root: Container
-  x: number
-  y: number
-  rx: number
-  ry: number
-  period: number
-  phase: number
-}
-
 const GRAVITY = 90
 const CLOUD_WEATHER_GAIN: Readonly<Record<CityWeather, number>> = { clear: 1, cloudy: 1.9, fog: 1.4, rain: 2.4, storm: 3, snow: 1.7 }
 
@@ -63,13 +52,10 @@ export class AmbientLayer {
   readonly ground = new Container()
   /** Cloud shadows over everything on the ground. */
   readonly clouds = new Container()
-  /** Drifting boats; the world adds them to its depth-sorted layer. */
-  readonly boats: Container[] = []
   private readonly glints: Glint[] = []
   private readonly streaks: Streak[] = []
   private readonly particles: Particle[] = []
   private readonly cloudList: Cloud[] = []
-  private readonly drifting: DriftingBoat[] = []
 
   constructor(
     water: ReadonlyArray<{ x: number; y: number; size: number }>,
@@ -78,7 +64,6 @@ export class AmbientLayer {
     this.buildGlints(water)
     this.buildFalls()
     this.buildClouds()
-    this.buildBoats()
     this.update(0, 0, DISTRICT_MAP.x + DISTRICT_MAP.w / 2, DISTRICT_MAP.y + DISTRICT_MAP.h / 2)
   }
 
@@ -170,14 +155,6 @@ export class AmbientLayer {
     }
   }
 
-  private buildBoats(): void {
-    for (const boat of AMBIENT_BOATS) {
-      const root = boat.kind === "skiff" ? buildSkiff() : buildDinghy()
-      this.boats.push(root)
-      this.drifting.push({ root, x: boat.x, y: boat.y, rx: boat.rx, ry: boat.ry, period: boat.period, phase: boat.phase })
-    }
-  }
-
   /** `camX`, `camY`: the plan point at the middle of the screen (for the clouds' depth shift). */
   update(t: number, dt: number, camX: number, camY: number): void {
     const motion = this.animated ? t : 0
@@ -222,12 +199,5 @@ export class AmbientLayer {
     }
     // Clouds lag the camera slightly: depth without ever uncovering anything (they are translucent shadows).
     this.clouds.position.set(-(camX - (DISTRICT_MAP.x + DISTRICT_MAP.w / 2)) * CLOUDS.parallax, -(camY - (DISTRICT_MAP.y + DISTRICT_MAP.h / 2)) * CLOUDS.parallax)
-    for (const b of this.drifting) {
-      const a = (motion / b.period + b.phase) * Math.PI * 2
-      const vx = Math.cos(a)
-      b.root.position.set(Math.round(b.x + b.rx * Math.sin(a)), Math.round(b.y + b.ry * Math.sin(a * 2) + (this.animated ? Math.sin(motion * 1.3 + b.phase * 9) * 0.8 : 0)))
-      b.root.scale.x = vx >= 0 ? 1 : -1
-      b.root.zIndex = b.root.y
-    }
   }
 }

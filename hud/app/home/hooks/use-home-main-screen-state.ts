@@ -86,7 +86,6 @@ export function useHomeMainScreenState() {
     )
   }, [connected, setVoicePreference])
 
-  const openMissions = useCallback(() => router.push("/deployments"), [router])
   const openCalendar = useCallback(() => router.push("/missions/calendar"), [router])
   const openIntegrations = useCallback(() => router.push("/integrations"), [router])
   const openDevLogs = useCallback(() => router.push("/dev-logs"), [router])
@@ -108,7 +107,6 @@ export function useHomeMainScreenState() {
     cryptoAssets: cryptoMarket.cryptoAssets,
     cryptoRange: cryptoMarket.cryptoRange,
     setCryptoRange: cryptoMarket.setCryptoRange,
-    openMissions,
     nova,
     openCalendar,
     openIntegrations,

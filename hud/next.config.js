@@ -59,6 +59,27 @@ const nextConfig = {
   turbopack: {
     root: workspaceRoot,
   },
+  // The legacy /deployments page is retired: the Depot room on Home does everything it did. Old links and bookmarks
+  // get a real redirect (also in the packaged server, which runs with this config). The old `?mode=` / `&kind=` deep
+  // links open the Depot's creation section on the matching tab; Home reads `room`, `section` and `tab` once and
+  // cleans the URL. First match wins.
+  async redirects() {
+    const creation = (tab) => `/home?room=depot&section=new-deployment&tab=${tab}`
+    return [
+      {
+        source: "/deployments",
+        has: [
+          { type: "query", key: "mode", value: "advanced" },
+          { type: "query", key: "kind", value: "automation" },
+        ],
+        destination: creation("automation"),
+        permanent: false,
+      },
+      { source: "/deployments", has: [{ type: "query", key: "mode", value: "advanced" }], destination: creation("task"), permanent: false },
+      { source: "/deployments", has: [{ type: "query", key: "mode" }], destination: creation("describe"), permanent: false },
+      { source: "/deployments", destination: "/home?room=depot", permanent: false },
+    ]
+  },
 }
 
 module.exports = nextConfig

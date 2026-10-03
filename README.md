@@ -111,7 +111,7 @@ In development U.B Agents runs as two cooperating processes, started together by
 │  HUD  (Next.js / React)  │ ◄──────────────────────► │  Agent Runtime (Node.js) │
 │  localhost:3000          │      localhost:8765      │                          │
 │                          │                          │  chat handler + routing  │
-│  chat · home · deployments│                         │  tool loop + policies    │
+│  chat · home · missions   │                         │  tool loop + policies    │
 │  analytics · integrations│                          │  memory · skills         │
 │  Electron shell          │                          │  voice loop · scheduler  │
 └──────────────────────────┘                          └──────────────────────────┘

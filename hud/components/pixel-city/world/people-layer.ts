@@ -6,7 +6,7 @@ import { ellipseTexture, glyphTexture, rect } from "./textures"
 /**
  * Draws the simulation's walkers: a sheet frame, a contact shadow, and for agents the pulsing ground ring, the data
  * trail and the status badge. Figures live in the depth-sorted layer with `zIndex` = their feet's y, so they pass in
- * front of and behind the cat, boats and structure cut-outs (map-layer.ts) correctly. Views are created and removed as
+ * front of and behind the cat and structure cut-outs (map-layer.ts) correctly. Views are created and removed as
  * walkers come and go; nothing is allocated per frame.
  */
 

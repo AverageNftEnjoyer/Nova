@@ -51,7 +51,7 @@ async function createAutomationDeployment(saved: Mission, status: "draft" | "rea
   return data.deployment
 }
 
-export function createMissionDraft(): Mission {
+function createMissionDraft(): Mission {
   const now = new Date().toISOString()
   return {
     id: crypto.randomUUID(),
