@@ -190,7 +190,7 @@ function Shore() {
   )
 }
 
-const INK = "#14213f"
+const INK = "#11222a"
 
 function House({ x }: { x: number }) {
   return (
@@ -210,9 +210,9 @@ function Gate({ x }: { x: number }) {
       <rect x={x} y={22} width="8" height="24" fill={INK} />
       <rect x={x + 22} y={22} width="8" height="24" fill={INK} />
       <rect x={x} y={20} width="30" height="6" fill={INK} />
-      <rect x={x + 2} y={24} width="4" height="20" fill="#4f73a8" />
-      <rect x={x + 24} y={24} width="4" height="20" fill="#4f73a8" />
-      <rect x={x + 2} y={22} width="26" height="4" fill="#9cc0ea" />
+      <rect x={x + 2} y={24} width="4" height="20" fill="#66777c" />
+      <rect x={x + 24} y={24} width="4" height="20" fill="#66777c" />
+      <rect x={x + 2} y={22} width="26" height="4" fill="#a9b9b7" />
       <rect x={x + 12} y={28} width="6" height="6" fill="#ffcf4a" />
     </g>
   )
@@ -222,7 +222,7 @@ function Fountain({ x }: { x: number }) {
   return (
     <g>
       <rect x={x} y={38} width="22" height="8" fill={INK} />
-      <rect x={x + 2} y={36} width="18" height="8" fill="#9cc0ea" />
+      <rect x={x + 2} y={36} width="18" height="8" fill="#a9b9b7" />
       <rect x={x + 8} y={28} width="6" height="10" fill="#27c4c4" />
       <rect x={x + 6} y={26} width="10" height="3" fill="#7ec8e8" />
       <rect x={x + 10} y={22} width="2" height="6" fill="#f4fbff" />
@@ -234,7 +234,7 @@ function Spire({ x }: { x: number }) {
   return (
     <g>
       <rect x={x} y={16} width="16" height="30" fill={INK} />
-      <rect x={x + 2} y={20} width="12" height="24" fill="#4f73a8" />
+      <rect x={x + 2} y={20} width="12" height="24" fill="#66777c" />
       <rect x={x + 6} y={8} width="4" height="12" fill={INK} />
       <rect x={x + 4} y={6} width="8" height="4" fill="#ffcf4a" />
       <rect x={x + 5} y={28} width="6" height="4" fill="#ffcf4a" />
@@ -246,9 +246,9 @@ function Dome({ x }: { x: number }) {
   return (
     <g>
       <rect x={x} y={34} width="28" height="12" fill={INK} />
-      <rect x={x + 2} y={32} width="24" height="12" fill="#6a45b0" />
-      <rect x={x + 6} y={26} width="16" height="8" fill="#4b3590" />
-      <rect x={x + 10} y={22} width="8" height="6" fill="#c7a9ff" />
+      <rect x={x + 2} y={32} width="24" height="12" fill="#3f78c8" />
+      <rect x={x + 6} y={26} width="16" height="8" fill="#2a5aa0" />
+      <rect x={x + 10} y={22} width="8" height="6" fill="#9fcdfa" />
       <rect x={x + 12} y={36} width="4" height="8" fill="#ffcf4a" />
     </g>
   )
@@ -271,7 +271,7 @@ function Pier({ x }: { x: number }) {
 function Walker() {
   return (
     <svg viewBox="0 0 18 14" shapeRendering="crispEdges">
-      <g fill="#0d0b1c">
+      <g fill="#0b1e27">
         <rect x="1" y="6" width="3" height="2" />
         <rect x="3" y="4" width="9" height="5" />
         <rect x="10" y="2" width="7" height="6" />
@@ -279,12 +279,12 @@ function Walker() {
         <rect x="15" y="1" width="2" height="2" />
       </g>
       <rect x="13" y="4" width="2" height="1" fill="#27c4c4" />
-      <rect x="16" y="5" width="1" height="1" fill="#ff7aa8" />
-      <g className="city-boot-legs-a" fill="#0d0b1c">
+      <rect x="16" y="5" width="1" height="1" fill="#ff8f6b" />
+      <g className="city-boot-legs-a" fill="#0b1e27">
         <rect x="4" y="9" width="2" height="3" />
         <rect x="10" y="9" width="2" height="3" />
       </g>
-      <g className="city-boot-legs-b" fill="#0d0b1c">
+      <g className="city-boot-legs-b" fill="#0b1e27">
         <rect x="6" y="9" width="2" height="3" />
         <rect x="8" y="9" width="2" height="3" />
       </g>

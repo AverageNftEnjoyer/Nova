@@ -3,10 +3,7 @@
 import { Loader2, Pencil, Plus, Save, StickyNote, Trash2, X } from "lucide-react"
 import { useState, type CSSProperties } from "react"
 
-import { useAccent } from "@/lib/context/accent-context"
-import { ACCENT_COLORS } from "@/lib/settings/userSettings"
 import { cn } from "@/lib/shared/utils"
-import { hexToRgba } from "../helpers"
 import type { HomeNotesState } from "../hooks/use-home-notes"
 
 interface NotesHomeModuleProps {
@@ -29,29 +26,11 @@ function formatTimeLabel(value: string): string {
   return `${Math.floor(ageMs / 86_400_000)}d ago`
 }
 
-type NoteScheme = {
-  light: { p1: number; s: number; p2: number; border: number; text: number }
-  dark: { p1: number; s: number; p2: number; border: number; text: number }
-}
-
-const NOTE_SCHEMES: readonly NoteScheme[] = [
-  {
-    light: { p1: 0.11, s: 0.06, p2: 0.04, border: 0.34, text: 0.74 },
-    dark: { p1: 0.25, s: 0.14, p2: 0.1, border: 0.42, text: 0.76 },
-  },
-  {
-    light: { p1: 0.07, s: 0.12, p2: 0.05, border: 0.33, text: 0.72 },
-    dark: { p1: 0.14, s: 0.24, p2: 0.11, border: 0.44, text: 0.78 },
-  },
-  {
-    light: { p1: 0.09, s: 0.09, p2: 0.03, border: 0.31, text: 0.7 },
-    dark: { p1: 0.22, s: 0.18, p2: 0.09, border: 0.4, text: 0.74 },
-  },
-  {
-    light: { p1: 0.05, s: 0.1, p2: 0.08, border: 0.32, text: 0.73 },
-    dark: { p1: 0.16, s: 0.22, p2: 0.14, border: 0.43, text: 0.77 },
-  },
-]
+/** The noticeboard's pinned papers: sand, each note a slightly different sheet (the paving's tones). */
+const NOTE_PAPERS: readonly string[] = ["#ead9ae", "#e3cf9c", "#efe2bd", "#dcc791"]
+const NOTE_INK = "#2b2a1e"
+const NOTE_INK_SOFT = "#5b4a2a"
+const NOTE_EDGE = "#7d5a1c"
 
 function hashNoteId(value: string): number {
   let hash = 0
@@ -61,21 +40,12 @@ function hashNoteId(value: string): number {
   return Math.abs(hash)
 }
 
-function resolveNoteColorScheme(noteId: string, isLight: boolean, primary: string, secondary: string) {
-  const index = hashNoteId(noteId) % NOTE_SCHEMES.length
-  const scheme = isLight ? NOTE_SCHEMES[index].light : NOTE_SCHEMES[index].dark
-  const borderHex = index % 2 === 0 ? primary : secondary
+function resolveNoteColorScheme(noteId: string) {
+  const paper = NOTE_PAPERS[hashNoteId(noteId) % NOTE_PAPERS.length]
   return {
-    cardStyle: {
-      background: `linear-gradient(145deg, ${hexToRgba(primary, scheme.p1)} 0%, ${hexToRgba(secondary, scheme.s)} 58%, ${hexToRgba(primary, scheme.p2)} 100%)`,
-      borderColor: hexToRgba(borderHex, scheme.border),
-    } satisfies CSSProperties,
-    timeStyle: {
-      color: hexToRgba(borderHex, scheme.text),
-    } satisfies CSSProperties,
-    textareaStyle: {
-      borderColor: hexToRgba(borderHex, Math.min(0.6, scheme.border + 0.18)),
-    } satisfies CSSProperties,
+    cardStyle: { background: paper, borderColor: NOTE_EDGE, color: NOTE_INK } satisfies CSSProperties,
+    timeStyle: { color: NOTE_INK_SOFT } satisfies CSSProperties,
+    textareaStyle: { borderColor: NOTE_EDGE, color: NOTE_INK } satisfies CSSProperties,
   }
 }
 
@@ -87,9 +57,6 @@ export function NotesHomeModule({
   className,
   notesState,
 }: NotesHomeModuleProps) {
-  const { accentColor } = useAccent()
-  const accent = ACCENT_COLORS[accentColor] ?? ACCENT_COLORS.violet
-
   const {
     notes,
     notesLoading,
@@ -236,7 +203,7 @@ export function NotesHomeModule({
             const isEditing = editingId === note.id
             const isUpdating = actionBusyId === `update:${note.id}`
             const isDeleting = actionBusyId === `delete:${note.id}`
-            const noteScheme = resolveNoteColorScheme(note.id, isLight, accent.primary, accent.secondary)
+            const noteScheme = resolveNoteColorScheme(note.id)
 
             return (
               <div

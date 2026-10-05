@@ -5,8 +5,6 @@ import { Clock, X, ExternalLink, Settings } from "lucide-react"
 import { cn } from "@/lib/shared/utils"
 import type { CalendarEvent, PersonalCalendarEvent } from "@/lib/calendar/types"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
-import { useAccent } from "@/lib/context/accent-context"
-import { ACCENT_COLORS } from "@/lib/settings/userSettings"
 
 interface ScheduleBriefingProps {
   isLight: boolean
@@ -42,7 +40,7 @@ type ScheduleMemoryState = {
 }
 
 const KIND_COLORS_BASE: Record<string, string> = {
-  agent:    "#A78BFA",
+  agent:    "#6FB6FF",
   personal: "#F59E0B",
 }
 
@@ -206,8 +204,8 @@ export function ScheduleBriefing({
   sectionRef,
   onOpenCalendar,
 }: ScheduleBriefingProps) {
-  const { accentColor } = useAccent()
-  const missionColor = ACCENT_COLORS[accentColor]?.primary ?? "#8b5cf6"
+  // Day theme teal (--px-accent-2): mission events are the automations, drawn in the primary-action colour.
+  const missionColor = "#27C4C4"
   const dayKey = toLocalDayKey(new Date())
   const initialMemory = scheduleMemoryState?.dayKey === dayKey ? scheduleMemoryState : null
   const hasInitialMemory = Boolean(initialMemory)

@@ -1,43 +1,49 @@
 /*
  * Pixel UI: the Home city's HUD, hotspots and popup windows.
- * One daytime theme (spec: docs/frontend/nova-city-day-ui.md): slate-blue riveted stone frames, purple cards with a
- * bright rim, white outlined caps. Every box is a notched pixel box (clip-path steps), never a rounded card, and
+ * One daytime theme (spec: docs/frontend/nova-city-day-ui.md): grey riveted stone frames with brass rivets, deep harbour-teal cards
+ * with a foam rim, white outlined caps. Every box is a notched pixel box (clip-path steps), never a rounded card, and
  * nothing blurs or glows. There is no light/dark split for pixel UI.
  */
 
 :root {
   --px-unit: 3px;
 
-  /* Stone frame */
-  --px-frame: #4f73a8;
-  --px-frame-hi: #9cc0ea;
-  --px-frame-lo: #2b4a7c;
-  --px-frame-line: #14213f;
+  /* Stone frame: weathered harbour masonry (the island's grey cliffs and quay walls), riveted with brass */
+  --px-frame: #66777c;
+  --px-frame-hi: #a9b9b7;
+  --px-frame-lo: #3c4b52;
+  --px-frame-line: #11222a;
+  --px-brass: #d9a441;
+  --px-brass-hi: #f4d37c;
+  --px-brass-lo: #7d5a1c;
 
-  /* Surfaces */
-  --px-bg: #3b2a72;
-  --px-bg-2: #4b3590;
-  --px-bg-3: #6a45b0;
-  --px-border: #14213f;
-  --px-border-hi: #c7a9ff;
+  /* Surfaces: deep harbour water (panel, card face, raised) and the sand of the paving (light plates) */
+  --px-bg: #12323f;
+  --px-bg-2: #1d4e60;
+  --px-bg-3: #2a6b7e;
+  --px-border: #11222a;
+  --px-border-hi: #86c9cf;
+  --px-sand: #ead9ae;
+  --px-sand-2: #d3bd8a;
 
   /* Text */
   --px-text: #ffffff;
-  --px-text-line: #1a1238;
-  --px-ink: #1d2a4a;
-  --px-muted: #c9bff0;
+  --px-text-line: #0b1e27;
+  --px-ink: #2b2a1e;
+  --px-muted: #b7d6d8;
 
-  /* Colours */
+  /* Colours: gold = highlight / currency, teal = primary / active, sky = rare, terracotta = alert */
   --px-accent: #ffcf4a;
   --px-accent-2: #27c4c4;
-  --px-pink: #ff7aa8;
+  --px-rare: #6fb6ff;
+  --px-alert: #ff8f6b;
   --px-orange: #ff9a4d;
   --px-green: #5fe08a;
   --px-red: #e5483f;
 
   /* Backdrop, hard drop shadow, and the flat colour the camera shows past the map's edge */
-  --px-scrim: rgba(20, 33, 63, 0.45);
-  --px-shadow: #14213f;
+  --px-scrim: rgba(11, 30, 39, 0.5);
+  --px-shadow: #11222a;
   --px-world-edge: #7ec8e8;
 
   /* Hard text outlines: use as `text-shadow: var(--px-outline-2)` (8 directions, never blurred) */
@@ -56,21 +62,21 @@
  *
  *   .pixel-frame                Slate stone panel: riveted corners, bevel, speckle texture. Padding 15px. Put
  *                               .pixel-card / .pixel-plaque / a --px-bg inset inside. <section class="pixel-frame">
- *   .pixel-card                 Purple card with a bright rim. Works on div, button, a. data-state="active" = gold
+ *   .pixel-card                 Harbour-teal card with a foam rim. Works on div, button, a. data-state="active" = gold
  *                               rim, data-state="locked" = desaturated. Hover/focus raises to --px-bg-3.
  *   .pixel-title                Bold white caps with a hard 2px outline (display font). <h2 class="pixel-title">
  *   .pixel-close                Round red close button with a pixel X. Empty <button class="pixel-close"
  *                               aria-label="Close"></button>; absolutely position it yourself (28px at 1x).
  *   .pixel-btn                  Chunky bevelled button, white outlined caps. + --teal (primary, like NEXT) --gold
  *                               --red --ghost; --icon for square icon-only (44px). Pressed shifts 2px.
- *   .pixel-label                Tiny outlined caps label under a name. + --common (orange) --rare (pink) --ok
+ *   .pixel-label                Tiny outlined caps label under a name. + --common (orange) --rare (sky) --ok
  *                               (green) --off (muted); bare = inherits colour (set a text-(--px-*) utility).
  *   .pixel-bar                  Segmented bar: <div class="pixel-bar pixel-bar--teal"><span class="pixel-bar-fill"
- *                               style="width:40%"></span></div>. Fill: default/--gold, --teal, --green, --pink, --red.
+ *                               style="width:40%"></span></div>. Fill: default/--gold, --teal, --green, --rare, --red.
  *   .pixel-orb-btn              Round HUD icon button (56px at 1x). Icon child centred; optional
  *                               <span class="pixel-orb-btn__badge">3</span> (count) and
  *                               <span class="pixel-orb-btn__dot"></span> (news dot); data-active="true" = gold.
- *   .pixel-plaque               Small framed label plate for names / counters. + --frame (slate instead of purple).
+ *   .pixel-plaque               Small framed label plate for names / counters. + --frame (stone instead of teal).
  *   .pixel-outline(-sm)         Utility: the 2px (1px) hard text outline for any text on a dark surface.
  *
  * clip-path steps clip outlines, so focus rings are drawn inset (outline-offset below zero).
@@ -118,7 +124,7 @@
     inset calc(var(--px-unit) * -1) calc(var(--px-unit) * -1) 0 0 var(--px-frame-lo);
 }
 
-/* Rivets: a 6px lit square with a darker square offset 2px behind it, in each corner of the frame. */
+/* Rivets: brass studs (a 6px lit square with a dark brass square offset 2px behind it) in each corner of the frame. */
 .pixel-frame::before {
   --d: calc(var(--px-unit) * 2);
   --o: calc(var(--px-unit) * 2);
@@ -128,14 +134,14 @@
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(var(--px-frame-hi), var(--px-frame-hi)) left var(--o) top var(--o) / var(--d) var(--d) no-repeat,
-    linear-gradient(var(--px-frame-hi), var(--px-frame-hi)) right var(--o) top var(--o) / var(--d) var(--d) no-repeat,
-    linear-gradient(var(--px-frame-hi), var(--px-frame-hi)) left var(--o) bottom var(--o) / var(--d) var(--d) no-repeat,
-    linear-gradient(var(--px-frame-hi), var(--px-frame-hi)) right var(--o) bottom var(--o) / var(--d) var(--d) no-repeat,
-    linear-gradient(var(--px-frame-line), var(--px-frame-line)) left var(--o2) top var(--o2) / var(--d) var(--d) no-repeat,
-    linear-gradient(var(--px-frame-line), var(--px-frame-line)) right calc(var(--o) - 2px) top var(--o2) / var(--d) var(--d) no-repeat,
-    linear-gradient(var(--px-frame-line), var(--px-frame-line)) left var(--o2) bottom calc(var(--o) - 2px) / var(--d) var(--d) no-repeat,
-    linear-gradient(var(--px-frame-line), var(--px-frame-line)) right calc(var(--o) - 2px) bottom calc(var(--o) - 2px) / var(--d) var(--d) no-repeat;
+    linear-gradient(var(--px-brass-hi), var(--px-brass-hi)) left var(--o) top var(--o) / var(--d) var(--d) no-repeat,
+    linear-gradient(var(--px-brass-hi), var(--px-brass-hi)) right var(--o) top var(--o) / var(--d) var(--d) no-repeat,
+    linear-gradient(var(--px-brass-hi), var(--px-brass-hi)) left var(--o) bottom var(--o) / var(--d) var(--d) no-repeat,
+    linear-gradient(var(--px-brass-hi), var(--px-brass-hi)) right var(--o) bottom var(--o) / var(--d) var(--d) no-repeat,
+    linear-gradient(var(--px-brass-lo), var(--px-brass-lo)) left var(--o2) top var(--o2) / var(--d) var(--d) no-repeat,
+    linear-gradient(var(--px-brass-lo), var(--px-brass-lo)) right calc(var(--o) - 2px) top var(--o2) / var(--d) var(--d) no-repeat,
+    linear-gradient(var(--px-brass-lo), var(--px-brass-lo)) left var(--o2) bottom calc(var(--o) - 2px) / var(--d) var(--d) no-repeat,
+    linear-gradient(var(--px-brass-lo), var(--px-brass-lo)) right calc(var(--o) - 2px) bottom calc(var(--o) - 2px) / var(--d) var(--d) no-repeat;
 }
 
 /* Card ------------------------------------------------------------------------------------------------------ */
@@ -278,7 +284,7 @@
 }
 
 .pixel-close:empty::after {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' shape-rendering='crispEdges'%3E%3Cpath fill='%231a1238' d='M0 0h1v1h-1zM0 1h1v1h-1zM0 2h1v1h-1zM1 0h1v1h-1zM1 2h1v1h-1zM2 0h1v1h-1zM6 0h1v1h-1zM6 1h1v1h-1zM7 0h1v1h-1zM8 0h1v1h-1zM8 2h1v1h-1zM1 3h1v1h-1zM2 3h1v1h-1zM3 1h1v1h-1zM5 1h1v1h-1zM5 2h1v1h-1zM7 3h1v1h-1zM2 4h1v1h-1zM3 4h1v1h-1zM4 2h1v1h-1zM6 4h1v1h-1zM4 6h1v1h-1zM5 6h1v1h-1zM2 5h1v1h-1zM5 7h1v1h-1zM6 7h1v1h-1zM7 5h1v1h-1zM1 5h1v1h-1zM1 6h1v1h-1zM3 7h1v1h-1zM6 8h1v1h-1zM7 8h1v1h-1zM8 6h1v1h-1zM8 8h1v1h-1zM0 6h1v1h-1zM0 7h1v1h-1zM0 8h1v1h-1zM1 8h1v1h-1zM2 8h1v1h-1zM3 0h1v1h-1zM9 0h1v1h-1zM9 1h1v1h-1zM9 2h1v1h-1zM4 1h1v1h-1zM8 3h1v1h-1zM7 4h1v1h-1zM8 5h1v1h-1zM4 7h1v1h-1zM9 6h1v1h-1zM9 7h1v1h-1zM9 8h1v1h-1zM3 8h1v1h-1z'/%3E%3Cpath fill='%23fff' d='M1 1h1v1h-1zM7 1h1v1h-1zM2 2h1v1h-1zM6 2h1v1h-1zM3 3h1v1h-1zM5 3h1v1h-1zM4 4h1v1h-1zM5 5h1v1h-1zM3 5h1v1h-1zM6 6h1v1h-1zM2 6h1v1h-1zM7 7h1v1h-1zM1 7h1v1h-1zM2 1h1v1h-1zM8 1h1v1h-1zM3 2h1v1h-1zM7 2h1v1h-1zM4 3h1v1h-1zM6 3h1v1h-1zM5 4h1v1h-1zM6 5h1v1h-1zM4 5h1v1h-1zM7 6h1v1h-1zM3 6h1v1h-1zM8 7h1v1h-1zM2 7h1v1h-1z'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' shape-rendering='crispEdges'%3E%3Cpath fill='%230b1e27' d='M0 0h1v1h-1zM0 1h1v1h-1zM0 2h1v1h-1zM1 0h1v1h-1zM1 2h1v1h-1zM2 0h1v1h-1zM6 0h1v1h-1zM6 1h1v1h-1zM7 0h1v1h-1zM8 0h1v1h-1zM8 2h1v1h-1zM1 3h1v1h-1zM2 3h1v1h-1zM3 1h1v1h-1zM5 1h1v1h-1zM5 2h1v1h-1zM7 3h1v1h-1zM2 4h1v1h-1zM3 4h1v1h-1zM4 2h1v1h-1zM6 4h1v1h-1zM4 6h1v1h-1zM5 6h1v1h-1zM2 5h1v1h-1zM5 7h1v1h-1zM6 7h1v1h-1zM7 5h1v1h-1zM1 5h1v1h-1zM1 6h1v1h-1zM3 7h1v1h-1zM6 8h1v1h-1zM7 8h1v1h-1zM8 6h1v1h-1zM8 8h1v1h-1zM0 6h1v1h-1zM0 7h1v1h-1zM0 8h1v1h-1zM1 8h1v1h-1zM2 8h1v1h-1zM3 0h1v1h-1zM9 0h1v1h-1zM9 1h1v1h-1zM9 2h1v1h-1zM4 1h1v1h-1zM8 3h1v1h-1zM7 4h1v1h-1zM8 5h1v1h-1zM4 7h1v1h-1zM9 6h1v1h-1zM9 7h1v1h-1zM9 8h1v1h-1zM3 8h1v1h-1z'/%3E%3Cpath fill='%23fff' d='M1 1h1v1h-1zM7 1h1v1h-1zM2 2h1v1h-1zM6 2h1v1h-1zM3 3h1v1h-1zM5 3h1v1h-1zM4 4h1v1h-1zM5 5h1v1h-1zM3 5h1v1h-1zM6 6h1v1h-1zM2 6h1v1h-1zM7 7h1v1h-1zM1 7h1v1h-1zM2 1h1v1h-1zM8 1h1v1h-1zM3 2h1v1h-1zM7 2h1v1h-1zM4 3h1v1h-1zM6 3h1v1h-1zM5 4h1v1h-1zM6 5h1v1h-1zM4 5h1v1h-1zM7 6h1v1h-1zM3 6h1v1h-1zM8 7h1v1h-1zM2 7h1v1h-1z'/%3E%3C/svg%3E");
   background-position: center;
   background-size: 62% 62%;
   background-repeat: no-repeat;
@@ -330,7 +336,7 @@
   right: 0;
   width: calc(14px * var(--hud-s, 1));
   height: calc(14px * var(--hud-s, 1));
-  background: var(--px-pink);
+  background: var(--px-alert);
   border: var(--px-unit) solid var(--px-frame-line);
 }
 
@@ -412,7 +418,7 @@
 }
 
 .pixel-label--common { color: var(--px-orange); }
-.pixel-label--rare { color: var(--px-pink); }
+.pixel-label--rare { color: var(--px-rare); }
 .pixel-label--ok { color: var(--px-green); }
 .pixel-label--off { color: var(--px-muted); }
 
@@ -430,7 +436,7 @@
 
 .pixel-bar--teal { --bar: var(--px-accent-2); }
 .pixel-bar--green { --bar: var(--px-green); }
-.pixel-bar--pink { --bar: var(--px-pink); }
+.pixel-bar--rare { --bar: var(--px-rare); }
 .pixel-bar--red { --bar: var(--px-red); }
 
 .pixel-bar-fill {
@@ -641,6 +647,17 @@
   font-family: var(--font-pixel), ui-monospace, monospace;
 }
 
+/* The Day theme owns its colours: modules that read the user's accent (text-accent, bg-accent, --accent-primary)
+   get the theme's gold / teal inside pixel UI, whatever accent the app is set to (window-themes.ts re-tints them
+   per building). */
+.pixel-ui,
+.pixel-window,
+.ig-root {
+  --accent-primary: var(--px-accent);
+  --accent-secondary: var(--px-accent-2);
+  --accent-rgb: 255, 207, 74;
+}
+
 .pixel-ui *,
 .pixel-ui *::before,
 .pixel-ui *::after {
@@ -826,7 +843,7 @@
 }
 
 .game-level-num--lg .game-level-lv {
-  font-size: 10px;
+  font-size: 12px;
   margin-bottom: 4px;
 }
 
@@ -869,7 +886,7 @@
   background: var(--px-bg-3);
   color: var(--px-text);
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: normal;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -938,7 +955,7 @@
   border-color: var(--px-accent);
 }
 
-/* Error text: the red token is too dark to read on the indigo surfaces, so it is lifted toward white. */
+/* Error text: the red token is too dark to read on the teal surfaces, so it is lifted toward white. */
 .game-error {
   color: color-mix(in srgb, var(--px-red) 55%, white);
 }
@@ -1168,7 +1185,7 @@
 }
 
 .game-toast[data-kind="quest-complete"] { --game-kind: var(--px-green); }
-.game-toast[data-kind="achievement"] { --game-kind: var(--px-pink); }
+.game-toast[data-kind="achievement"] { --game-kind: var(--px-rare); }
 .game-toast[data-kind="building-up"] { --game-kind: var(--px-orange); }
 
 .game-toast-icon {
@@ -1243,7 +1260,7 @@
 }
 
 .game-spark:nth-child(3n + 1) { background: var(--px-accent-2); }
-.game-spark:nth-child(3n + 2) { background: var(--px-pink); }
+.game-spark:nth-child(3n + 2) { background: var(--px-rare); }
 
 @keyframes game-spark {
   0% { opacity: 1; transform: rotate(calc(var(--i) * 45deg)) translateY(-50px); }
@@ -1295,8 +1312,9 @@
   min-height: 0;
   background: var(--px-bg);
   border: var(--px-unit) solid var(--px-frame-line);
-  /* Recessed: shadowed top / left inside, lit lip along the bottom outside. */
+  /* Recessed: a brass inlay line round the edge, shadowed top / left inside, lit lip along the bottom outside. */
   box-shadow:
+    inset 0 0 0 2px var(--px-brass-lo),
     inset var(--px-unit) var(--px-unit) 0 0 color-mix(in srgb, var(--px-bg) 55%, black),
     0 var(--px-unit) 0 0 var(--px-frame-hi);
   /* Home modules were sized for dense glass panels; a pixel face needs a little more room to stay legible. */
@@ -1900,7 +1918,7 @@ button.pixel-plaque.game-chip:focus-visible {
 .ig-root .text-emerald-300,
 .ig-root .text-emerald-100 { color: var(--px-green); }
 .ig-root .text-rose-200,
-.ig-root .text-rose-300 { color: var(--px-pink); }
+.ig-root .text-rose-300 { color: var(--px-alert); }
 .ig-root .text-amber-200,
 .ig-root .text-amber-300 { color: var(--px-accent); }
 .ig-root .bg-slate-400 { background-color: var(--px-muted); }
@@ -1953,7 +1971,7 @@ button.pixel-plaque.game-chip:focus-visible {
 .ig-root .ig-panel .pixel-btn.ig-btn-sm {
   min-height: 28px;
   padding: 0 8px 3px;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .ig-root button:not(.pixel-btn):not(.pixel-close):not(.pixel-card):focus-visible {
@@ -2054,7 +2072,7 @@ button.pixel-plaque.game-chip:focus-visible {
   max-height: 1500px;
 }
 
-/* ── Panels: the indigo inset of the frame ── */
+/* ── Panels: the harbour-teal inset of the frame ── */
 .ig-panel {
   background: var(--px-bg);
   border: var(--px-unit) solid var(--px-frame-line);
@@ -2064,7 +2082,7 @@ button.pixel-plaque.game-chip:focus-visible {
   color: var(--px-text);
 }
 
-/* Sub-panels and tiles inside a setup panel: purple cards. */
+/* Sub-panels and tiles inside a setup panel: teal cards. */
 .ig-sub {
   background: var(--px-bg-2);
   border: var(--px-unit) solid var(--px-frame-line);
@@ -2085,7 +2103,7 @@ button.pixel-plaque.game-chip:focus-visible {
 
 .ig-note--ok { color: var(--px-green); }
 .ig-note--warn { color: var(--px-accent); }
-.ig-note--bad { color: var(--px-pink); }
+.ig-note--bad { color: var(--px-alert); }
 
 .ig-root .home-subpanel-surface,
 .ig-root .home-module-surface {
@@ -2200,7 +2218,7 @@ button.pixel-plaque.game-chip:focus-visible {
   white-space: nowrap;
   text-overflow: ellipsis;
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -2324,7 +2342,7 @@ button.pixel-plaque.game-chip:focus-visible {
 /* ===== Popup modules ===== */
 /* The Home modules (tasks, notes, crypto, analytics, chats, schedule, ...) keep their markup and behaviour; inside a
    pixel window their panels become core cards and their slate greys become the theme's text colours (the muted one
-   still clears 4.5:1 on the indigo surfaces). */
+   still clears 4.5:1 on the teal surfaces). */
 .pixel-window-body .pixel-subpanel {
   background: var(--px-bg-2);
   border: var(--px-unit) solid var(--px-frame-line);
@@ -2353,8 +2371,8 @@ button.pixel-plaque.game-chip:focus-visible {
 /* ===== Chat page ===== */
 /*
  * /chat (and the sidebar on /history) as a daytime pixel RPG messenger: a slate stone frame holds the conversation
- * list, another holds the dialogue with U.B Agents the cat, speech bubbles are parchment (U.B Agents) and purple (you) with
- * stepped tails, and the right-hand panels are purple cards. Built on the Day theme core (.pixel-frame / .pixel-card /
+ * list, another holds the dialogue with U.B Agents the cat, speech bubbles are parchment (U.B Agents) and teal (you) with
+ * stepped tails, and the right-hand panels are teal cards. Built on the Day theme core (.pixel-frame / .pixel-card /
  * .pixel-btn / .pixel-plaque / .pixel-title). Every size is a multiple of --pc-u (1 css px) so borders stay whole
  * pixels. At 4K (>= 3200px wide) the whole page is zoomed 2x with `zoom` (--pc-zoom) instead of overriding the root
  * font size, so the user's font-size setting keeps working. --hud-s is pinned to 1 here: zoom does the scaling.
@@ -2638,7 +2656,7 @@ button.pixel-plaque.game-chip:focus-visible {
   border: var(--pc-b) solid var(--px-frame-line);
   box-shadow: inset 0 0 0 var(--pc-u) var(--px-border-hi);
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   text-shadow: var(--px-outline-1);
@@ -2654,7 +2672,7 @@ button.pixel-plaque.game-chip:focus-visible {
 
 .pc-state[data-state="thinking"] { color: var(--px-accent); }
 .pc-state[data-state="thinking"] i { animation: nova-cat-flash 0.6s steps(1, end) infinite; }
-.pc-state[data-state="speaking"] { color: var(--px-pink); }
+.pc-state[data-state="speaking"] { color: var(--px-rare); }
 .pc-state[data-state="listening"] { color: var(--px-accent-2); }
 .pc-state[data-state="muted"] { color: var(--px-muted); }
 .pc-state[data-state="offline"] { color: var(--px-red); }
@@ -2728,7 +2746,7 @@ button.pixel-plaque.game-chip:focus-visible {
   color: var(--px-ink);
 }
 
-/* Your bubble: purple with a bright rim, white outlined text. */
+/* Your bubble: teal with a bright rim, white outlined text. */
 .pc-bubble--user {
   --pc-bg: var(--px-bg-3);
   --pc-line: var(--px-frame-line);
@@ -2810,7 +2828,7 @@ button.pixel-plaque.game-chip:focus-visible {
 .pc-time {
   margin-top: calc(var(--pc-u) * 8);
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: 0.5625rem;
+  font-size: 0.75rem;
   letter-spacing: 0.08em;
   color: var(--px-text);
   text-shadow: var(--px-outline-1);
@@ -2841,7 +2859,7 @@ button.pixel-plaque.game-chip:focus-visible {
 
 .pc-card-label {
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--px-orange);
@@ -3031,7 +3049,7 @@ button.pixel-plaque.game-chip:focus-visible {
   text-shadow: var(--px-outline-1);
 }
 
-.pc-file-size { font-size: 0.625rem; white-space: nowrap; color: var(--px-muted); }
+.pc-file-size { font-size: 0.75rem; white-space: nowrap; color: var(--px-muted); }
 
 .pc-file-remove {
   display: inline-flex;
@@ -3096,7 +3114,7 @@ button.pixel-plaque.game-chip:focus-visible {
   background: var(--px-text-line);
   border: var(--pc-b2) solid currentColor;
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: 0.5625rem;
+  font-size: 0.75rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -3109,7 +3127,7 @@ button.pixel-plaque.game-chip:focus-visible {
   padding: calc(var(--pc-u) * 2) calc(var(--pc-u) * 6);
   background: var(--px-text-line);
   border: var(--pc-b2) solid var(--px-frame-line);
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   color: var(--px-text);
 }
 
@@ -3216,7 +3234,7 @@ button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); out
 
 .pc-version {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   color: var(--px-accent);
   text-shadow: var(--px-outline-1);
 }
@@ -3229,7 +3247,7 @@ button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); out
 
 .pc-presence-label {
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   letter-spacing: 0.1em;
   text-shadow: var(--px-outline-1);
 }
@@ -3245,7 +3263,7 @@ button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); out
 
 .pc-clock-date {
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: 0.5rem;
+  font-size: 0.75rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--px-muted);
@@ -3261,7 +3279,7 @@ button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); out
   gap: calc(var(--pc-u) * 8);
   padding: 0 calc(var(--pc-u) * 4);
   font-family: var(--font-pixel-display), var(--font-pixel), ui-monospace, monospace;
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--px-text);
@@ -3275,10 +3293,10 @@ button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); out
   min-height: calc(var(--pc-u) * 32);
   margin-bottom: calc(var(--pc-u) * 8);
   padding: 0 calc(var(--pc-u) * 10) calc(var(--pc-u) * 3);
-  font-size: 0.625rem;
+  font-size: 0.75rem;
 }
 
-/* A conversation row is a purple card; the active one has the gold rim. */
+/* A conversation row is a teal card; the active one has the gold rim. */
 .pc-convo {
   display: flex;
   width: 100%;
@@ -3346,7 +3364,7 @@ button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); out
 }
 
 .pc-profile-name { font-size: 0.9375rem; color: var(--px-text); text-shadow: var(--px-outline-1); }
-.pc-profile-model { font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 0.6875rem; color: var(--px-accent); }
+.pc-profile-model { font-family: var(--font-pixel), ui-monospace, monospace; font-size: 0.8125rem; color: var(--px-accent); }
 
 /* Conversation options menu (portaled to body, so it carries its own skin: a small stone frame). */
 .pc-menu {
@@ -3420,7 +3438,7 @@ button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); out
   box-shadow: 0 2px 0 0 var(--room-accent, var(--px-border-hi));
 }
 
-/* The themed backdrop: the building's colour over the indigo, a 2-tone dither of its second colour and a darker floor
+/* The themed backdrop: the building's colour over the teal, a 2-tone dither of its second colour and a darker floor
    band, all hard-edged. Always drawn, so a missing or loading picture never leaves a hole. */
 .room-backdrop {
   position: absolute;
@@ -3569,7 +3587,7 @@ button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); out
 }
 
 .room-setup-status[data-tone="ok"] { box-shadow: inset 0 0 0 2px var(--px-green), inset 0 -5px 0 0 var(--px-text-line); }
-.room-setup-status[data-tone="bad"] { box-shadow: inset 0 0 0 2px var(--px-pink), inset 0 -5px 0 0 var(--px-text-line); }
+.room-setup-status[data-tone="bad"] { box-shadow: inset 0 0 0 2px var(--px-alert), inset 0 -5px 0 0 var(--px-text-line); }
 
 .room-setup .home-spotlight-card.home-border-glow::after,
 .room-setup .home-global-spotlight {
@@ -3595,7 +3613,7 @@ button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); out
 .room-setup .text-emerald-300,
 .room-setup .text-emerald-100 { color: var(--px-green); }
 .room-setup .text-rose-200,
-.room-setup .text-rose-300 { color: var(--px-pink); }
+.room-setup .text-rose-300 { color: var(--px-alert); }
 .room-setup .text-amber-200,
 .room-setup .text-amber-300 { color: var(--px-accent); }
 .room-setup .bg-slate-400 { background-color: var(--px-muted); }
@@ -3646,7 +3664,7 @@ button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); out
 .room-setup .ig-panel .pixel-btn.ig-btn-sm {
   min-height: 28px;
   padding: 0 8px 3px;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .room-setup button:not(.pixel-btn):not(.pixel-close):not(.pixel-card):focus-visible {
@@ -4490,7 +4508,7 @@ button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); out
  * rooms/room-new-deployment.tsx hosts deployments/components/new-deployment-flow.tsx (the same flow as the New
  * deployment popup) on the Depot hologram. Every app form control inside it is re-skinned here, scoped under
  * .holo-new: deep translucent blue fields, 2px cyan pixel borders, pixel font, hard edges, no blur / glow / purple.
- * Also: the popup composer (.deployment-composer) gets a neutral slate fill instead of the pixel skin purple.
+ * Also: the popup composer (.deployment-composer) gets a neutral slate fill instead of the pixel skin teal.
  */
 .holo-new {
   display: flex;
@@ -4685,3 +4703,40 @@ button.pc-slot:focus-visible { outline: var(--pc-b2) solid var(--px-accent); out
   background: var(--holo-deep);
 }
 /* ===== end Depot creation view: compact extras ===== */
+
+/* ===== Legibility pass =====
+ * Sentences, descriptions, list rows and form fields use the readable face (Atkinson Hyperlegible Next, --font-pixel);
+ * the chunky Silkscreen face stays on short titles, buttons and numbers. Modules written with tiny Tailwind sizes get a
+ * 13px floor and open line-height, long runs of caps/wide tracking are relaxed, and small text loses its heavy outline
+ * (the outline is for large titles over busy backgrounds only). Depot stage / holo screens keep their own type. */
+:is(.pixel-ui, .ig-root) :is([class*="text-[8px]"], [class*="text-[9px]"], [class*="text-[10px]"], [class*="text-[11px]"], [class*="text-[12px]"]):not([class*="font-pixel-display"]) {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+:is(.pixel-ui, .ig-root) :is(p, li, label, td, textarea, input, select) {
+  line-height: 1.45;
+}
+
+:is(.pixel-ui, .ig-root) :is([class*="tracking-["], .tracking-wide, .tracking-wider, .tracking-widest):not([class*="font-pixel-display"]) {
+  letter-spacing: 0.02em;
+}
+
+:is(.pixel-ui, .ig-root) .uppercase:not(.pixel-label, .pixel-btn, .pixel-title, .pixel-chip, [class*="font-pixel-display"]) {
+  text-transform: none;
+}
+
+.pc-bubble--user,
+.pc-time,
+.pc-card-title,
+.pc-convo-title,
+.pc-profile-name,
+.ig-caption-hint,
+.pc-presence-label,
+.pc-section-label,
+.pc-card-label,
+.pc-state,
+.pc-tag,
+.game-hud-presence {
+  text-shadow: none;
+}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { ExternalLink } from "lucide-react"
 import {
@@ -217,7 +217,7 @@ export function HomeMainScreen() {
   // Deep links land here: `/home?room=<id>[&section=<id>][&tab=describe|task|automation]` (the retired /deployments page redirects
   // to the Depot this way). Read once on mount, unknown values are ignored, then the URL is cleaned without navigating.
   // The room opens once the city's boot screen is gone: until then everything under it is inert, so it could not take focus.
-  const [pendingRoom, setPendingRoom] = useState<{ id: RoomId; section?: RoomSectionId; tab?: NewDeploymentTab } | null>(null)
+  const pendingRoomRef = useRef<{ id: RoomId; section?: RoomSectionId; tab?: NewDeploymentTab } | null>(null)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const roomParam = params.get("room")
@@ -228,17 +228,18 @@ export function HomeMainScreen() {
     if (id) {
       const section = ROOMS[id].sections.map(sectionId).find((candidate) => candidate === sectionParam)
       const tab = NEW_DEPLOYMENT_TABS.find((candidate) => candidate.id === tabParam)?.id
-      setPendingRoom({ id, section, tab: section === "new-deployment" ? tab : undefined })
+      pendingRoomRef.current = { id, section, tab: section === "new-deployment" ? tab : undefined }
     }
     for (const key of ["room", "section", "tab", "mode", "kind"]) params.delete(key)
     const query = params.toString()
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`)
   }, [])
   useEffect(() => {
-    if (booting || !pendingRoom) return
-    setOpenRoom(pendingRoom)
-    setPendingRoom(null)
-  }, [booting, pendingRoom, setOpenRoom])
+    const next = pendingRoomRef.current
+    if (booting || !next) return
+    pendingRoomRef.current = null
+    setOpenRoom(next)
+  }, [booting, setOpenRoom])
   const goToIntegrations = home.goToIntegrations
   const openSetup = useCallback(
     (setup: IntegrationSetupKey) => {

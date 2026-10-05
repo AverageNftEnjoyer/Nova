@@ -32,7 +32,7 @@ function IntegrationsPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const requestedSetup = readIntegrationSetupParam(searchParams.get("setup"))
-  // The setup modules are dark-surface components: they sit on the Day theme's indigo inset (--px-bg), so they always
+  // The setup modules are dark-surface components: they sit on the Day theme's harbour-teal inset (--px-bg), so they always
   // get their on-dark classes. (Day tokens do the colouring; this is not a light/dark page switch.)
   const onDarkSurface = false
   const { progress: townProgress } = useTownProgress()

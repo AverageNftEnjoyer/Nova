@@ -1,4 +1,4 @@
-/** U.B Agents the cat (the city's guide), 12x10 pixels: black fur, the U.B Agents suit's cyan visor for eyes, a pink nose. */
+/** U.B Agents the cat (the city's guide), 12x10 pixels: black fur, the U.B Agents suit's cyan visor for eyes, a clay-orange nose. */
 const ROWS = [
   "..X......X..",
   ".XXX....XXX.",
@@ -12,7 +12,7 @@ const ROWS = [
   "..XXXXXXXX..",
 ] as const
 
-const FILL: Record<string, string> = { X: "#0d0b1c", C: "var(--px-accent-2)", P: "var(--px-pink)" }
+const FILL: Record<string, string> = { X: "#0b1e27", C: "var(--px-accent-2)", P: "var(--px-alert)" }
 
 export function NovaPortrait({ className }: { className?: string }) {
   return (

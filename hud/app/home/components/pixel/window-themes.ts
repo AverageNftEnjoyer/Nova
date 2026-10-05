@@ -2,7 +2,7 @@ import type { CityHotspotId } from "@/components/pixel-city/types"
 import type { CSSProperties } from "react"
 
 /**
- * Per-building looks for the Home popup windows (PixelWindow). Every window shares one slate stone frame and the Day
+ * Per-building looks for the Home popup windows (PixelWindow). Every window shares one grey stone frame and the Day
  * palette (docs/frontend/nova-city-day-ui.md); a building only picks its sign colour (the title plaque's rim, the
  * emblem and the accent the module inside uses) and a 9x9 pixel emblem. The Depot opens its own modal and has no
  * entry here.
@@ -26,22 +26,22 @@ export interface PixelWindowTheme {
 export const PIXEL_WINDOW_THEMES: Readonly<Record<PixelWindowThemeId, PixelWindowTheme>> = {
   // U.B Agents HQ: the glass tower with the cyan N.
   tasks: { id: "tasks", accent: "#4fe0ee", accent2: "#c8f8ff", emblem: ["aaaaaaaaa", "a.......a", "a.b...b.a", "a.bb..b.a", "a.b.b.b.a", "a.b..bb.a", "a.b...b.a", "a.......a", "aaaaaaaaa"] },
-  // Power Plant: red POWER neon.
-  analytics: { id: "analytics", accent: "#ff8a6a", accent2: "#ffd34d", emblem: [".....aa..", "....aa...", "...aa....", "..aaaaaa.", "....aa...", "...aa....", "..aa.....", ".aa......", "a........"] },
+  // Power Plant: the red rocket tower and its orange POWER neon.
+  analytics: { id: "analytics", accent: "#ff9a4d", accent2: "#ffd34d", emblem: [".....aa..", "....aa...", "...aa....", "..aaaaaa.", "....aa...", "...aa....", "..aa.....", ".aa......", "a........"] },
   // Noticeboard: paper and pins.
   notes: { id: "notes", accent: "#ffd86a", accent2: "#ff7a6a", emblem: ["...b.....", "..bbb....", ".wwbwwww.", ".wwwwwww.", ".wddddww.", ".wwwwwww.", ".wdddddw.", ".wwwwwww.", "........."] },
-  // Town Hall: columns, slate roof and the blue flag.
-  integrations: { id: "integrations", accent: "#9cbcff", accent2: "#ffd98a", emblem: ["....a....", "...aaa...", "..aaaaa..", ".aaaaaaa.", ".w.w.w.w.", ".w.w.w.w.", ".w.w.w.w.", "aaaaaaaaa", "........."] },
+  // Town Hall: columns and the silver hall.
+  integrations: { id: "integrations", accent: "#c4d2de", accent2: "#ffd98a", emblem: ["....a....", "...aaa...", "..aaaaa..", ".aaaaaaa.", ".w.w.w.w.", ".w.w.w.w.", ".w.w.w.w.", "aaaaaaaaa", "........."] },
   // Fountain Park: hedges round the fountain.
   chat: { id: "chat", accent: "#8aea72", accent2: "#7fdcff", emblem: ["....b....", "...b.b...", "..b.b.b..", "....b....", "....a....", ".aaaaaaa.", ".abbbbba.", "..aaaaa..", "........."] },
-  // Post Office: the gold POST plaque.
-  schedule: { id: "schedule", accent: "#ffd479", accent2: "#ff7a6a", emblem: ["aaaaaaaaa", "aa.....aa", "a.a...a.a", "a..a.a..a", "a...b...a", "a.......a", "aaaaaaaaa", ".........", "........."] },
-  // Bank: red brick, gold sign.
+  // Post Office: the red hall.
+  schedule: { id: "schedule", accent: "#ff7a6a", accent2: "#ffd479", emblem: ["aaaaaaaaa", "aa.....aa", "a.a...a.a", "a..a.a..a", "a...b...a", "a.......a", "aaaaaaaaa", ".........", "........."] },
+  // Bank: the red bridge hall, a gold (brass) sign.
   crypto: { id: "crypto", accent: "#ffc24a", accent2: "#6ff09a", emblem: ["..aaaaa..", ".a.....a.", "a...a...a", "a..aaa..a", "a..aa...a", "a...aa..a", "a..aaa..a", ".a..a..a.", "..aaaaa.."] },
-  // Odds Parlour: the green ODDS neon.
-  polymarket: { id: "polymarket", accent: "#5ff09c", accent2: "#ffd98a", emblem: [".........", ".wwwwwww.", ".wd...dw.", ".w.....w.", ".w..d..w.", ".w.....w.", ".wd...dw.", ".wwwwwww.", "........."] },
-  // Cinema: the pink CINEMA neon.
-  youtube: { id: "youtube", accent: "#ff80c4", accent2: "#ffb04a", emblem: ["aaaaaaaaa", "a.a.a.a.a", "aaaaaaaaa", "a.......a", "a..bb...a", "a..bbb..a", "a..bb...a", "aaaaaaaaa", "a.a.a.a.a"] },
+  // Odds Parlour: the dome market row, mint ODDS neon.
+  polymarket: { id: "polymarket", accent: "#4fe0b0", accent2: "#ffd98a", emblem: [".........", ".wwwwwww.", ".wd...dw.", ".w.....w.", ".w..d..w.", ".w.....w.", ".wd...dw.", ".wwwwwww.", "........."] },
+  // Cinema: the blue dome and its marquee.
+  youtube: { id: "youtube", accent: "#5f9bff", accent2: "#ffb04a", emblem: ["aaaaaaaaa", "a.a.a.a.a", "aaaaaaaaa", "a.......a", "a..bb...a", "a..bbb..a", "a..bb...a", "aaaaaaaaa", "a.a.a.a.a"] },
   // Quest log: the Town Hall's guild board, a gold star.
   quest: { id: "quest", accent: "#ffcf4a", accent2: "#9cbcff", emblem: ["....a....", "....a....", "...aaa...", "aaaaaaaaa", ".aaaaaaa.", "..aaaaa..", "..aa.aa..", ".aa...aa.", "........."] },
   // An agent's card: U.B Agents HQ's cyan visor.
@@ -51,6 +51,12 @@ export const PIXEL_WINDOW_THEMES: Readonly<Record<PixelWindowThemeId, PixelWindo
 }
 
 type ThemeStyle = CSSProperties & Record<`--${string}`, string>
+
+/** "#rrggbb" as "r, g, b" for the `rgba(var(--accent-rgb), a)` uses inside the modules. */
+function hexToRgbList(hex: string): string {
+  const n = Number.parseInt(hex.slice(1), 16)
+  return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`
+}
 
 const styleCache = new Map<PixelWindowThemeId, ThemeStyle>()
 
@@ -66,6 +72,7 @@ export function windowThemeStyle(id: PixelWindowThemeId): ThemeStyle {
     "--pw-accent": theme.accent,
     "--pw-accent-2": theme.accent2,
     "--px-accent": theme.accent,
+    "--accent-rgb": hexToRgbList(theme.accent),
   }
   styleCache.set(id, style)
   return style

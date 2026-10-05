@@ -134,7 +134,7 @@ export function MarkdownRenderer({ content, className, isStreaming = false }: Ma
       const codeMatch = remaining.match(/^`([^`]+)`/)
       if (codeMatch) {
         elements.push(
-          <code key={keyIndex++} className="px-1.5 py-0.5 rounded text-sm font-mono text-violet-300 wrap-anywhere" style={{ backgroundColor: "var(--code-bg)" }}>
+          <code key={keyIndex++} className="px-1.5 py-0.5 rounded text-sm font-mono text-teal-300 wrap-anywhere" style={{ backgroundColor: "var(--code-bg)" }}>
             {codeMatch[1]}
           </code>,
         )
@@ -193,7 +193,7 @@ export function MarkdownRenderer({ content, className, isStreaming = false }: Ma
       const codeMatch = remaining.match(/^`([^`]+)`/)
       if (codeMatch) {
         elements.push(
-          <code key={keyIndex++} className="px-1.5 py-0.5 rounded text-sm font-mono text-violet-300 wrap-anywhere" style={{ backgroundColor: "var(--code-bg)" }}>
+          <code key={keyIndex++} className="px-1.5 py-0.5 rounded text-sm font-mono text-teal-300 wrap-anywhere" style={{ backgroundColor: "var(--code-bg)" }}>
             {codeMatch[1]}
           </code>,
         )
