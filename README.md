@@ -9,8 +9,7 @@
 </p>
 
 <p align="center">
-  <!-- TODO: swap in a real hero screenshot or a short GIF of the home screen -->
-  <img src="docs/screenshots/hero.png" alt="NovaAIO home screen" width="900">
+  <img src="docs/screenshots/home.png" alt="NovaAIO home screen" width="900">
 </p>
 
 <p align="center">
@@ -31,22 +30,32 @@ I built it to answer a simple question: what does an AI assistant look like when
 
 ## Screenshots
 
-<!-- TODO: add screenshots to docs/screenshots/ using the file names below -->
+Dark theme, 1920x1080.
 
 | Home | Chat |
 | :---: | :---: |
-| <img src="docs/screenshots/home.png" alt="Home dashboard" width="440"> | <img src="docs/screenshots/chat.png" alt="Chat with tool use" width="440"> |
-| Configurable dashboard with weather, schedule, notes, agent tasks, and live modules | Streaming chat with tool calls and approvals |
+| <img src="docs/screenshots/home.png" alt="Home dashboard" width="440"> | <img src="docs/screenshots/chat.png" alt="Chat" width="440"> |
+| Dashboard with chat history, calendar, agent tasks, integrations, crypto, YouTube, analytics, notes, and Polymarket | Streaming chat with conversation history, mission pipeline, and integration status |
 
-| Deployments | Deployment Activity |
+| Deployments | Missions |
 | :---: | :---: |
-| <img src="docs/screenshots/missions-canvas.png" alt="Deployment automation canvas" width="440"> | <img src="docs/screenshots/agent-tasks.png" alt="Deployment task activity" width="440"> |
-| Simple Nova manager plus Advanced task and automation editors | One lifecycle for background tasks and scheduled automations |
+| <img src="docs/screenshots/deployments.png" alt="Deployments and runs" width="440"> | <img src="docs/screenshots/missions.png" alt="Missions and automations" width="440"> |
+| One-off tasks and automations, with every run and its review state | Quick-start templates, the mission generator, and the mission pipeline |
 
-| Integrations | Voice |
+| Calendar | Integrations |
 | :---: | :---: |
-| <img src="docs/screenshots/integrations.png" alt="Integrations page" width="440"> | <img src="docs/screenshots/voice-orb.png" alt="Voice mode" width="440"> |
-| Connect Gmail, Calendar, Telegram, Discord, Spotify, and more | Wake-word activation and spoken replies |
+| <img src="docs/screenshots/calendar.png" alt="Calendar" width="440"> | <img src="docs/screenshots/integrations.png" alt="Integrations hub" width="440"> |
+| Agent missions, agent tasks, and personal events on one calendar | Connect Telegram, Discord, Slack, Gmail, Calendar, Spotify, LLM providers, and more |
+
+| Analytics | Polymarket |
+| :---: | :---: |
+| <img src="docs/screenshots/analytics.png" alt="Analytics dashboard" width="440"> | <img src="docs/screenshots/polymarket.png" alt="Polymarket trading surface" width="440"> |
+| LLM spend, tokens, cache hit rate, and cost by source and provider | Live prediction markets with Phantom wallet control and guardrails |
+
+| Dev Logs | Settings |
+| :---: | :---: |
+| <img src="docs/screenshots/dev-logs.png" alt="Dev logs dashboard" width="440"> | <img src="docs/screenshots/settings.png" alt="Settings" width="440"> |
+| Traces, latency, quality, and token usage for every request | Profile, appearance, voice, personalization, skills, agent budgets, and model routing |
 
 ---
 
