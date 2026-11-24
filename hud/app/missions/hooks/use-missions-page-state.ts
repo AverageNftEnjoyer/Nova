@@ -1,13 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 
-import { type FluidSelectOption } from "@/components/ui/fluid-select"
+import type { SelectOption } from "@/components/ui"
 import { normalizeIntegrationCatalog, type IntegrationCatalogItem } from "@/lib/integrations/catalog"
 import { INTEGRATIONS_UPDATED_EVENT, loadIntegrationsSettings, type IntegrationsSettings } from "@/lib/integrations/store/client-store"
 import { readShellUiCache, writeShellUiCache } from "@/lib/settings/shell-ui-cache"
-import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor } from "@/lib/settings/userSettings"
+import { loadUserSettings } from "@/lib/settings/userSettings"
 import { getRuntimeTimezone, resolveTimezone } from "@/lib/shared/timezone"
 import { LocalApiUnauthorizedError, localApiErrorMessage } from "@/lib/shared/local-api-auth"
 
@@ -42,22 +42,19 @@ import {
 import { missionToWorkflowSummaryForAutofix } from "../canvas/workflow-autofix-bridge"
 import {
   getDefaultModelForProvider,
-  hexToRgba,
   isWorkflowStepType,
   normalizeAiDetailLevel,
   normalizeFetchIncludeSources,
   normalizePriority,
   sanitizeOutputRecipients,
 } from "../helpers"
-import { useMissionsSpotlight } from "./use-missions-spotlight"
-import { useAutoClearStatus, useAutoDismissRunProgress, useMissionActionMenuDismiss } from "./use-missions-transient-effects"
+import { useAutoDismissRunProgress } from "./use-missions-transient-effects"
 import { missionRequiresCanvasEditor } from "./mission-graph-shape"
 import { defaultMissionSettings } from "@/lib/missions/types"
 import type { Mission as NativeMission, MissionConnection, MissionNode } from "@/lib/missions/types"
 import { notifyMissionRun } from "@/lib/notifications/native-notify"
 import type {
   AiIntegrationType,
-  MissionActionMenuState,
   MissionRunProgress,
   MissionRunStepTrace,
   MissionRuntimeStatus,
@@ -68,7 +65,6 @@ import type {
 } from "../types"
 
 interface UseMissionsPageStateInput {
-  isLight: boolean
   returnTo?: string | null
 }
 
@@ -558,11 +554,8 @@ function applyScheduleViewToMission(params: {
   }
 }
 
-export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageStateInput) {
+export function useMissionsPageState({ returnTo }: UseMissionsPageStateInput) {
   const router = useRouter()
-  const [orbColor, setOrbColor] = useState<OrbColor>("white")
-  const [spotlightEnabled, setSpotlightEnabled] = useState(true)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [builderOpen, setBuilderOpen] = useState(false)
 
   const [schedules, setSchedules] = useState<MissionListItem[]>(() => getCachedMissionSchedules())
@@ -572,7 +565,6 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
   const [busyById, setBusyById] = useState<Record<string, boolean>>({})
   const [deployingMission, setDeployingMission] = useState(false)
   const [pendingDeleteMission, setPendingDeleteMission] = useState<MissionListItem | null>(null)
-  const [missionActionMenu, setMissionActionMenu] = useState<MissionActionMenuState | null>(null)
 
   const [newLabel, setNewLabel] = useState("")
   const [newDescription, setNewDescription] = useState("")
@@ -598,7 +590,6 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
   const [novaSuggestingByStepId, setNovaSuggestingByStepId] = useState<Record<string, boolean>>({})
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
-  const [missionBoardView, setMissionBoardView] = useState<"grid" | "list">("grid")
   const [novaMissionPrompt, setNovaMissionPrompt] = useState("")
   const [novaGeneratingMission, setNovaGeneratingMission] = useState(false)
   const [runImmediatelyOnCreate, setRunImmediatelyOnCreate] = useState(false)
@@ -622,7 +613,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     return next
   }, [integrationCatalog])
 
-  const apiFetchIntegrationOptions = useMemo<FluidSelectOption[]>(
+  const apiFetchIntegrationOptions = useMemo<SelectOption[]>(
     () =>
       integrationCatalog
         .filter((item) => item.kind === "api" && item.connected)
@@ -630,8 +621,8 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     [integrationCatalog],
   )
 
-  const outputChannelOptions = useMemo<FluidSelectOption[]>(() => {
-    const connected: FluidSelectOption[] = []
+  const outputChannelOptions = useMemo<SelectOption[]>(() => {
+    const connected: SelectOption[] = []
     for (const item of integrationCatalog) {
       if (item.kind !== "channel" || !item.connected) continue
       const value = normalizeOutputChannelAlias(item.id)
@@ -646,7 +637,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       ? [...connected, ...FALLBACK_OUTPUT_CHANNEL_OPTIONS]
       : FALLBACK_OUTPUT_CHANNEL_OPTIONS
 
-    const deduped: FluidSelectOption[] = []
+    const deduped: SelectOption[] = []
     const seen = new Set<string>()
     for (const option of combined) {
       const value = normalizeOutputChannelAlias(String(option.value || "").trim().toLowerCase())
@@ -679,16 +670,8 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
   }, [])
 
-  const listSectionRef = useRef<HTMLElement | null>(null)
-  const createSectionRef = useRef<HTMLElement | null>(null)
-  const heroHeaderRef = useRef<HTMLDivElement | null>(null)
-  const builderBodyRef = useRef<HTMLDivElement | null>(null)
-  const builderFooterRef = useRef<HTMLDivElement | null>(null)
-  const headerActionsRef = useRef<HTMLDivElement | null>(null)
-  const missionActionMenuRef = useRef<HTMLDivElement | null>(null)
-
-  const configuredAiIntegrationOptions = useMemo<FluidSelectOption[]>(() => {
-    const options: FluidSelectOption[] = []
+  const configuredAiIntegrationOptions = useMemo<SelectOption[]>(() => {
+    const options: SelectOption[] = []
     if (integrationsSettings.openai.connected || integrationsSettings.openai.apiKeyConfigured) {
       options.push({ value: "openai", label: AI_PROVIDER_LABELS.openai })
     }
@@ -804,7 +787,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     return {
       id,
       type,
-      title: titleOverride ?? "New AI Process step",
+      title: titleOverride ?? "New AI process step",
       aiPrompt: "",
       aiIntegration,
       aiModel,
@@ -1208,7 +1191,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
   const generateMissionDraftFromPrompt = useCallback(async () => {
     const prompt = novaMissionPrompt.trim()
     if (!prompt) {
-      setStatus({ type: "error", message: "Enter a prompt for U.B Agents to generate a mission." })
+      setStatus({ type: "error", message: "Describe the mission you want to generate." })
       return
     }
 
@@ -1229,7 +1212,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
 
       const generatedMission = (data as { mission?: NativeMission }).mission
       const summary = data.workflow?.summary || (generatedMission ? missionToWorkflowSummaryForAutofix(generatedMission) : null)
-      if (!summary) throw new Error("U.B Agents returned an invalid mission draft.")
+      if (!summary) throw new Error("The generated mission draft was invalid. Try a more specific description.")
 
       const generatedTime = typeof summary.schedule?.time === "string" && /^\d{2}:\d{2}$/.test(summary.schedule.time) ? summary.schedule.time : "09:00"
       const generatedTimezone = typeof summary.schedule?.timezone === "string" && summary.schedule.timezone.trim()
@@ -1270,7 +1253,7 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
         message: `Draft generated with ${providerLabel} (${modelLabel}). ${String(data.debug || "").trim() || ""} Review before saving.`.replace(/\s+/g, " ").trim(),
       })
     } catch (error) {
-      setStatus({ type: "error", message: error instanceof Error ? error.message : "U.B Agents mission generation failed." })
+      setStatus({ type: "error", message: error instanceof Error ? error.message : "Mission generation failed." })
     } finally {
       setNovaGeneratingMission(false)
     }
@@ -1293,18 +1276,18 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       })
       const data = response.data as NovaSuggestResponse
       if (!response.ok) {
-        throw new Error(data?.error || "U.B Agents suggest request failed.")
+        throw new Error(data?.error || "Prompt suggestion request failed.")
       }
 
       const suggestedPrompt = String(data?.prompt || "").trim()
-      if (!suggestedPrompt) throw new Error("U.B Agents returned an empty suggestion.")
+      if (!suggestedPrompt) throw new Error("The model returned an empty suggestion.")
       updateWorkflowStepAi(stepId, {
         aiIntegration: provider,
         aiModel: model,
         aiPrompt: suggestedPrompt,
       })
     } catch (error) {
-      setStatus({ type: "error", message: error instanceof Error ? error.message : "U.B Agents suggest failed." })
+      setStatus({ type: "error", message: error instanceof Error ? error.message : "Prompt suggestion failed." })
     } finally {
       setNovaSuggestingByStepId((prev) => ({ ...prev, [stepId]: false }))
     }
@@ -1453,13 +1436,6 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     }
   }, [])
 
-  useAutoClearStatus(status, setStatus)
-  useMissionActionMenuDismiss({
-    missionActionMenu,
-    missionActionMenuRef,
-    setMissionActionMenu,
-  })
-
   useEffect(() => {
     if (configuredAiIntegrationOptions.length === 0) return
     const allowed = new Set(configuredAiIntegrationOptions.map((option) => option.value as AiIntegrationType))
@@ -1476,32 +1452,21 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     ))
   }, [configuredAiIntegrationOptions, integrationsSettings])
 
-  useLayoutEffect(() => {
-    const cached = readShellUiCache()
-    const userSettings = loadUserSettings()
-    const nextOrbColor = cached.orbColor ?? userSettings.app.orbColor
-    const nextSpotlight = cached.spotlightEnabled ?? (userSettings.app.spotlightEnabled ?? true)
-    setOrbColor(nextOrbColor)
-    setSpotlightEnabled(nextSpotlight)
-    writeShellUiCache({
-      orbColor: nextOrbColor,
-      spotlightEnabled: nextSpotlight,
-    })
-
+  useEffect(() => {
     const localTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
     if (typeof localTimezone === "string" && localTimezone.trim().length > 0) {
       setDetectedTimezone(localTimezone)
     }
-  }, [isLight])
+  }, [])
 
   useEffect(() => {
     void refreshSchedules()
   }, [refreshSchedules])
 
-  // Initial (non-silent) reliability load; also re-runs when the lookback window changes.
+  // Initial reliability load; re-runs when the lookback window changes. Silent: nothing on this page shows reliability, so a failure should not raise a toast.
   // Periodic refreshes are handled by the combined background poller below.
   useEffect(() => {
-    void refreshMissionReliability({ silent: false })
+    void refreshMissionReliability({ silent: true })
   }, [refreshMissionReliability])
 
   const refreshMissionReliabilityRef = useRef(refreshMissionReliability)
@@ -1735,31 +1700,6 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
       document.removeEventListener("visibilitychange", onVisibilityChange)
     }
   }, [hasQueuedRuns, refreshSchedules])
-
-  useEffect(() => {
-    const refresh = () => {
-      const userSettings = loadUserSettings()
-      setOrbColor(userSettings.app.orbColor)
-      setSpotlightEnabled(userSettings.app.spotlightEnabled ?? true)
-      writeShellUiCache({
-        orbColor: userSettings.app.orbColor,
-        spotlightEnabled: userSettings.app.spotlightEnabled ?? true,
-      })
-    }
-    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
-    return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
-  }, [])
-
-  useMissionsSpotlight({
-    spotlightEnabled,
-    builderOpen,
-    createSectionRef,
-    listSectionRef,
-    headerActionsRef,
-    builderBodyRef,
-    builderFooterRef,
-    loading,
-  })
 
   const updateLocalSchedule = useCallback((id: string, patch: Partial<MissionListItem>) => {
     setSchedules((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
@@ -2493,20 +2433,6 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
 
   useAutoDismissRunProgress(runProgress, setRunProgress)
 
-  const orbPalette = ORB_COLORS[orbColor]
-  const orbHoverFilter = useMemo(
-    () => `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`,
-    [orbPalette.circle1, orbPalette.circle2],
-  )
-  const panelClass =
-    isLight
-      ? "rounded-2xl border border-[#d9e0ea] bg-white shadow-none"
-      : "rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl"
-  const moduleHeightClass = "h-[clamp(680px,88vh,1280px)]"
-  const subPanelClass = isLight
-    ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd]"
-    : "rounded-lg border border-white/10 bg-black/25 backdrop-blur-md"
-  const panelStyle = isLight ? undefined : { boxShadow: "0 20px 60px -35px rgba(var(--accent-rgb), 0.35)" }
   const filteredSchedules = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
 
@@ -2533,12 +2459,6 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
   }, [schedules])
 
   return {
-    orbColor,
-    setOrbColor,
-    spotlightEnabled,
-    setSpotlightEnabled,
-    settingsOpen,
-    setSettingsOpen,
     builderOpen,
     setBuilderOpen,
     schedules,
@@ -2555,8 +2475,6 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     setDeployingMission,
     pendingDeleteMission,
     setPendingDeleteMission,
-    missionActionMenu,
-    setMissionActionMenu,
     newLabel,
     setNewLabel,
     newDescription,
@@ -2605,8 +2523,6 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     setSearchQuery,
     statusFilter,
     setStatusFilter,
-    missionBoardView,
-    setMissionBoardView,
     novaMissionPrompt,
     setNovaMissionPrompt,
     novaGeneratingMission,
@@ -2632,13 +2548,6 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     apiFetchIntegrationOptions,
     outputChannelOptions,
     formatStatusTime,
-    listSectionRef,
-    createSectionRef,
-    heroHeaderRef,
-    builderBodyRef,
-    builderFooterRef,
-    headerActionsRef,
-    missionActionMenuRef,
     configuredAiIntegrationOptions,
     resolveDefaultAiIntegration,
     createWorkflowStep,
@@ -2673,12 +2582,6 @@ export function useMissionsPageState({ isLight, returnTo }: UseMissionsPageState
     editMissionFromActions,
     duplicateMission,
     runMissionNow,
-    orbPalette,
-    orbHoverFilter,
-    panelClass,
-    moduleHeightClass,
-    subPanelClass,
-    panelStyle,
     filteredSchedules,
     missionStats,
   }

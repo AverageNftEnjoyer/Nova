@@ -472,8 +472,9 @@ export async function fetchPolymarketLeaderboard(params: {
   const limit = normalizePositiveInt(params.limit, 25, 100)
   const cacheKey = `leaderboard:${normalizedWindow}:${limit}`
   return fetchWithCacheDedup(cacheKey, LEADERBOARD_CACHE_TTL_MS, async () => {
-    const url = new URL(`${POLYMARKET_DATA_API_URL}/leaderboard`)
-    url.searchParams.set("window", normalizedWindow)
+    // Data API v2 (v1 retired 2026-11-02): `time_period` day|week|month|all, `{ data, pagination }` envelope.
+    const url = new URL(`${POLYMARKET_DATA_API_URL}/v2/leaderboard`)
+    url.searchParams.set("time_period", normalizedWindow)
     url.searchParams.set("limit", String(limit))
     const payload = await fetchJson(url.toString())
     const rows = Array.isArray(payload)

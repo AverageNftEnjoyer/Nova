@@ -6,6 +6,11 @@ const eslintConfig = [
     ignores: [
       ".tmp/**",
       ".tmp-validation-tests/**",
+      // Build outputs (gitignored): the staged runtime copy, installers, Playwright artifacts.
+      "runtime-resources/**",
+      "dist/**",
+      "test-results/**",
+      "playwright-report/**",
     ],
   },
   ...nextVitals,

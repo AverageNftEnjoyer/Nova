@@ -1,12 +1,18 @@
 "use client"
 
-import { useState, useRef, useEffect, type CSSProperties } from "react"
+import { useState } from "react"
 import NextImage from "next/image"
-import { X, RotateCcw } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/shared/utils"
-import { useTheme } from "@/lib/context/theme-context"
+import {
+  Button,
+  Dialog,
+  DialogBody,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui"
 import { SettingsNav, SETTINGS_SECTIONS, type SettingsSectionId } from "@/components/settings/settings-nav"
+import { SettingsLoading } from "@/components/settings/settings-primitives"
 import { useSettingsState } from "@/components/settings/use-settings-state"
 import { SettingsProfilePanel } from "@/components/settings/panels/settings-profile-panel"
 import { SettingsAppearancePanel } from "@/components/settings/panels/settings-appearance-panel"
@@ -18,13 +24,16 @@ import { SettingsAgentBudgetsPanel } from "@/components/settings/panels/settings
 import { SettingsModelRoutingPanel } from "@/components/settings/panels/settings-model-routing-panel"
 import { SettingsLocalDataPanel } from "@/components/settings/panels/settings-local-data-panel"
 
+export type { SettingsSectionId } from "@/components/settings/settings-nav"
+
 interface SettingsModalProps {
   isOpen: boolean
   onClose: () => void
-  /** Section shown when the modal opens (e.g. "skills" from a U.B Agents City quest). Default: Profile. */
+  /** Section shown when the modal opens (e.g. "skills"). Default: Profile. */
   initialSection?: SettingsSectionId
 }
 
+/** The one Settings dialog (mounted by the app shell): grouped section nav on the left, the section on the right. */
 export function SettingsModal({ isOpen, onClose, initialSection = "profile" }: SettingsModalProps) {
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(initialSection)
   // Each time the modal opens, start on the requested section.
@@ -33,171 +42,42 @@ export function SettingsModal({ isOpen, onClose, initialSection = "profile" }: S
     setOpenedFor({ isOpen, section: initialSection })
     if (isOpen) setActiveSection(initialSection)
   }
-  const { theme } = useTheme()
-  const isLight = theme === "light"
-  const spotlightScopeRef = useRef<HTMLDivElement | null>(null)
 
   const state = useSettingsState(isOpen)
+  const section = SETTINGS_SECTIONS.find((s) => s.id === activeSection) ?? SETTINGS_SECTIONS[0]
+  const cropOpen = Boolean(state.cropSource && state.imageSize)
 
-  // ─── Palette CSS vars ─────────────────────────────────────────────────────
-
-  const paletteVars = {
-    "--settings-bg": isLight ? "#f6f8fc" : "rgba(255,255,255,0.04)",
-    "--settings-border": isLight ? "#d9e0ea" : "rgba(255,255,255,0.12)",
-    "--settings-hover": isLight ? "#eef3fb" : "rgba(255,255,255,0.08)",
-    "--settings-card-bg": isLight ? "#ffffff" : "rgba(0,0,0,0.2)",
-    "--settings-card-hover": isLight ? "#f7faff" : "rgba(255,255,255,0.06)",
-    "--settings-sub-bg": isLight ? "#f4f7fd" : "rgba(0,0,0,0.25)",
-    "--settings-sub-border": isLight ? "#d5dce8" : "rgba(255,255,255,0.1)",
-    "--settings-selected-bg": isLight ? "#edf3ff" : "rgba(255,255,255,0.08)",
-  } as CSSProperties
-
-  // ─── Spotlight effect ─────────────────────────────────────────────────────
-
-  useEffect(() => {
-    if (!isOpen || !spotlightScopeRef.current || !(state.settings?.app.spotlightEnabled ?? true)) return
-    const scope = spotlightScopeRef.current
-    const cards = Array.from(scope.querySelectorAll<HTMLElement>(".fx-spotlight-card"))
-    const clampPct = (value: number) => Math.max(0, Math.min(100, value))
-    let rafId: number | null = null
-    let pendingEvent: MouseEvent | null = null
-
-    const renderFrame = (e: MouseEvent) => {
-      const hoveredElement = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
-      const hoveredCandidate = hoveredElement?.closest(".fx-spotlight-card") as HTMLElement | null
-      const hoveredCard = hoveredCandidate && scope.contains(hoveredCandidate) ? hoveredCandidate : null
-
-      cards.forEach((card) => {
-        const cardRect = card.getBoundingClientRect()
-        if (cardRect.width <= 1 || cardRect.height <= 1 || hoveredCard !== card) {
-          card.style.setProperty("--glow-intensity", "0")
-          return
-        }
-
-        const relativeX = clampPct(((e.clientX - cardRect.left) / cardRect.width) * 100)
-        const relativeY = clampPct(((e.clientY - cardRect.top) / cardRect.height) * 100)
-        card.style.setProperty("--glow-x", `${relativeX}%`)
-        card.style.setProperty("--glow-y", `${relativeY}%`)
-        card.style.setProperty("--glow-intensity", "1")
-        card.style.setProperty("--glow-radius", "120px")
-      })
-    }
-
-    const handleMouseMove = (e: MouseEvent) => {
-      pendingEvent = e
-      if (rafId !== null) return
-      rafId = window.requestAnimationFrame(() => {
-        const nextEvent = pendingEvent
-        pendingEvent = null
-        rafId = null
-        if (nextEvent) renderFrame(nextEvent)
-      })
-    }
-
-    const clearGlow = () => {
-      cards.forEach((card) => card.style.setProperty("--glow-intensity", "0"))
-    }
-
-    const handleMouseLeave = () => {
-      if (rafId !== null) {
-        window.cancelAnimationFrame(rafId)
-        rafId = null
-      }
-      pendingEvent = null
-      clearGlow()
-    }
-
-    scope.addEventListener("mousemove", handleMouseMove)
-    scope.addEventListener("mouseleave", handleMouseLeave)
-    window.addEventListener("blur", clearGlow)
-
-    return () => {
-      scope.removeEventListener("mousemove", handleMouseMove)
-      scope.removeEventListener("mouseleave", handleMouseLeave)
-      window.removeEventListener("blur", clearGlow)
-      if (rafId !== null) window.cancelAnimationFrame(rafId)
-      clearGlow()
-    }
-  }, [isOpen, state.settings?.app.spotlightEnabled])
-
-  if (!isOpen) return null
-
-  const activeLabel = SETTINGS_SECTIONS.find((s) => s.id === activeSection)?.label ?? ""
+  const closeCrop = () => {
+    state.setCropSource(null)
+    state.setImageSize(null)
+    state.setDragStart(null)
+  }
 
   return (
-    <div style={paletteVars} className="fixed inset-0 z-121 flex items-center justify-center p-3 sm:p-6">
-      {/* Backdrop */}
-      <button
-        className={cn("absolute inset-0 backdrop-blur-sm", isLight ? "bg-[#0a122433]" : "bg-black/45")}
-        onClick={onClose}
-        aria-label="Close settings"
-      />
-
-      {/* Modal shell */}
-      <div
-        ref={spotlightScopeRef}
-        className={cn(
-          "fx-spotlight-shell relative z-10 w-full max-w-6xl h-[min(92vh,820px)] rounded-2xl border overflow-hidden",
-          "flex flex-col md:flex-row",
-          isLight
-            ? "border-[#d9e0ea] bg-white shadow-[0_28px_68px_-30px_rgba(45,78,132,0.4)]"
-            : "border-white/20 bg-white/6 backdrop-blur-2xl shadow-[0_20px_42px_-24px_rgba(120,170,255,0.45)]",
-        )}
+    <>
+      <Dialog
+        open={isOpen}
+        onOpenChange={(open) => {
+          if (!open) onClose()
+        }}
+        size="xl"
+        className="h-[min(80vh,52rem)] max-h-[min(80vh,52rem)] max-w-[60rem] flex-row"
       >
-        {/* Sidebar nav */}
-        <SettingsNav
-          isLight={isLight}
-          activeSection={activeSection}
-          onSectionChange={setActiveSection}
-          onReset={state.handleReset}
-        />
+        <SettingsNav activeSection={activeSection} onSectionChange={setActiveSection} />
 
-        {/* Right content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Header */}
-          <div className={cn(
-            "flex items-center justify-between px-4 sm:px-6 py-4 border-b",
-            isLight ? "border-[#e2e8f2] bg-[#f9fbff]" : "border-white/10 bg-black/20"
-          )}>
-            <h3 className={cn("text-sm font-medium uppercase tracking-wider", isLight ? "text-s-50" : "text-slate-400")}>
-              {activeLabel}
-            </h3>
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={state.handleReset}
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  "md:hidden fx-spotlight-card fx-border-glow gap-2",
-                  isLight ? "text-s-40 hover:text-s-60" : "text-slate-500 hover:text-slate-300"
-                )}
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                Reset
-              </Button>
-              <button
-                onClick={onClose}
-                className={cn(
-                  "fx-spotlight-card fx-border-glow h-8 w-8 rounded-md border inline-flex items-center justify-center transition-colors",
-                  isLight ? "border-[#d5dce8] bg-white text-s-70" : "border-white/12 bg-black/20 text-slate-300"
-                )}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <DialogHeader className="border-b border-border px-6 pt-5 pb-4">
+            <DialogTitle className="text-base">{section.label}</DialogTitle>
+            <DialogDescription className="text-xs">{section.description}</DialogDescription>
+          </DialogHeader>
 
-          {/* Scrollable section content */}
-          <div className="no-scrollbar flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
+          <DialogBody key={activeSection} className="overscroll-contain px-6 pt-5 pb-8">
             {!state.settings ? (
-              <div className="flex items-center justify-center py-20">
-                <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-              </div>
+              <SettingsLoading label="Loading settings" />
             ) : (
-              <>
+              <div className="max-w-[44rem]">
                 {activeSection === "profile" && (
                   <SettingsProfilePanel
-                    isLight={isLight}
                     settings={state.settings}
                     avatarError={state.avatarError}
                     setAvatarError={state.setAvatarError}
@@ -209,138 +89,86 @@ export function SettingsModal({ isOpen, onClose, initialSection = "profile" }: S
                     memorySaving={state.memorySaving}
                     memoryDirty={state.memoryDirty}
                     memoryError={state.memoryError}
-                    memorySavedAt={state.memorySavedAt}
                     loadMemoryMarkdown={state.loadMemoryMarkdown}
                     saveMemoryMarkdown={state.saveMemoryMarkdown}
                     updateProfile={state.updateProfile}
                     handleAvatarUpload={state.handleAvatarUpload}
                   />
                 )}
-
-                {activeSection === "appearance" && (
-                  <SettingsAppearancePanel
-                    isLight={isLight}
-                    settings={state.settings}
-                    setSettings={state.setSettings}
-                    updateApp={state.updateApp}
-                    backgroundVideoAssets={state.backgroundVideoAssets}
-                    activeBackgroundVideoAssetId={state.activeBackgroundVideoAssetId}
-                    backgroundVideoError={state.backgroundVideoError}
-                    setBackgroundVideoError={state.setBackgroundVideoError}
-                    handleBackgroundVideoUpload={state.handleBackgroundVideoUpload}
-                    removeBackgroundVideo={state.removeBackgroundVideo}
-                    selectBackgroundVideoAsset={state.selectBackgroundVideoAsset}
-                  />
-                )}
-
-                {activeSection === "audio" && (
-                  <SettingsAudioPanel
-                    isLight={isLight}
-                    settings={state.settings}
-                    updateApp={state.updateApp}
-                  />
-                )}
-
-                {activeSection === "notifications" && (
-                  <SettingsNotificationsPanel
-                    isLight={isLight}
-                    settings={state.settings}
-                    updateNotifications={state.updateNotifications}
-                  />
-                )}
-
                 {activeSection === "personalization" && (
                   <SettingsPersonalizationPanel
-                    isLight={isLight}
                     settings={state.settings}
                     updatePersonalization={state.updatePersonalization}
                     onNavigateToSkills={() => setActiveSection("skills")}
                   />
                 )}
-
-                {activeSection === "skills" && (
-                  <SettingsSkillsPanel isLight={isLight} />
+                {activeSection === "appearance" && (
+                  <SettingsAppearancePanel settings={state.settings} setSettings={state.setSettings} updateApp={state.updateApp} />
                 )}
-
-                {activeSection === "agent-budgets" && (
-                  <SettingsAgentBudgetsPanel isLight={isLight} />
+                {activeSection === "audio" && <SettingsAudioPanel settings={state.settings} updateApp={state.updateApp} />}
+                {activeSection === "notifications" && (
+                  <SettingsNotificationsPanel settings={state.settings} updateNotifications={state.updateNotifications} />
                 )}
-
+                {activeSection === "agent-budgets" && <SettingsAgentBudgetsPanel />}
                 {activeSection === "model-routing" && (
-                  <SettingsModelRoutingPanel
-                    isLight={isLight}
-                    onNavigateToAgentBudgets={() => setActiveSection("agent-budgets")}
-                  />
+                  <SettingsModelRoutingPanel onNavigateToAgentBudgets={() => setActiveSection("agent-budgets")} />
                 )}
-
-                {activeSection === "local-data" && (
-                  <SettingsLocalDataPanel
-                    isLight={isLight}
-                    settings={state.settings}
-                    onNavigateToProfile={() => setActiveSection("profile")}
-                  />
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Avatar crop overlay */}
-      {state.cropSource && state.imageSize && (
-        <div className="absolute inset-0 z-60 flex items-center justify-center bg-black/55 backdrop-blur-sm">
-          <div className={cn(
-            "w-90 rounded-2xl border p-4 backdrop-blur-xl",
-            isLight ? "border-[#d9e0ea] bg-white/95" : "border-white/20 bg-white/6"
-          )}>
-            <h4 className={cn("text-sm font-medium", isLight ? "text-s-90" : "text-white")}>Adjust profile photo</h4>
-            <p className={cn("mt-1 text-xs", isLight ? "text-s-40" : "text-slate-400")}>Drag to reposition. Use zoom to crop.</p>
-
-            <div className="mt-4 flex justify-center">
-              <div
-                className={cn(
-                  "relative h-60 w-60 overflow-hidden rounded-full border cursor-grab active:cursor-grabbing",
-                  isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/25"
-                )}
-                onPointerDown={(e) => {
-                  e.preventDefault()
-                  e.currentTarget.setPointerCapture(e.pointerId)
-                  state.setDragStart({ x: e.clientX, y: e.clientY, offsetX: state.cropOffset.x, offsetY: state.cropOffset.y })
-                }}
-                onPointerMove={(e) => {
-                  if (!state.dragStart) return
-                  const next = {
-                    x: state.dragStart.offsetX + (e.clientX - state.dragStart.x),
-                    y: state.dragStart.offsetY + (e.clientY - state.dragStart.y),
-                  }
-                  state.setCropOffset(state.clampOffset(next, state.cropZoom, state.imageSize))
-                }}
-                onPointerUp={(e) => {
-                  e.currentTarget.releasePointerCapture(e.pointerId)
-                  state.setDragStart(null)
-                }}
-                onPointerCancel={() => state.setDragStart(null)}
-              >
-                <NextImage
-                  src={state.cropSource}
-                  alt="Crop preview"
-                  width={state.imageSize.width}
-                  height={state.imageSize.height}
-                  unoptimized
-                  draggable={false}
-                  className="absolute left-1/2 top-1/2 select-none"
-                  style={{
-                    width: `${state.imageSize.width * state.getBaseScale(state.imageSize) * state.cropZoom}px`,
-                    height: `${state.imageSize.height * state.getBaseScale(state.imageSize) * state.cropZoom}px`,
-                    transform: `translate(calc(-50% + ${state.cropOffset.x}px), calc(-50% + ${state.cropOffset.y}px))`,
-                    maxWidth: "none",
-                  }}
-                />
+                {activeSection === "skills" && <SettingsSkillsPanel />}
+                {activeSection === "local-data" && <SettingsLocalDataPanel onReset={state.handleReset} />}
               </div>
-            </div>
+            )}
+          </DialogBody>
+        </div>
+      </Dialog>
 
-            <div className="mt-4">
-              <label className="mb-1 block text-xs text-s-50">Zoom</label>
+      <Dialog open={isOpen && cropOpen} onOpenChange={(open) => (!open ? closeCrop() : undefined)} size="sm" dismissible={false}>
+        <DialogHeader>
+          <DialogTitle>Adjust profile photo</DialogTitle>
+          <DialogDescription>Drag to reposition, use the slider to zoom.</DialogDescription>
+        </DialogHeader>
+        {state.cropSource && state.imageSize ? (
+          <DialogBody className="flex flex-col items-center gap-4 pt-1">
+            {/* Fixed pixel frame: the crop maths in use-settings-state works in these pixels. */}
+            <div
+              className="relative cursor-grab touch-none overflow-hidden rounded-full border border-border bg-surface-2 active:cursor-grabbing"
+              style={{ width: state.CROP_FRAME, height: state.CROP_FRAME }}
+              onPointerDown={(e) => {
+                e.preventDefault()
+                e.currentTarget.setPointerCapture(e.pointerId)
+                state.setDragStart({ x: e.clientX, y: e.clientY, offsetX: state.cropOffset.x, offsetY: state.cropOffset.y })
+              }}
+              onPointerMove={(e) => {
+                if (!state.dragStart) return
+                const next = {
+                  x: state.dragStart.offsetX + (e.clientX - state.dragStart.x),
+                  y: state.dragStart.offsetY + (e.clientY - state.dragStart.y),
+                }
+                state.setCropOffset(state.clampOffset(next, state.cropZoom, state.imageSize))
+              }}
+              onPointerUp={(e) => {
+                e.currentTarget.releasePointerCapture(e.pointerId)
+                state.setDragStart(null)
+              }}
+              onPointerCancel={() => state.setDragStart(null)}
+            >
+              <NextImage
+                src={state.cropSource}
+                alt="Crop preview"
+                width={state.imageSize.width}
+                height={state.imageSize.height}
+                unoptimized
+                draggable={false}
+                className="absolute top-1/2 left-1/2 select-none"
+                style={{
+                  width: `${state.imageSize.width * state.getBaseScale(state.imageSize) * state.cropZoom}px`,
+                  height: `${state.imageSize.height * state.getBaseScale(state.imageSize) * state.cropZoom}px`,
+                  transform: `translate(calc(-50% + ${state.cropOffset.x}px), calc(-50% + ${state.cropOffset.y}px))`,
+                  maxWidth: "none",
+                }}
+              />
+            </div>
+            <label className="flex w-full items-center gap-3 text-xs text-muted">
+              Zoom
               <input
                 type="range"
                 min={1}
@@ -352,27 +180,20 @@ export function SettingsModal({ isOpen, onClose, initialSection = "profile" }: S
                   state.setCropZoom(nextZoom)
                   state.setCropOffset((prev) => state.clampOffset(prev, nextZoom, state.imageSize))
                 }}
-                className="w-full accent-violet-500"
+                className="flex-1 accent-accent"
               />
-            </div>
-
-            <div className="mt-4 flex justify-end gap-2">
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  state.setCropSource(null)
-                  state.setImageSize(null)
-                  state.setDragStart(null)
-                }}
-              >
-                Cancel
-              </Button>
-              <Button onClick={() => void state.saveCroppedAvatar()}>Save Photo</Button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+            </label>
+          </DialogBody>
+        ) : null}
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={closeCrop}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={() => void state.saveCroppedAvatar()}>
+            Save photo
+          </Button>
+        </DialogFooter>
+      </Dialog>
+    </>
   )
 }
-

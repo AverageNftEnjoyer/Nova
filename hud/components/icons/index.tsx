@@ -1,6 +1,6 @@
 import Image from "next/image"
 import type { ComponentProps, SVGProps } from "react"
-import { Claude, Gemini, OpenAI, XAI } from "@lobehub/icons"
+import { Claude, Gemini, XAI } from "@lobehub/icons"
 
 interface BraveIconProps {
   className?: string
@@ -18,8 +18,14 @@ export function PhantomIcon({ className = "w-4 h-4" }: BraveIconProps) {
   return <Image src="/images/phantom.png" alt="Phantom" width={16} height={16} className={className} unoptimized />
 }
 
+/** Polymarket mark drawn in currentColor so it reads on dark and light surfaces (the PNG was black-only). */
 export function PolymarketIcon({ className = "w-4 h-4" }: BraveIconProps) {
-  return <Image src="/images/polymarket.png" alt="Polymarket" width={16} height={16} className={className} unoptimized />
+  return (
+    <svg viewBox="0 0 512 512" role="img" aria-label="Polymarket" className={className} fill="none" stroke="currentColor" strokeWidth={34} strokeLinejoin="round" strokeLinecap="round">
+      <path d="M126 174 L360 110 L360 400 L126 336 Z" />
+      <path d="M138 184 L352 255 L138 326" />
+    </svg>
+  )
 }
 
 export function SpotifyIcon({ className = "w-4 h-4" }: BraveIconProps) {
@@ -85,14 +91,6 @@ export function GmailCalendarIcon({ className = "w-4 h-4", size }: GmailCalendar
       unoptimized
     />
   )
-}
-
-type OpenAIIconProps = Omit<ComponentProps<typeof OpenAI>, "size"> & {
-  size?: number
-}
-
-export function OpenAIIcon({ size = 18, ...props }: OpenAIIconProps) {
-  return <OpenAI size={size} {...props} style={{ ...(props.style || {}), color: "#000000" }} />
 }
 
 export function TelegramIcon(props: SVGProps<SVGSVGElement>) {

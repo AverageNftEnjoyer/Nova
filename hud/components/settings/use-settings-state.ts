@@ -3,24 +3,15 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import {
   isBlockedAssistantName,
+  LEGACY_DEFAULT_ASSISTANT_NAME,
   loadUserSettings,
   MAX_ASSISTANT_NAME_LENGTH,
   saveUserSettings,
   resetSettings,
   type UserSettings,
 } from "@/lib/settings/userSettings"
-import {
-  listBackgroundVideoAssets,
-  removeBackgroundVideoAsset,
-  saveBackgroundVideoBlob,
-  setActiveBackgroundVideoAsset,
-  type BackgroundVideoAssetMeta,
-} from "@/lib/media/backgroundVideoStorage"
-import type { DarkBackgroundType } from "@/lib/settings/userSettings"
 
 const AVATAR_ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
-const BACKGROUND_IMAGE_FILE_PATTERN = /\.(jpe?g|png|webp|gif)$/i
-const BACKGROUND_VIDEO_FILE_PATTERN = /\.(mp4)$/i
 
 export type CropOffset = { x: number; y: number }
 
@@ -55,13 +46,8 @@ export function useSettingsState(isOpen: boolean) {
   // Core settings
   const [settings, setSettings] = useState<UserSettings | null>(null)
 
-  // Media errors
+  // Avatar upload error
   const [avatarError, setAvatarError] = useState<string | null>(null)
-  const [backgroundVideoError, setBackgroundVideoError] = useState<string | null>(null)
-
-  // Media libraries
-  const [backgroundVideoAssets, setBackgroundVideoAssets] = useState<BackgroundVideoAssetMeta[]>([])
-  const [activeBackgroundVideoAssetId, setActiveBackgroundVideoAssetId] = useState<string | null>(null)
 
   // Memory editor
   const [memoryMarkdown, setMemoryMarkdown] = useState("")
@@ -136,15 +122,6 @@ export function useSettingsState(isOpen: boolean) {
     if (options?.syncWorkspace) queueWorkspaceContextSync(newSettings)
   }, [queueWorkspaceContextSync])
 
-  // ─── Media libraries ──────────────────────────────────────────────────────
-
-  const refreshMediaLibraries = useCallback(async () => {
-    const assets = await listBackgroundVideoAssets()
-    setBackgroundVideoAssets(assets)
-    const selectedId = loadUserSettings().app.customBackgroundVideoAssetId ?? null
-    setActiveBackgroundVideoAssetId(selectedId && assets.some((a) => a.id === selectedId) ? selectedId : null)
-  }, [])
-
   // ─── Memory ───────────────────────────────────────────────────────────────
 
   const loadMemoryMarkdown = useCallback(async () => {
@@ -163,7 +140,8 @@ export function useSettingsState(isOpen: boolean) {
     }
   }, [])
 
-  const saveMemoryMarkdown = useCallback(async () => {
+  /** Writes MEMORY.md; resolves true when it was saved. */
+  const saveMemoryMarkdown = useCallback(async (): Promise<boolean> => {
     setMemorySaving(true)
     setMemoryError(null)
     try {
@@ -176,19 +154,23 @@ export function useSettingsState(isOpen: boolean) {
       if (!res.ok || !data.ok) throw new Error(responseErrorMessage(data, "Failed to save MEMORY.md"))
       setMemoryDirty(false)
       setMemorySavedAt(Date.now())
+      return true
     } catch (error) {
       setMemoryError(error instanceof Error ? error.message : "Failed to save MEMORY.md")
+      return false
     } finally {
       setMemorySaving(false)
     }
   }, [memoryMarkdown])
 
-  // ─── Profile updaters ─────────────────────────────────────────────────────
+  // ─── Updaters ─────────────────────────────────────────────────────
 
-  const handleReset = useCallback(() => {
+  /** Puts every user setting back to its default and returns the defaults. */
+  const handleReset = useCallback((): UserSettings => {
     const fresh = resetSettings()
     setSettings(fresh)
     queueWorkspaceContextSync(fresh, { immediate: true })
+    return fresh
   }, [queueWorkspaceContextSync])
 
   const updateProfile = useCallback((key: string, value: string | null) => {
@@ -215,7 +197,7 @@ export function useSettingsState(isOpen: boolean) {
       key === "assistantName" && typeof value === "string"
         ? (() => {
             const candidate = value.trim().slice(0, MAX_ASSISTANT_NAME_LENGTH)
-            return !candidate || candidate === "Nova" || isBlockedAssistantName(candidate) ? "U.B Agents" : candidate
+            return !candidate || candidate === LEGACY_DEFAULT_ASSISTANT_NAME || isBlockedAssistantName(candidate) ? "Nova" : candidate
           })()
         : value
     const newSettings = { ...settings, personalization: { ...settings.personalization, [key]: nextValue } }
@@ -323,102 +305,14 @@ export function useSettingsState(isOpen: boolean) {
     setCropOffset({ x: 0, y: 0 })
   }, [cropOffset.x, cropOffset.y, cropSource, cropZoom, getBaseScale, imageSize, updateProfile])
 
-  // ─── Background video ─────────────────────────────────────────────────────
-
-  const handleBackgroundVideoUpload = useCallback(async (file: File) => {
-    if (!settings) return
-    const normalizedName = file.name.toLowerCase()
-    const isVideo = file.type === "video/mp4" || BACKGROUND_VIDEO_FILE_PATTERN.test(normalizedName)
-    const isImage = file.type.startsWith("image/") || BACKGROUND_IMAGE_FILE_PATTERN.test(normalizedName)
-    if (!isVideo && !isImage) { setBackgroundVideoError("Only MP4, JPG, PNG, WEBP, or GIF files are supported."); return }
-    if (isVideo && file.size > 512 * 1024 * 1024) { setBackgroundVideoError("File is too large. Max size is 512MB."); return }
-    if (isImage && file.size > 25 * 1024 * 1024) { setBackgroundVideoError("Image is too large. Max size is 25MB."); return }
-    setBackgroundVideoError(null)
-    // Stored in the data directory (survives closes, updates and origin changes); saving also makes it the active one.
-    const saved = await saveBackgroundVideoBlob(file, file.name)
-    await refreshMediaLibraries()
-    autoSave({
-      ...settings,
-      app: {
-        ...settings.app,
-        customBackgroundVideoDataUrl: null,
-        customBackgroundVideoFileName: saved.fileName,
-        customBackgroundVideoMimeType: saved.mimeType,
-        customBackgroundVideoAssetId: saved.id,
-        darkModeBackground: "customVideo" as DarkBackgroundType,
-      },
-    })
-  }, [settings, autoSave, refreshMediaLibraries])
-
-  const removeBackgroundVideo = useCallback(async () => {
-    if (!settings) return
-    const targetId = activeBackgroundVideoAssetId || settings.app.customBackgroundVideoAssetId
-    if (!targetId) return
-    const remaining = backgroundVideoAssets.filter((a) => a.id !== targetId)
-    const nextActive = remaining[0] ?? null
-    try {
-      await removeBackgroundVideoAsset(targetId)
-      await setActiveBackgroundVideoAsset(nextActive?.id ?? null)
-      await refreshMediaLibraries()
-    } catch {}
-    const newSettings = {
-      ...settings,
-      app: {
-        ...settings.app,
-        customBackgroundVideoDataUrl: null,
-        customBackgroundVideoFileName: nextActive?.fileName ?? null,
-        customBackgroundVideoMimeType: nextActive?.mimeType ?? null,
-        customBackgroundVideoAssetId: nextActive?.id ?? null,
-        darkModeBackground: (
-          settings.app.darkModeBackground === "customVideo" && !nextActive
-            ? "black"
-            : settings.app.darkModeBackground
-        ) as DarkBackgroundType,
-      },
-    }
-    autoSave(newSettings)
-    setBackgroundVideoError(null)
-  }, [settings, autoSave, activeBackgroundVideoAssetId, backgroundVideoAssets, refreshMediaLibraries])
-
-  const selectBackgroundVideoAsset = useCallback((assetId: string | null) => {
-    if (!settings) return
-    const selected = assetId ? backgroundVideoAssets.find((a) => a.id === assetId) ?? null : null
-    void setActiveBackgroundVideoAsset(selected?.id ?? null).catch(() => {})
-    const newSettings = {
-      ...settings,
-      app: {
-        ...settings.app,
-        customBackgroundVideoDataUrl: null,
-        customBackgroundVideoFileName: selected?.fileName ?? null,
-        customBackgroundVideoMimeType: selected?.mimeType ?? null,
-        customBackgroundVideoAssetId: selected?.id ?? null,
-        darkModeBackground: (
-          selected
-            ? "customVideo"
-            : settings.app.darkModeBackground === "customVideo"
-              ? "black"
-              : settings.app.darkModeBackground
-        ) as DarkBackgroundType,
-      },
-    }
-    autoSave(newSettings)
-  }, [settings, backgroundVideoAssets, autoSave])
-
   // ─── Lifecycle ────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    let cancelled = false
     if (isOpen) {
       setSettings(loadUserSettings())
-      void refreshMediaLibraries().catch(() => {
-        if (cancelled) return
-        setBackgroundVideoAssets([])
-        setActiveBackgroundVideoAssetId(null)
-      })
       void loadMemoryMarkdown()
     }
-    return () => { cancelled = true }
-  }, [isOpen, loadMemoryMarkdown, refreshMediaLibraries])
+  }, [isOpen, loadMemoryMarkdown])
 
   useEffect(() => {
     return () => {
@@ -450,12 +344,7 @@ export function useSettingsState(isOpen: boolean) {
     settings, setSettings,
     handleReset,
     updateProfile, updateApp, updateNotifications, updatePersonalization,
-    // Media errors
     avatarError, setAvatarError,
-    backgroundVideoError, setBackgroundVideoError,
-    // Media libraries
-    backgroundVideoAssets, activeBackgroundVideoAssetId,
-    handleBackgroundVideoUpload, removeBackgroundVideo, selectBackgroundVideoAsset,
     // Memory
     memoryMarkdown, setMemoryMarkdown,
     memoryLoading, memorySaving, memoryDirty, setMemoryDirty,

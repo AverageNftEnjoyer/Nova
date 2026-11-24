@@ -1,10 +1,11 @@
 "use client"
 
+import * as React from "react"
+import { Field, Spinner, EmptyState, Button } from "@/components/ui"
 import { cn } from "@/lib/shared/utils"
-import { FluidSelect } from "@/components/ui/fluid-select"
-import { NovaSwitch } from "@/components/ui/nova-switch"
 import { loadUserSettings } from "@/lib/settings/userSettings"
 
+/** Interface click sound, when Settings -> Audio -> Interface sounds is on. */
 export function playClickSound() {
   try {
     const settings = loadUserSettings()
@@ -16,157 +17,140 @@ export function playClickSound() {
   } catch {}
 }
 
-export function getSettingsCardClass(isLight: boolean) {
-  return cn(
-    "fx-spotlight-card fx-border-glow rounded-xl border transition-all duration-150",
-    isLight
-      ? "border-[#d5dce8] bg-[#f4f7fd]"
-      : "border-white/10 bg-black/20"
+interface SettingsGroupProps {
+  title?: React.ReactNode
+  description?: React.ReactNode
+  actions?: React.ReactNode
+  className?: string
+  children: React.ReactNode
+}
+
+/** A titled block of setting rows separated by hairlines. */
+export function SettingsGroup({ title, description, actions, className, children }: SettingsGroupProps) {
+  return (
+    <section className={cn("min-w-0", className)}>
+      {title ? (
+        <div className="flex items-end justify-between gap-4 pb-1">
+          <div className="min-w-0">
+            <h3 className="text-md font-medium text-fg">{title}</h3>
+            {description ? <p className="mt-0.5 text-xs text-muted">{description}</p> : null}
+          </div>
+          {actions ? <div className="flex shrink-0 items-center gap-1.5">{actions}</div> : null}
+        </div>
+      ) : null}
+      <div className={cn("divide-y divide-border-subtle border-b border-border-subtle", title && "border-t")}>{children}</div>
+    </section>
   )
 }
 
-export function getSettingsFieldClass(isLight: boolean) {
-  return cn(
-    "w-full px-3 py-2.5 rounded-lg border text-sm focus:outline-none focus:border-accent-50 transition-colors duration-150",
-    isLight
-      ? "bg-white border-[#d5dce8] text-s-90 placeholder:text-s-25 focus:bg-[#eef3fb]"
-      : "bg-black/25 border-white/10 text-slate-100 placeholder:text-slate-500 focus:bg-white/[0.06]"
+interface SettingRowProps {
+  label: React.ReactNode
+  hint?: React.ReactNode
+  error?: React.ReactNode
+  /** Stack the control under the label (text areas, wide inputs). Default: control on the right. */
+  stacked?: boolean
+  aside?: React.ReactNode
+  children: React.ReactNode
+}
+
+/** One setting: label + hint on the left, control on the right (or stacked for wide controls). */
+export function SettingRow({ label, hint, error, stacked = false, aside, children }: SettingRowProps) {
+  return (
+    <Field label={label} hint={hint} error={error} inline={!stacked} aside={aside} className="py-3">
+      {children}
+    </Field>
   )
 }
 
-export function SettingToggle({
-  label,
-  description,
-  checked,
-  onChange,
-  isLight = false,
-}: {
+export interface SegmentedOption<T extends string> {
+  value: T
   label: string
-  description: string
-  checked: boolean
-  onChange: (v: boolean) => void
-  isLight?: boolean
-}) {
-  const handleChange = (newValue: boolean) => {
-    playClickSound()
-    onChange(newValue)
+  icon?: React.ReactNode
+}
+
+interface SegmentedControlProps<T extends string> {
+  value: T
+  options: ReadonlyArray<SegmentedOption<T>>
+  onValueChange: (value: T) => void
+  "aria-label": string
+  id?: string
+}
+
+/** Single-choice radio group drawn as a segmented control (arrow keys move the choice). */
+export function SegmentedControl<T extends string>({ value, options, onValueChange, id, ...rest }: SegmentedControlProps<T>) {
+  const refs = React.useRef<Array<HTMLButtonElement | null>>([])
+  const move = (from: number, delta: number) => {
+    const next = (from + delta + options.length) % options.length
+    onValueChange(options[next].value)
+    refs.current[next]?.focus()
   }
   return (
     <div
-      className={cn(
-        getSettingsCardClass(isLight),
-        "group flex items-center justify-between gap-4 p-4 cursor-pointer select-none",
-      )}
-      onClick={() => handleChange(!checked)}
+      id={id}
+      role="radiogroup"
+      aria-label={rest["aria-label"]}
+      className="inline-flex h-8 items-center gap-0.5 rounded-md border border-border bg-surface-2 p-0.5"
     >
-      <div className="flex-1 min-w-0">
-        <p className={cn("text-sm transition-colors", isLight ? "text-s-70 group-hover:text-s-90" : "text-slate-200 group-hover:text-white")}>{label}</p>
-        <p className={cn("text-xs mt-0.5", isLight ? "text-s-30" : "text-slate-500")}>{description}</p>
-      </div>
-      <NovaSwitch checked={checked} onChange={handleChange} />
+      {options.map((option, index) => {
+        const selected = option.value === value
+        return (
+          <button
+            key={option.value}
+            ref={(el) => {
+              refs.current[index] = el
+            }}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            tabIndex={selected ? 0 : -1}
+            onClick={() => onValueChange(option.value)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+                event.preventDefault()
+                move(index, 1)
+              } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+                event.preventDefault()
+                move(index, -1)
+              }
+            }}
+            className={cn(
+              "inline-flex h-full items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium transition-colors duration-150 ease-out",
+              "[&_svg]:size-3.5 [&_svg]:shrink-0",
+              selected ? "bg-surface-3 text-fg shadow-[0_0_0_1px_var(--border-strong)]" : "text-muted hover:text-fg",
+            )}
+          >
+            {option.icon}
+            {option.label}
+          </button>
+        )
+      })}
     </div>
   )
 }
 
-export function SettingInput({
-  label,
-  description,
-  value,
-  onChange,
-  placeholder,
-  maxLength,
-  errorText,
-  isLight = false,
-}: {
-  label: string
-  description: string
-  value: string
-  onChange: (v: string) => void
-  placeholder?: string
-  maxLength?: number
-  errorText?: string
-  isLight?: boolean
-}) {
+/** Centered spinner while a panel loads its data. */
+export function SettingsLoading({ label }: { label: string }) {
   return (
-    <div className={cn(getSettingsCardClass(isLight), "p-4")}>
-      <p className={cn("text-sm mb-0.5", isLight ? "text-s-70" : "text-slate-200")}>{label}</p>
-      <p className={cn("text-xs mb-3", isLight ? "text-s-30" : "text-slate-500")}>{description}</p>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        maxLength={maxLength}
-        className={getSettingsFieldClass(isLight)}
-      />
-      {errorText ? (
-        <p className={cn("mt-2 text-[11px]", isLight ? "text-rose-600" : "text-rose-300")}>{errorText}</p>
-      ) : null}
+    <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted" role="status">
+      <Spinner />
+      {label}
     </div>
   )
 }
 
-export function SettingTextarea({
-  label,
-  description,
-  value,
-  onChange,
-  placeholder,
-  rows = 3,
-  isLight = false,
-}: {
-  label: string
-  description: string
-  value: string
-  onChange: (v: string) => void
-  placeholder?: string
-  rows?: number
-  isLight?: boolean
-}) {
+/** A panel whose data could not load, with a retry. */
+export function SettingsLoadError({ title, message, onRetry }: { title: string; message: string; onRetry: () => void }) {
   return (
-    <div className={cn(getSettingsCardClass(isLight), "p-4")}>
-      <p className={cn("text-sm mb-0.5", isLight ? "text-s-70" : "text-slate-200")}>{label}</p>
-      <p className={cn("text-xs mb-3", isLight ? "text-s-30" : "text-slate-500")}>{description}</p>
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        rows={rows}
-        className={cn(getSettingsFieldClass(isLight), "resize-none")}
-      />
-    </div>
+    <EmptyState
+      tone="danger"
+      size="compact"
+      title={title}
+      description={message}
+      action={
+        <Button variant="secondary" size="sm" onClick={onRetry}>
+          Try again
+        </Button>
+      }
+    />
   )
 }
-
-export function SettingSelect({
-  label,
-  description,
-  value,
-  isLight,
-  options,
-  onChange,
-}: {
-  label: string
-  description: string
-  value: string
-  isLight: boolean
-  options: { value: string; label: string }[]
-  onChange: (v: string) => void
-}) {
-  return (
-    <div className={cn(getSettingsCardClass(isLight), "p-4")}>
-      <p className={cn("text-sm mb-0.5", isLight ? "text-s-70" : "text-slate-200")}>{label}</p>
-      <p className={cn("text-xs mb-3", isLight ? "text-s-30" : "text-slate-500")}>{description}</p>
-      <FluidSelect
-        value={value}
-        options={options}
-        isLight={isLight}
-        onChange={(v) => {
-          playClickSound()
-          onChange(v)
-        }}
-      />
-    </div>
-  )
-}
-

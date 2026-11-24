@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   try {
     const now = new Date().toISOString()
     const results = await sendTelegramMessage({
-      text: `U.B Agents integration test successful at ${now}`,
+      text: `Nova integration test successful at ${now}`,
     })
     const ok = results.some((r) => r.ok)
     const firstFailure = results.find((r) => !r.ok)

@@ -1,47 +1,60 @@
 "use client"
-/* eslint-disable react-hooks/set-state-in-effect */
 
+import type React from "react"
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react"
-import { useRouter } from "next/navigation"
-import { Blocks, Pin, Settings } from "lucide-react"
-import { MessageList } from "./message-list"
+import { useSearchParams } from "next/navigation"
+import Link from "next/link"
+import { PanelLeftOpen, WifiOff } from "lucide-react"
+import { PageContainer } from "@/components/shell"
+import { IconButton, Tooltip } from "@/components/ui"
 import { Composer } from "@/components/chat/composer"
+import { ChatSidebar, DeleteThreadDialog, RenameThreadDialog, ThreadMenu } from "@/components/chat/chat-sidebar"
+import { BraveIcon, CoinbaseIcon, GmailCalendarIcon, GmailIcon, SpotifyIcon } from "@/components/icons"
 import { useNovaState } from "@/lib/chat/hooks/useNovaState"
-import { ChatSidebar } from "@/components/chat/chat-sidebar"
-import { NovaCatPortrait, resolveNovaCatState, type NovaCatState } from "@/components/chat/nova-cat-portrait"
-import { loadUserSettings } from "@/lib/settings/userSettings"
-import { readVoiceMuted, writeVoiceMuted } from "@/lib/chat/voice-mode"
-import { getActiveUserId } from "@/lib/auth/active-user"
-import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, OpenAIIcon, SpotifyIcon, TelegramIcon, XAIIcon } from "@/components/icons"
-import { normalizeHandoffOperationToken, PENDING_CHAT_SESSION_KEY } from "@/lib/chat/handoff"
-
-// Hooks
 import { useConversations } from "@/lib/chat/hooks/useConversations"
 import { useIntegrationsStatus } from "@/lib/integrations/hooks/useIntegrationsStatus"
-import { useMissions, formatDailyTime } from "@/lib/missions/hooks/useMissions"
-import { useChatBackground } from "@/lib/chat/hooks/useChatBackground"
-import { buildEmailAssistantFailureReply, buildEmailAssistantReply, extractEmailSummaryMaxResults, isEmailAssistantIntent, type GmailSummaryApiResponse } from "@/lib/chat/email-assistant"
+import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
+import { readVoiceMuted, writeVoiceMuted } from "@/lib/chat/voice-mode"
+import { getActiveUserId } from "@/lib/auth/active-user"
+import { normalizeHandoffOperationToken, PENDING_CHAT_SESSION_KEY } from "@/lib/chat/handoff"
+import { DEFAULT_CONVERSATION_TITLE, type Conversation } from "@/lib/chat/conversations"
+import {
+  buildEmailAssistantFailureReply,
+  buildEmailAssistantReply,
+  extractEmailSummaryMaxResults,
+  isEmailAssistantIntent,
+  type GmailSummaryApiResponse,
+} from "@/lib/chat/email-assistant"
+import { CHAT_COLUMN_CLASS, MessageList } from "./message-list"
+import { NovaMark } from "./message-bubble"
+import type { Message } from "./chat-types"
 
 const PENDING_BOOT_ACK_TIMEOUT_MS = 8_000
+const THREADS_COLLAPSED_KEY = "nova-chat-threads-collapsed"
 
-export interface Message {
+interface Starter {
   id: string
-  role: "user" | "assistant"
-  content: string
-  createdAt: Date
-  imageData?: string
-  source?: "hud" | "agent" | "voice"
-  sender?: string
-  nlpCleanText?: string
-  nlpConfidence?: number
-  nlpCorrectionCount?: number
-  nlpBypass?: boolean
+  prompt: string
+  icon: React.ReactNode
+}
+
+function readThreadsCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(THREADS_COLLAPSED_KEY) === "1"
+  } catch {
+    return false
+  }
+}
+
+function writeThreadsCollapsed(collapsed: boolean) {
+  try {
+    window.localStorage.setItem(THREADS_COLLAPSED_KEY, collapsed ? "1" : "0")
+  } catch {}
 }
 
 export function ChatShellController() {
-  const router = useRouter()
+  const searchParams = useSearchParams()
 
-  // U.B Agents state
   const {
     state: novaState,
     thinkingStatus,
@@ -50,22 +63,18 @@ export function ChatShellController() {
     streamingAssistantId,
     hudMessageAckVersion,
     hasHudMessageAck,
+    latestUsage,
     sendToAgent,
+    interrupt,
     clearAgentMessages,
     setMuted,
   } = useNovaState()
 
-  // Background & theme
-  const {
-    orbPalette,
-    spotlightEnabled,
-  } = useChatBackground()
-
-  // Conversations
   const {
     conversations,
     activeConvo,
     isLoaded,
+    isSynced,
     handleNewChat,
     handleSelectConvo,
     handleDeleteConvo,
@@ -77,52 +86,27 @@ export function ChatShellController() {
     ensureServerConversationForOptimistic,
     resolveConversationIdForAgent,
     resolveSessionConversationIdForAgent,
-    pendingQueueStatus,
   } = useConversations({
     agentConnected,
     chatTransportEvents,
     clearAgentMessages,
   })
 
-  // Integrations
-  const {
-    integrationsHydrated,
-    telegramConnected,
-    discordConnected,
-    braveConnected,
-    braveConfigured,
-    coinbaseConnected,
-    coinbaseConfigured,
-    openaiConnected,
-    claudeConnected,
-    grokConnected,
-    geminiConnected,
-    gmailConnected,
-    spotifyConnected,
-    gcalendarConnected,
-    integrationGuardNotice,
-    handleToggleTelegramIntegration,
-    handleToggleDiscordIntegration,
-    handleToggleBraveIntegration,
-    handleToggleCoinbaseIntegration,
-    handleToggleOpenAIIntegration,
-    handleToggleClaudeIntegration,
-    handleToggleGrokIntegration,
-    handleToggleGeminiIntegration,
-    handleToggleGmailIntegration,
-  } = useIntegrationsStatus()
+  const { gmailConnected, gcalendarConnected, coinbaseConnected, braveConnected, spotifyConnected, activeLlmModel } =
+    useIntegrationsStatus()
 
-  // Missions
-  const { missions } = useMissions()
-
-  // Local state
   const pendingBootSendHandledRef = useRef(false)
   const pendingBootSendOpTokenRef = useRef("")
   const pendingBootSendDispatchedAtRef = useRef(0)
-  const sidebarPanelsRef = useRef<HTMLElement | null>(null)
 
   const [isMuted, setIsMuted] = useState(true)
   const [muteHydrated, setMuteHydrated] = useState(false)
+  const [threadsCollapsed, setThreadsCollapsed] = useState(false)
+  const [assistantName, setAssistantName] = useState("Nova")
+  const [modelByMessageId, setModelByMessageId] = useState<Record<string, string>>({})
+  const [renaming, setRenaming] = useState<Conversation | null>(null)
+  const [deleting, setDeleting] = useState<Conversation | null>(null)
+  const [pendingPrompt, setPendingPrompt] = useState("")
 
   const activeConversationStreaming = useMemo(() => {
     const activeConversationId = String(activeConvo?.id || "").trim()
@@ -130,9 +114,7 @@ export function ChatShellController() {
     for (let i = chatTransportEvents.length - 1; i >= 0; i -= 1) {
       const event = chatTransportEvents[i]
       const eventConversationId =
-        "conversationId" in event && typeof event.conversationId === "string"
-          ? event.conversationId.trim()
-          : ""
+        "conversationId" in event && typeof event.conversationId === "string" ? event.conversationId.trim() : ""
       if (eventConversationId && eventConversationId !== activeConversationId) continue
       if (event.type === "assistant_stream_done") return false
       if (event.type === "assistant_stream_start" || event.type === "assistant_stream_delta") return true
@@ -158,11 +140,40 @@ export function ChatShellController() {
     [resolveSessionConversationIdForAgent],
   )
 
+  useLayoutEffect(() => {
+    setThreadsCollapsed(readThreadsCollapsed())
+  }, [])
+
+  useEffect(() => {
+    const sync = () => setAssistantName(loadUserSettings().personalization.assistantName || "Nova")
+    sync()
+    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, sync as EventListener)
+    return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, sync as EventListener)
+  }, [])
+
+  const toggleThreads = useCallback(() => {
+    setThreadsCollapsed((prev) => {
+      writeThreadsCollapsed(!prev)
+      return !prev
+    })
+  }, [])
+
+  // Attribute each usage report to the reply that was streaming when it arrived, so replies show their model.
+  const lastStreamIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (streamingAssistantId) lastStreamIdRef.current = streamingAssistantId
+  }, [streamingAssistantId])
+  useEffect(() => {
+    if (!latestUsage) return
+    const id = streamingAssistantId || lastStreamIdRef.current
+    if (!id) return
+    setModelByMessageId((prev) => (prev[id] === latestUsage.model ? prev : { ...prev, [id]: latestUsage.model }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestUsage])
+
   // Mute state sync
   useEffect(() => {
-    if (novaState === "muted") {
-      setIsMuted(true)
-    }
+    if (novaState === "muted") setIsMuted(true)
   }, [novaState])
 
   const handleMuteToggle = useCallback(() => {
@@ -185,7 +196,7 @@ export function ChatShellController() {
     }
   }, [agentConnected, isMuted, muteHydrated, setMuted])
 
-  // Home -> Chat handoff
+  // Home -> Chat handoff (sessionStorage): acknowledged once the runtime confirms the op token.
   useEffect(() => {
     const opToken = String(pendingBootSendOpTokenRef.current || "").trim()
     if (!opToken) return
@@ -201,10 +212,6 @@ export function ChatShellController() {
   useEffect(() => {
     if (pendingBootSendHandledRef.current || !agentConnected || !activeConvo) return
 
-    const markPendingBootHandled = () => {
-      pendingBootSendHandledRef.current = Boolean(1)
-    }
-
     let raw: string | null = null
     try {
       raw = sessionStorage.getItem(PENDING_CHAT_SESSION_KEY)
@@ -212,6 +219,12 @@ export function ChatShellController() {
       return
     }
     if (!raw) return
+
+    const resetPendingBoot = (handled: boolean) => {
+      pendingBootSendHandledRef.current = handled
+      pendingBootSendOpTokenRef.current = ""
+      pendingBootSendDispatchedAtRef.current = 0
+    }
 
     try {
       const parsed = JSON.parse(raw) as {
@@ -223,9 +236,7 @@ export function ChatShellController() {
       }
       const pendingOpToken = normalizeHandoffOperationToken(parsed.opToken)
       if (pendingOpToken && hasHudMessageAck(pendingOpToken)) {
-        markPendingBootHandled()
-        pendingBootSendOpTokenRef.current = ""
-        pendingBootSendDispatchedAtRef.current = 0
+        resetPendingBoot(true)
         sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
         return
       }
@@ -237,9 +248,7 @@ export function ChatShellController() {
       }
 
       const pendingConvoId = typeof parsed.convoId === "string" ? parsed.convoId.trim() : ""
-      const resolvedPendingConvoId = pendingConvoId
-        ? resolveConversationIdForAgent(pendingConvoId) || pendingConvoId
-        : ""
+      const resolvedPendingConvoId = pendingConvoId ? resolveConversationIdForAgent(pendingConvoId) || pendingConvoId : ""
       if (resolvedPendingConvoId && resolvedPendingConvoId !== activeConvo.id) {
         void handleSelectConvo(resolvedPendingConvoId)
         return
@@ -249,13 +258,10 @@ export function ChatShellController() {
       if (!pendingContent) return
 
       const pendingMessageId = typeof parsed.messageId === "string" ? parsed.messageId.trim() : ""
-
       const settings = loadUserSettings()
       const activeUserId = getActiveUserId()
       if (!activeUserId) {
-        pendingBootSendHandledRef.current = true
-        pendingBootSendOpTokenRef.current = ""
-        pendingBootSendDispatchedAtRef.current = 0
+        resetPendingBoot(true)
         sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
         return
       }
@@ -264,42 +270,35 @@ export function ChatShellController() {
         pendingBootSendOpTokenRef.current = pendingOpToken
         pendingBootSendDispatchedAtRef.current = Date.now()
       } else {
-        pendingBootSendHandledRef.current = true
-        pendingBootSendOpTokenRef.current = ""
-        pendingBootSendDispatchedAtRef.current = 0
+        resetPendingBoot(true)
         sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
       }
 
-      void (async () => {
-        const sessionKey = buildHudSessionKey(activeUserId, activeConvo.id)
-        sendToAgent(pendingContent, settings.app.voiceEnabled, settings.app.ttsVoice, {
-          conversationId: resolveConversationIdForAgent(activeConvo.id),
-          sender: "hud-user",
-          ...(sessionKey ? { sessionKey } : {}),
-          ...(pendingMessageId ? { messageId: pendingMessageId } : {}),
-          ...(pendingOpToken ? { opToken: pendingOpToken } : {}),
-          userId: activeUserId,
-          assistantName: settings.personalization.assistantName,
-          communicationStyle: settings.personalization.communicationStyle,
-          tone: settings.personalization.tone,
-          proactivity: settings.personalization.proactivity,
-          humor_level: settings.personalization.humor_level,
-          risk_tolerance: settings.personalization.risk_tolerance,
-          structure_preference: settings.personalization.structure_preference,
-          challenge_level: settings.personalization.challenge_level,
-        })
-        // Create/sync optimistic convo on server in background so list stays in sync
-        void ensureServerConversationForOptimistic(activeConvo)
-      })()
+      const sessionKey = buildHudSessionKey(activeUserId, activeConvo.id)
+      sendToAgent(pendingContent, settings.app.voiceEnabled, settings.app.ttsVoice, {
+        conversationId: resolveConversationIdForAgent(activeConvo.id),
+        sender: "hud-user",
+        ...(sessionKey ? { sessionKey } : {}),
+        ...(pendingMessageId ? { messageId: pendingMessageId } : {}),
+        ...(pendingOpToken ? { opToken: pendingOpToken } : {}),
+        userId: activeUserId,
+        assistantName: settings.personalization.assistantName,
+        communicationStyle: settings.personalization.communicationStyle,
+        tone: settings.personalization.tone,
+        proactivity: settings.personalization.proactivity,
+        humor_level: settings.personalization.humor_level,
+        risk_tolerance: settings.personalization.risk_tolerance,
+        structure_preference: settings.personalization.structure_preference,
+        challenge_level: settings.personalization.challenge_level,
+      })
+      // Create/sync the optimistic thread on the server in the background so the list stays in sync.
+      void ensureServerConversationForOptimistic(activeConvo)
     } catch {
       sessionStorage.removeItem(PENDING_CHAT_SESSION_KEY)
-      markPendingBootHandled()
-      pendingBootSendOpTokenRef.current = ""
-      pendingBootSendDispatchedAtRef.current = 0
+      resetPendingBoot(true)
     }
   }, [
     activeConvo,
-    conversations,
     agentConnected,
     hasHudMessageAck,
     sendToAgent,
@@ -309,64 +308,7 @@ export function ChatShellController() {
     buildHudSessionKey,
   ])
 
-  // Spotlight effect
-  useEffect(() => {
-    if (!spotlightEnabled) return
-
-    const setupSectionSpotlight = (section: HTMLElement) => {
-      const clampPct = (value: number) => Math.max(0, Math.min(100, value))
-      const clearCards = () => {
-        const cards = section.querySelectorAll<HTMLElement>(".home-spotlight-card")
-        cards.forEach((card) => card.style.setProperty("--glow-intensity", "0"))
-      }
-
-      const handleMouseMove = (e: MouseEvent) => {
-        const hoveredElement = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
-        const hoveredCandidate = hoveredElement?.closest(".home-spotlight-card") as HTMLElement | null
-        const hoveredCard = hoveredCandidate && section.contains(hoveredCandidate) ? hoveredCandidate : null
-
-        const cards = section.querySelectorAll<HTMLElement>(".home-spotlight-card")
-        cards.forEach((card) => {
-          const cardRect = card.getBoundingClientRect()
-          if (cardRect.width <= 1 || cardRect.height <= 1) {
-            card.style.setProperty("--glow-intensity", "0")
-            return
-          }
-          const relativeX = clampPct(((e.clientX - cardRect.left) / cardRect.width) * 100)
-          const relativeY = clampPct(((e.clientY - cardRect.top) / cardRect.height) * 100)
-          card.style.setProperty("--glow-x", `${relativeX}%`)
-          card.style.setProperty("--glow-y", `${relativeY}%`)
-          card.style.setProperty("--glow-radius", "120px")
-          card.style.setProperty("--glow-intensity", hoveredCard === card ? "1" : "0")
-        })
-      }
-
-      const handleMouseLeave = () => {
-        clearCards()
-      }
-      const handleWindowBlur = () => {
-        clearCards()
-      }
-
-      section.addEventListener("mousemove", handleMouseMove)
-      section.addEventListener("mouseleave", handleMouseLeave)
-      window.addEventListener("blur", handleWindowBlur)
-
-      return () => {
-        section.removeEventListener("mousemove", handleMouseMove)
-        section.removeEventListener("mouseleave", handleMouseLeave)
-        window.removeEventListener("blur", handleWindowBlur)
-      }
-    }
-
-    const cleanups: Array<() => void> = []
-    if (sidebarPanelsRef.current) cleanups.push(setupSectionSpotlight(sidebarPanelsRef.current))
-
-    return () => {
-      cleanups.forEach((cleanup) => cleanup())
-    }
-  }, [spotlightEnabled])
-
+  // Radix menus occasionally leave pointer-events: none on <body> after a route change; release it when no layer is open.
   useEffect(() => {
     const lockLayerSelector = [
       "[aria-modal='true']",
@@ -389,7 +331,6 @@ export function ChatShellController() {
     return () => window.clearInterval(interval)
   }, [])
 
-  // Send message
   const sendMessage = useCallback(
     async (content: string, options?: { nlpBypass?: boolean; imageData?: string }) => {
       if ((!content.trim() && !options?.imageData) || !agentConnected || !activeConvo) return
@@ -403,8 +344,13 @@ export function ChatShellController() {
 
       const settings = loadUserSettings()
       const activeUserId = getActiveUserId()
-      if (!activeUserId) {
-        return
+      if (!activeUserId) return
+      const personalization = {
+        nickname: settings.personalization.nickname,
+        communicationStyle: settings.personalization.communicationStyle,
+        tone: settings.personalization.tone,
+        characteristics: settings.personalization.characteristics,
+        customInstructions: settings.personalization.customInstructions,
       }
       if (gmailConnected && isEmailAssistantIntent(outboundContent)) {
         const maxResults = extractEmailSummaryMaxResults(outboundContent, 6)
@@ -412,55 +358,31 @@ export function ChatShellController() {
           const response = await fetch("/api/integrations/gmail/summary", {
             method: "POST",
             credentials: "include",
-            headers: {
-              "content-type": "application/json",
-            },
+            headers: { "content-type": "application/json" },
             body: JSON.stringify({ maxResults }),
           })
           const payload = (await response.json()) as GmailSummaryApiResponse
           if (!response.ok || !payload.ok) {
-            const message = response.status === 401
-              ? buildEmailAssistantFailureReply({
-                  nickname: settings.personalization.nickname,
-                  communicationStyle: settings.personalization.communicationStyle,
-                  tone: settings.personalization.tone,
-                  characteristics: settings.personalization.characteristics,
-                  customInstructions: settings.personalization.customInstructions,
-                  reason: "unauthorized",
-                })
-              : (payload.error || buildEmailAssistantFailureReply({
-                  nickname: settings.personalization.nickname,
-                  communicationStyle: settings.personalization.communicationStyle,
-                  tone: settings.personalization.tone,
-                  characteristics: settings.personalization.characteristics,
-                  customInstructions: settings.personalization.customInstructions,
-                  reason: "temporary",
-                }))
+            const message =
+              response.status === 401
+                ? buildEmailAssistantFailureReply({ ...personalization, reason: "unauthorized" })
+                : payload.error || buildEmailAssistantFailureReply({ ...personalization, reason: "temporary" })
             addAssistantMessage(message, { sender: settings.personalization.assistantName })
             return
           }
           const assistantReply = buildEmailAssistantReply({
             prompt: outboundContent,
-            nickname: settings.personalization.nickname,
+            ...personalization,
             assistantName: settings.personalization.assistantName,
-            communicationStyle: settings.personalization.communicationStyle,
-            tone: settings.personalization.tone,
-            characteristics: settings.personalization.characteristics,
-            customInstructions: settings.personalization.customInstructions,
             summary: String(payload.summary || ""),
             emails: Array.isArray(payload.emails) ? payload.emails : [],
           })
           addAssistantMessage(assistantReply, { sender: settings.personalization.assistantName })
           return
         } catch {
-          addAssistantMessage(buildEmailAssistantFailureReply({
-            nickname: settings.personalization.nickname,
-            communicationStyle: settings.personalization.communicationStyle,
-            tone: settings.personalization.tone,
-            characteristics: settings.personalization.characteristics,
-            customInstructions: settings.personalization.customInstructions,
-            reason: "temporary",
-          }), { sender: settings.personalization.assistantName })
+          addAssistantMessage(buildEmailAssistantFailureReply({ ...personalization, reason: "temporary" }), {
+            sender: settings.personalization.assistantName,
+          })
           return
         }
       }
@@ -486,6 +408,37 @@ export function ChatShellController() {
     [activeConvo, agentConnected, sendToAgent, addUserMessage, addAssistantMessage, resolveConversationIdForAgent, buildHudSessionKey, gmailConnected],
   )
 
+  // URL contract: /chat?thread=<id>, /chat?new=1, /chat?new=1&prompt=<text>. Handled once per distinct query
+  // (also while mounted), then the URL is cleaned so a reload does not repeat it.
+  const handledIntentRef = useRef("")
+  const threadParam = String(searchParams.get("thread") || "").trim()
+  const newParam = searchParams.get("new") === "1"
+  const promptParam = String(searchParams.get("prompt") || "").trim()
+  useEffect(() => {
+    if (!threadParam && !newParam) {
+      handledIntentRef.current = ""
+      return
+    }
+    if (!isSynced) return
+    const intentKey = `${threadParam}|${newParam ? 1 : 0}|${promptParam}`
+    if (handledIntentRef.current === intentKey) return
+    handledIntentRef.current = intentKey
+    if (threadParam) {
+      void handleSelectConvo(threadParam)
+    } else {
+      handleNewChat()
+      setPendingPrompt(promptParam)
+    }
+    window.history.replaceState(window.history.state, "", "/chat")
+  }, [threadParam, newParam, promptParam, isSynced, handleSelectConvo, handleNewChat])
+
+  // Send a ?prompt= once the fresh thread is active and the runtime is connected.
+  useEffect(() => {
+    if (!pendingPrompt || !agentConnected || !activeConvo || activeConvo.messages.length > 0) return
+    setPendingPrompt("")
+    void sendMessage(pendingPrompt)
+  }, [pendingPrompt, activeConvo, agentConnected, sendMessage])
+
   const handleUseSuggestedWording = useCallback(
     async (message: Message) => {
       const suggested = String(message.nlpCleanText || "").trim()
@@ -495,7 +448,6 @@ export function ChatShellController() {
     [sendMessage],
   )
 
-  // Convert ChatMessage[] to Message[] for MessageList
   const displayMessages: Message[] = useMemo(() => {
     if (!activeConvo) return []
     const msgs: Message[] = activeConvo.messages.map((m) => ({
@@ -510,276 +462,163 @@ export function ChatShellController() {
       nlpConfidence: m.nlpConfidence,
       nlpCorrectionCount: m.nlpCorrectionCount,
       nlpBypass: m.nlpBypass,
+      missionLabel: m.missionLabel,
     }))
     if (streamingAssistantId && !msgs.some((m) => m.id === streamingAssistantId)) {
-      msgs.push({
-        id: streamingAssistantId,
-        role: "assistant",
-        content: "",
-        createdAt: new Date(),
-      })
+      msgs.push({ id: streamingAssistantId, role: "assistant", content: "", createdAt: new Date() })
     }
     return msgs
   }, [activeConvo, streamingAssistantId])
 
-  // UI styling (pixel skin lives in app/styles/pixel-ui.css "Chat page")
-  const catState = resolveNovaCatState({ agentConnected, novaState, thinking: isThinking })
-  const CAT_STATE_LABEL: Record<NovaCatState, string> = {
-    idle: "Idle",
-    thinking: "Thinking",
-    speaking: "Speaking",
-    listening: "Listening",
-    muted: "Muted",
-    offline: "Offline",
-  }
-  const activeTitle = String(activeConvo?.title || "").trim() || "New conversation"
+  // Starters come only from integrations that are actually connected.
+  const starters = useMemo<Starter[]>(() => {
+    const list: Starter[] = []
+    if (gmailConnected) list.push({ id: "gmail", prompt: "Summarize my latest emails", icon: <GmailIcon className="size-4" /> })
+    if (gcalendarConnected) list.push({ id: "gcalendar", prompt: "What is on my calendar today?", icon: <GmailCalendarIcon className="size-4" /> })
+    if (coinbaseConnected) list.push({ id: "coinbase", prompt: "How is my crypto portfolio doing?", icon: <CoinbaseIcon className="size-4" /> })
+    if (braveConnected) list.push({ id: "brave", prompt: "Search the web for today's top tech news", icon: <BraveIcon className="size-4" /> })
+    if (spotifyConnected) list.push({ id: "spotify", prompt: "Play something to focus to on Spotify", icon: <SpotifyIcon className="size-4" /> })
+    return list.slice(0, 4)
+  }, [gmailConnected, gcalendarConnected, coinbaseConnected, braveConnected, spotifyConnected])
 
-  const integrationBadgeClass = (connected: boolean) =>
-    !integrationsHydrated ? "pc-slot pc-slot--wait" : connected ? "pc-slot pc-slot--on" : "pc-slot pc-slot--off"
+  const rawTitle = String(activeConvo?.title || "").trim()
+  const isUntitled = !rawTitle || rawTitle === DEFAULT_CONVERSATION_TITLE || (activeConvo?.messages.length ?? 0) === 0
+  const activeTitle = isUntitled ? "New chat" : rawTitle
+
+  const emptyState = (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-start gap-3">
+        <NovaMark className="mt-0.5" />
+        <div>
+          <h2 className="text-md font-medium text-fg">What should {assistantName} work on?</h2>
+          <p className="mt-1 text-sm text-muted">
+            Ask a question or hand over a task. {assistantName} can use your connected tools and will say when it needs your approval.
+          </p>
+        </div>
+      </div>
+      {starters.length > 0 ? (
+        <ul aria-label="Suggestions from your connected integrations" className="ml-9 flex flex-col overflow-hidden rounded-lg border border-border">
+          {starters.map((starter) => (
+            <li key={starter.id} className="border-b border-subtle last:border-b-0">
+              <button
+                type="button"
+                disabled={!agentConnected}
+                onClick={() => void sendMessage(starter.prompt)}
+                className="flex h-9 w-full items-center gap-2.5 px-3 text-left text-sm text-muted transition-colors duration-150 hover:bg-hover hover:text-fg disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+              >
+                <span aria-hidden className="flex size-4 items-center justify-center">{starter.icon}</span>
+                {starter.prompt}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="ml-9 text-xs text-muted">
+          Connect Gmail, Calendar, Coinbase or web search in{" "}
+          <Link href="/integrations" className="text-accent-text underline-offset-2 hover:underline">
+            Integrations
+          </Link>{" "}
+          to give {assistantName} more to work with.
+        </p>
+      )}
+    </div>
+  )
 
   return (
-    <div className="pixel-ui pixel-chat pc-root relative flex overflow-hidden">
-      {pendingQueueStatus.mode !== "idle" ? (
-        <div className="pointer-events-none fixed left-1/2 top-5 z-50 -translate-x-1/2">
-          <div className="pc-banner">
-            {pendingQueueStatus.mode === "retrying"
-              ? `${pendingQueueStatus.message} Retrying in ${pendingQueueStatus.retryInSeconds}s.`
-              : "Processing pending mission output..."}
-          </div>
-        </div>
-      ) : null}
-
-      {/* Sidebar */}
+    <PageContainer width="full" fill flush className="flex-row pb-0">
       <ChatSidebar
         conversations={conversations}
         activeId={activeConvo?.id || null}
-        isOpen={true}
-        onSelect={handleSelectConvo}
+        isOpen={!threadsCollapsed}
+        onSelect={(id) => void handleSelectConvo(id)}
         onNew={handleNewChat}
-        onDelete={handleDeleteConvo}
+        onDelete={(id) => void handleDeleteConvo(id)}
         onRename={handleRenameConvo}
         onArchive={handleArchiveConvo}
         onPin={handlePinConvo}
-        novaState={novaState}
-        agentConnected={agentConnected}
+        onCollapse={toggleThreads}
       />
 
-      {/* Main chat area */}
-      <div className="pc-main relative flex flex-col flex-1 overflow-hidden">
-        <div className="relative z-10 h-full w-full px-6 pt-4 pb-6">
-          <div className="grid h-full min-h-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_22.5rem]">
-            <div className="pixel-frame pc-dialog relative flex min-h-0 flex-col overflow-hidden">
-              <header className="pc-dialog-head">
-                <div className="pc-portrait-frame">
-                  <NovaCatPortrait state={catState} scale={3} accent={orbPalette.circle1} />
-                </div>
-                <div className="pc-title-wrap">
-                  <div className="pixel-plaque pc-plaque">
-                    <h2 className="pixel-title pc-dialog-name">U.B Agents</h2>
-                    <p className="pc-dialog-topic truncate" title={activeTitle}>{activeTitle}</p>
-                  </div>
-                </div>
-                <span className="pc-state" data-state={catState} role="status" aria-label={`U.B Agents is ${CAT_STATE_LABEL[catState].toLowerCase()}`}>
-                  <i aria-hidden="true" />
-                  {CAT_STATE_LABEL[catState]}
+      <section aria-label="Conversation" className="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas">
+        <header className="flex h-11 shrink-0 items-center gap-1.5 border-b border-subtle px-3">
+          {threadsCollapsed ? (
+            <Tooltip content="Show threads">
+              <IconButton size="sm" aria-label="Show threads" onClick={toggleThreads}>
+                <PanelLeftOpen />
+              </IconButton>
+            </Tooltip>
+          ) : null}
+          <h1 className={isUntitled ? "min-w-0 truncate text-sm text-muted" : "min-w-0 truncate text-sm font-medium text-fg"} title={activeTitle}>
+            {activeTitle}
+          </h1>
+          {activeConvo && !isUntitled ? (
+            <ThreadMenu
+              convo={activeConvo}
+              align="start"
+              onRename={() => setRenaming(activeConvo)}
+              onArchive={handleArchiveConvo}
+              onPin={handlePinConvo}
+              onDelete={() => setDeleting(activeConvo)}
+            />
+          ) : null}
+        </header>
+        <RenameThreadDialog
+          convo={renaming}
+          onCancel={() => setRenaming(null)}
+          onRename={(id, title) => {
+            setRenaming(null)
+            handleRenameConvo(id, title)
+          }}
+        />
+        <DeleteThreadDialog
+          convo={deleting}
+          onCancel={() => setDeleting(null)}
+          onConfirm={(id) => {
+            setDeleting(null)
+            void handleDeleteConvo(id)
+          }}
+        />
+
+        <MessageList
+          messages={displayMessages}
+          isStreaming={isThinking}
+          streamingAssistantId={streamingAssistantId}
+          thinkingStatus={thinkingStatus}
+          isLoaded={isLoaded}
+          assistantName={assistantName}
+          modelByMessageId={modelByMessageId}
+          emptyState={emptyState}
+          onUseSuggestedWording={handleUseSuggestedWording}
+        />
+
+        <div className={`${CHAT_COLUMN_CLASS} shrink-0 pb-4`}>
+          {!agentConnected ? (
+            <div role="status" className="mb-2 flex items-start gap-2.5 rounded-lg border border-border bg-warning-muted px-3 py-2 text-sm">
+              <WifiOff className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
+              <p className="text-fg">
+                The Nova runtime is not connected.{" "}
+                <span className="text-muted">
+                  {pendingPrompt
+                    ? "Your message will send as soon as it reconnects."
+                    : "Chat reconnects on its own once the runtime is running."}
                 </span>
-              </header>
-              <div className="pc-dialog-body relative min-h-0 flex-1 overflow-hidden">
-                <MessageList
-                  messages={displayMessages}
-                  isStreaming={isThinking}
-                  streamingAssistantId={streamingAssistantId}
-                  thinkingStatus={thinkingStatus}
-                  error={null}
-                  onRetry={() => {}}
-                  isLoaded={isLoaded}
-                  zoom={100}
-                  orbPalette={orbPalette}
-                  onUseSuggestedWording={handleUseSuggestedWording}
-                />
-                <Composer
-                  onSend={sendMessage}
-                  isStreaming={isThinking}
-                  disabled={!agentConnected}
-                  isMuted={isMuted}
-                  onToggleMute={handleMuteToggle}
-                  muteHydrated={muteHydrated}
-                />
-              </div>
+              </p>
             </div>
-
-            {/* Right sidebar panels */}
-            <aside ref={sidebarPanelsRef} className="relative hidden min-h-0 flex-col gap-4 pt-0 xl:flex">
-              {/* Mission Pipeline */}
-              <section className="pixel-card pc-panel min-h-0 flex-1 flex flex-col">
-                <div className="pc-panel-head">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <Pin className="w-4 h-4 shrink-0" />
-                    <h2 className="pc-panel-title pixel-outline-sm truncate">Mission Pipeline</h2>
-                  </div>
-                  <button
-                    onClick={() => {
-                      router.push("/home?room=depot&section=new-deployment&tab=automation")
-                    }}
-                    className="pixel-btn pixel-btn--ghost pc-icon-btn group/mission-gear"
-                    aria-label="Open mission settings"
-                  >
-                    <Settings className="w-3.5 h-3.5 mx-auto group-hover/mission-gear:rotate-90 transition-transform duration-200" />
-                  </button>
-                </div>
-                <div className="pc-panel-body flex min-h-0 flex-1 flex-col">
-                  <p className="pc-hint pc-hint--flush">Scheduled U.B Agents workflows</p>
-
-                  <div className="mt-2.5 min-h-0 flex-1 overflow-y-auto no-scrollbar space-y-2">
-                    {missions.length === 0 && (
-                      <p className="pc-hint pc-hint--flush">
-                        No missions yet. Add one in Mission Settings.
-                      </p>
-                    )}
-                    {missions.map((mission) => (
-                      <div key={mission.id} className="pixel-card pc-card">
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="pc-card-title text-[13px] leading-tight">{mission.title}</p>
-                          <div className="flex items-center gap-1 flex-nowrap shrink-0">
-                            <span className="pc-tag" data-on={mission.enabledCount > 0 ? "true" : "false"}>
-                              {mission.enabledCount > 0 ? "Active" : "Paused"}
-                            </span>
-                          </div>
-                        </div>
-                        {mission.description && (
-                          <p className="pc-card-desc mt-0.5 text-[11px] leading-4 line-clamp-2">{mission.description}</p>
-                        )}
-                        <div className="mt-1.5 flex flex-wrap gap-1">
-                          {mission.times.map((time) => (
-                            <span key={`${mission.id}-${time}`} className="pc-time-chip">
-                              {formatDailyTime(time, mission.timezone)}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </section>
-
-              {/* Integrations */}
-              <section className="pixel-card pc-panel">
-                <div className="pc-panel-head">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <Blocks className="w-4 h-4 shrink-0" />
-                    <h2 className="pc-panel-title pixel-outline-sm truncate">Integrations</h2>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => router.push("/integrations")}
-                      className="pixel-btn pixel-btn--ghost pc-icon-btn group/gear"
-                      aria-label="Open integrations settings"
-                    >
-                      <Settings className="w-3.5 h-3.5 mx-auto group-hover/gear:rotate-90 transition-transform duration-200" />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="pc-panel-body">
-                  <div className="relative min-h-5">
-                    <p className="pc-hint pc-hint--flush">Node connectivity</p>
-                    {integrationGuardNotice ? (
-                      <div className="pointer-events-none absolute right-0 top-1/2 z-20 -translate-y-1/2">
-                        <div className="pc-toast">{integrationGuardNotice}</div>
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="pc-slots mt-3">
-                    <div className="grid grid-cols-6 gap-1.5">
-                      <button
-                        onClick={handleToggleTelegramIntegration}
-                        className={integrationBadgeClass(telegramConnected)}
-                        title={telegramConnected ? "Telegram connected" : "Telegram disconnected"}
-                      >
-                        <TelegramIcon className="w-3.5 h-3.5 -translate-y-0.5" />
-                      </button>
-                      <button
-                        onClick={handleToggleDiscordIntegration}
-                        className={integrationBadgeClass(discordConnected)}
-                        title={discordConnected ? "Discord connected" : "Discord disconnected"}
-                      >
-                        <DiscordIcon className="w-3.5 h-3.5 text-white -translate-y-0.5" />
-                      </button>
-                      <button
-                        onClick={handleToggleOpenAIIntegration}
-                        className={integrationBadgeClass(openaiConnected)}
-                        title={openaiConnected ? "OpenAI connected" : "OpenAI disconnected"}
-                      >
-                        <OpenAIIcon className="w-4 h-4 -translate-y-0.5" />
-                      </button>
-                      <button
-                        onClick={handleToggleClaudeIntegration}
-                        className={integrationBadgeClass(claudeConnected)}
-                        title={claudeConnected ? "Claude connected" : "Claude disconnected"}
-                      >
-                        <ClaudeIcon className="w-4 h-4 -translate-y-0.5" />
-                      </button>
-                      <button
-                        onClick={handleToggleGrokIntegration}
-                        className={integrationBadgeClass(grokConnected)}
-                        title={grokConnected ? "Grok connected" : "Grok disconnected"}
-                      >
-                        <span className="inline-flex -translate-y-0.5"><XAIIcon size={16} /></span>
-                      </button>
-                      <button
-                        onClick={handleToggleGeminiIntegration}
-                        className={integrationBadgeClass(geminiConnected)}
-                        title={geminiConnected ? "Gemini connected" : "Gemini disconnected"}
-                      >
-                        <span className="inline-flex -translate-y-0.5"><GeminiIcon size={16} /></span>
-                      </button>
-                      <button
-                        onClick={handleToggleGmailIntegration}
-                        className={integrationBadgeClass(gmailConnected)}
-                        title={gmailConnected ? "Gmail connected" : "Gmail disconnected"}
-                      >
-                        <GmailIcon className="w-3.5 h-3.5 -translate-y-0.5" />
-                      </button>
-                      <button
-                        onClick={() => router.push("/integrations")}
-                        className={integrationBadgeClass(spotifyConnected)}
-                        title={spotifyConnected ? "Spotify connected" : "Spotify disconnected"}
-                      >
-                        <SpotifyIcon className="w-3.5 h-3.5 -translate-y-0.5" />
-                      </button>
-                      <button
-                        onClick={() => router.push("/integrations")}
-                        className={integrationBadgeClass(gcalendarConnected)}
-                        title={gcalendarConnected ? "Google Calendar connected" : "Google Calendar disconnected"}
-                      >
-                        <GmailCalendarIcon className="w-3.5 h-3.5 -translate-y-0.5" />
-                      </button>
-                      <button
-                        onClick={handleToggleBraveIntegration}
-                        className={integrationBadgeClass(braveConnected)}
-                        title={braveConnected ? "Brave connected" : braveConfigured ? "Brave disconnected" : "Brave key required"}
-                      >
-                        <BraveIcon className="w-4 h-4 -translate-y-0.5" />
-                      </button>
-                      <button
-                        onClick={handleToggleCoinbaseIntegration}
-                        className={integrationBadgeClass(coinbaseConnected)}
-                        title={coinbaseConnected ? "Coinbase connected" : coinbaseConfigured ? "Coinbase disconnected" : "Coinbase keys required"}
-                      >
-                        <CoinbaseIcon className="w-4 h-4 -translate-y-0.5" />
-                      </button>
-                      {Array.from({ length: 13 }).map((_, index) => (
-                        <div key={index} className="pc-slot pc-slot--empty" />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </section>
-            </aside>
-          </div>
+          ) : null}
+          <Composer
+            onSend={sendMessage}
+            isStreaming={isThinking}
+            onStop={interrupt}
+            disabled={!agentConnected || !activeConvo}
+            disabledReason={!agentConnected ? "Waiting for the runtime to connect" : "Loading thread"}
+            isMuted={isMuted}
+            onToggleMute={handleMuteToggle}
+            muteHydrated={muteHydrated}
+            modelId={activeLlmModel}
+            autoFocus
+          />
         </div>
-      </div>
-    </div>
+      </section>
+    </PageContainer>
   )
 }

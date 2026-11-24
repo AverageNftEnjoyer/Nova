@@ -11,6 +11,7 @@
 //
 // @type {import('next').NextConfig}
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- CommonJS config (see above)
 const path = require("node:path")
 
 process.env.BROWSERSLIST_IGNORE_OLD_DATA = "true"
@@ -59,27 +60,75 @@ const nextConfig = {
   turbopack: {
     root: workspaceRoot,
   },
-  // The legacy /deployments page is retired: the Depot room on Home does everything it did. Old links and bookmarks
-  // get a real redirect (also in the packaged server, which runs with this config). The old `?mode=` / `&kind=` deep
-  // links open the Depot's creation section on the matching tab; Home reads `room`, `section` and `tab` once and
-  // cleans the URL. First match wins.
+  // Old deep links get real redirects (also in the packaged server, which runs with this config). First match wins.
+  // Next appends the original query to the destination; no destination matches a source again, so nothing loops.
   async redirects() {
-    const creation = (tab) => `/home?room=depot&section=new-deployment&tab=${tab}`
-    return [
-      {
-        source: "/deployments",
-        has: [
-          { type: "query", key: "mode", value: "advanced" },
-          { type: "query", key: "kind", value: "automation" },
-        ],
-        destination: creation("automation"),
-        permanent: false,
-      },
-      { source: "/deployments", has: [{ type: "query", key: "mode", value: "advanced" }], destination: creation("task"), permanent: false },
-      { source: "/deployments", has: [{ type: "query", key: "mode" }], destination: creation("describe"), permanent: false },
-      { source: "/deployments", destination: "/home?room=depot", permanent: false },
-    ]
-  },
+    return [...LEGACY_DEPLOYMENT_REDIRECTS, ...LEGACY_HOME_ROOM_REDIRECTS]
+  }
 }
+
+/** The old `/deployments?mode=...` creation links open the matching tab of New deployment. Plain `/deployments` is the list. */
+const LEGACY_DEPLOYMENT_REDIRECTS = [
+  {
+    source: "/deployments",
+    has: [
+      { type: "query", key: "mode", value: "advanced" },
+      { type: "query", key: "kind", value: "automation" },
+    ],
+    destination: "/deployments/new?tab=automation",
+    permanent: false,
+  },
+  { source: "/deployments", has: [{ type: "query", key: "mode", value: "advanced" }], destination: "/deployments/new?tab=task", permanent: false },
+  { source: "/deployments", has: [{ type: "query", key: "mode" }], destination: "/deployments/new?tab=describe", permanent: false },
+]
+
+/** Integration each retired Home room set up (`/home?room=<room>`), opened on /integrations. */
+const ROOM_INTEGRATIONS = {
+  bank: "coinbase",
+  cinema: "youtube",
+  records: "spotify",
+  arcade: "discord",
+  cowork: "slack",
+  lab: "openai",
+  studio: "claude",
+  observatory: "grok",
+  "gemini-tower": "gemini",
+  telegraph: "telegram",
+  library: "brave",
+  vault: "phantom",
+}
+
+const homeRoom = (room, destination, extra = []) => ({
+  source: "/home",
+  has: [{ type: "query", key: "room", value: room }, ...extra],
+  destination,
+  permanent: false,
+})
+const setupSection = [{ type: "query", key: "section", value: "setup" }]
+
+/**
+ * The retired Home rooms (`/home?room=<id>[&section=<id>][&tab=<id>]`) map to the pages that now hold their features.
+ * `/home` without `room`, or with a room not listed here, stays on Home (Home drops an unknown `room` param itself).
+ */
+const LEGACY_HOME_ROOM_REDIRECTS = [
+  homeRoom("depot", "/deployments/new?tab=:tab", [
+    { type: "query", key: "section", value: "new-deployment" },
+    { type: "query", key: "tab", value: "(?<tab>describe|task|automation)" },
+  ]),
+  homeRoom("depot", "/deployments/new", [{ type: "query", key: "section", value: "new-deployment" }]),
+  homeRoom("depot", "/deployments", [{ type: "query", key: "section", value: "deployment-list" }]),
+  homeRoom("depot", "/runs"),
+  homeRoom("nova-hq", "/runs"),
+  homeRoom("power-plant", "/analytics"),
+  homeRoom("fountain-park", "/chat"),
+  homeRoom("town-hall", "/integrations"),
+  homeRoom("odds-parlour", "/integrations?setup=polymarket", setupSection),
+  homeRoom("odds-parlour", "/polymarket"),
+  homeRoom("post-office", "/integrations?setup=gmail", setupSection),
+  homeRoom("post-office", "/missions/calendar"),
+  homeRoom("clock-tower", "/integrations?setup=gmail-calendar", setupSection),
+  homeRoom("clock-tower", "/missions/calendar"),
+  ...Object.entries(ROOM_INTEGRATIONS).map(([room, setup]) => homeRoom(room, `/integrations?setup=${setup}`)),
+]
 
 module.exports = nextConfig

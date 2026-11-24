@@ -1,7 +1,7 @@
 import { useCallback, useEffect, type MutableRefObject } from "react"
 import { getActiveUserId } from "@/lib/auth/active-user"
 import type { ChatMessage, Conversation } from "@/lib/chat/conversations"
-import { generateId, resolveConversationTitle } from "@/lib/chat/conversations"
+import { createConversation, generateId, resolveConversationTitle } from "@/lib/chat/conversations"
 import {
   mergeConversationsPreferLocal,
   buildMissionScopeKey,
@@ -14,7 +14,6 @@ import {
 } from "./shared"
 
 export function useConversationActions(params: {
-  router: { push: (href: string) => void }
   conversations: Conversation[]
   activeConvo: Conversation | null
   agentConnected: boolean
@@ -37,7 +36,6 @@ export function useConversationActions(params: {
   missionInFlightByScopeRef: MutableRefObject<Map<string, { signature: string; startedAt: number; cooldownUntil: number }>>
 }) {
   const {
-    router,
     conversations,
     activeConvo,
     agentConnected,
@@ -60,9 +58,17 @@ export function useConversationActions(params: {
     missionInFlightByScopeRef,
   } = params
 
+  // Opens a fresh conversation in place. An existing empty, unarchived thread is reused so repeated
+  // "New chat" clicks (and /chat?new=1 visits) do not pile up empty threads.
   const handleNewChat = useCallback(() => {
-    router.push("/home")
-  }, [router])
+    const reusable = conversations.find((c) => !c.archived && c.messages.length === 0)
+    if (reusable) {
+      persist(conversations, reusable)
+      return
+    }
+    const fresh = createConversation()
+    persist([fresh, ...conversations], fresh)
+  }, [conversations, persist])
 
   const handleSelectConvo = useCallback(
     async (id: string) => {
@@ -245,7 +251,7 @@ export function useConversationActions(params: {
         content: content.trim(),
         createdAt: new Date().toISOString(),
         source: "agent",
-        sender: String(options?.sender || "U.B Agents").trim() || "U.B Agents",
+        sender: String(options?.sender || "Nova").trim() || "Nova",
       }
 
       const updated: Conversation = {
@@ -387,7 +393,7 @@ export function useConversationActions(params: {
             content: "Still processing your mission request. I did not send a duplicate. I will update you once it finishes.",
             createdAt: new Date().toISOString(),
             source: "agent",
-            sender: "U.B Agents",
+            sender: "Nova",
           }
           const updated = { ...activeSnapshot, messages: [...activeSnapshot.messages, notice], updatedAt: new Date().toISOString() }
           const nextConvos = latestConversationsRef.current.map((entry) => (entry.id === updated.id ? updated : entry))

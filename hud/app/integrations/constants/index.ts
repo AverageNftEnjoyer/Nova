@@ -1,5 +1,5 @@
 // Types
-export type { ModelPricing, ModelOption, FluidSelectOption } from "./types"
+export type { ModelPricing, ModelOption, SelectOption } from "./types"
 
 // OpenAI
 export {
@@ -48,14 +48,7 @@ export {
 
 // UI constants
 export {
-  FLOATING_LINES_ENABLED_WAVES,
-  FLOATING_LINES_LINE_COUNT,
-  FLOATING_LINES_LINE_DISTANCE,
-  FLOATING_LINES_TOP_WAVE_POSITION,
-  FLOATING_LINES_MIDDLE_WAVE_POSITION,
-  FLOATING_LINES_BOTTOM_WAVE_POSITION,
   GMAIL_DEFAULT_REDIRECT_URI,
   SPOTIFY_DEFAULT_REDIRECT_URI,
   YOUTUBE_DEFAULT_REDIRECT_URI,
-  hexToRgba,
 } from "./ui"

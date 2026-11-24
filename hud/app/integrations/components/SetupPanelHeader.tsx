@@ -1,65 +1,63 @@
-"use client"
+import type { ReactNode } from "react"
+import { CircleAlert, X } from "lucide-react"
 
-import { Save } from "lucide-react"
-import { cn } from "@/lib/shared/utils"
+import { Badge, IconButton } from "@/components/ui"
+import type { IntegrationSetupKey } from "@/lib/integrations/navigation"
+import { IntegrationIcon } from "../constants/catalog"
 
-export interface SetupPanelHeaderProps {
-  title: string
-  description: string
-  isConnected: boolean
-  isSaving: boolean
-  isSavingAny: boolean
-  onToggle: () => void
-  onSave: () => void
-  toggleLabel?: { enable: string; disable: string }
-  isLight: boolean
+export type IntegrationStatus = "connected" | "disconnected" | "error"
+
+export function IntegrationStatusBadge({ status }: { status: IntegrationStatus }) {
+  if (status === "connected") return <Badge tone="success" dot>Connected</Badge>
+  if (status === "error") return <Badge tone="danger" dot>Error</Badge>
+  return <Badge>Not connected</Badge>
 }
 
-export function SetupPanelHeader({
-  title,
-  description,
-  isConnected,
-  isSaving,
-  isSavingAny,
-  onToggle,
-  onSave,
-  toggleLabel = { enable: "Enable", disable: "Disable" },
-  isLight,
-}: SetupPanelHeaderProps) {
+export interface SetupPanelHeaderProps {
+  setup: IntegrationSetupKey
+  title: string
+  purpose: string
+  status: IntegrationStatus
+  /** Extra marker after the status (the "Active" badge of the selected model provider). */
+  meta?: ReactNode
+  /** Right-aligned actions; the primary action goes last. */
+  actions?: ReactNode
+  /** The last failed save / test for this integration, with what to do next. */
+  error?: string | null
+  onDismissError?: () => void
+}
+
+/** Compact header of the selected integration: mark, name, purpose, status and its actions. */
+export function SetupPanelHeader({ setup, title, purpose, status, meta, actions, error, onDismissError }: SetupPanelHeaderProps) {
   return (
-    <div className="flex items-center justify-between">
-      <div>
-        <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
-          {title}
-        </h2>
-        <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
-          {description}
-        </p>
+    <header className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-border bg-surface-2 text-fg">
+            <IntegrationIcon setup={setup} className="size-5" />
+          </span>
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-md font-semibold text-fg">{title}</h2>
+              <IntegrationStatusBadge status={status} />
+              {meta}
+            </div>
+            <p className="text-sm text-muted">{purpose}</p>
+          </div>
+        </div>
+        {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
       </div>
-      <div className="flex items-center gap-2">
-        <button
-          onClick={onToggle}
-          disabled={isSavingAny}
-          className={cn(
-            "pixel-btn",
-            isConnected
-              ? "pixel-btn--red"
-              : "pixel-btn--teal"
-          )}
-        >
-          {isConnected ? toggleLabel.disable : toggleLabel.enable}
-        </button>
-        <button
-          onClick={onSave}
-          disabled={isSavingAny}
-          className={cn(
-            "pixel-btn pixel-btn--gold"
-          )}
-        >
-          <Save className="w-3.5 h-3.5" />
-          {isSaving ? "Saving..." : "Save"}
-        </button>
-      </div>
-    </div>
+      {error ? (
+        <div role="alert" className="flex items-start gap-2 rounded-md bg-danger-muted px-3 py-2 text-sm text-fg">
+          <CircleAlert className="mt-0.5 size-4 shrink-0 text-danger" aria-hidden="true" />
+          <p className="min-w-0 flex-1 leading-5">{error}</p>
+          {onDismissError ? (
+            <IconButton size="sm" aria-label="Dismiss error" onClick={onDismissError} className="-my-1 -mr-1.5">
+              <X />
+            </IconButton>
+          ) : null}
+        </div>
+      ) : null}
+    </header>
   )
 }

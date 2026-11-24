@@ -1,74 +1,70 @@
 "use client"
 
+import type React from "react"
 import { useEffect, useRef, useState } from "react"
+import { cn } from "@/lib/shared/utils"
+import { Skeleton } from "@/components/ui"
+import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
 import { MessageBubble } from "./message-bubble"
 import type { Message } from "./chat-types"
-import { AlertCircle, RefreshCw } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
-import { cn } from "@/lib/shared/utils"
-import type { OrbPalette } from "@/components/chat/nova-orb-indicator"
-import { NovaCatPortrait } from "@/components/chat/nova-cat-portrait"
 
 interface MessageListProps {
   messages: Message[]
   isStreaming: boolean
   streamingAssistantId?: string | null
   thinkingStatus?: string
-  error: string | null
-  onRetry: () => void
   isLoaded: boolean
-  zoom?: number
-  orbPalette: OrbPalette
+  assistantName: string
+  modelByMessageId: Record<string, string>
+  /** Shown when the thread has no messages. */
+  emptyState: React.ReactNode
   onUseSuggestedWording?: (message: Message) => void | Promise<void>
 }
+
+/** Readable column width for the conversation and the composer (rem, so it scales on 4K). */
+export const CHAT_COLUMN_CLASS = "mx-auto w-full max-w-[48rem] px-6"
 
 export function MessageList({
   messages,
   isStreaming,
   streamingAssistantId = null,
   thinkingStatus = "",
-  error,
-  onRetry,
   isLoaded,
-  zoom = 100,
-  orbPalette,
+  assistantName,
+  modelByMessageId,
+  emptyState,
   onUseSuggestedWording,
 }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
   const [autoScroll, setAutoScroll] = useState(true)
   const rafRef = useRef<number | null>(null)
   const lastScrollRef = useRef<number>(0)
   const [compactMode, setCompactMode] = useState(() => loadUserSettings().app.compactMode)
-  const scrollToBottom = () => {
-    if (!containerRef.current) return
-    const container = containerRef.current
-    container.scrollTop = container.scrollHeight
-  }
 
   useEffect(() => {
     const syncCompactMode = () => setCompactMode(loadUserSettings().app.compactMode)
-    const onSettingsUpdated = () => syncCompactMode()
     const onStorage = (e: StorageEvent) => {
       if (e.key === "nova_user_settings") syncCompactMode()
     }
-
-    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, onSettingsUpdated as EventListener)
+    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, syncCompactMode as EventListener)
     window.addEventListener("storage", onStorage)
     return () => {
-      window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, onSettingsUpdated as EventListener)
+      window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncCompactMode as EventListener)
       window.removeEventListener("storage", onStorage)
     }
   }, [])
 
   useEffect(() => {
-    if (!containerRef.current) return
+    const container = containerRef.current
+    if (!container) return
+    const scrollToBottom = () => {
+      container.scrollTop = container.scrollHeight
+    }
     scrollToBottom()
-    // One RAF to settle after the DOM has fully laid out with the new message.
+    // One frame to settle after the DOM has laid out the new message.
     const raf = requestAnimationFrame(scrollToBottom)
     return () => cancelAnimationFrame(raf)
-  }, [messages.length, isLoaded, zoom, compactMode])
+  }, [messages.length, isLoaded, compactMode])
 
   useEffect(() => {
     if (!isStreaming || !autoScroll || !containerRef.current) {
@@ -82,24 +78,17 @@ export function MessageList({
     const container = containerRef.current
     lastScrollRef.current = container.scrollTop
 
-    const smoothScroll = () => {
-      if (!container) return
-
-      const { scrollHeight, clientHeight } = container
-      const targetScroll = scrollHeight - clientHeight
-      const currentScroll = lastScrollRef.current
-      const diff = targetScroll - currentScroll
-
+    const followStream = () => {
+      const target = container.scrollHeight - container.clientHeight
+      const diff = target - lastScrollRef.current
       if (diff > 0.5) {
-        const newScroll = currentScroll + diff * 0.03
-        lastScrollRef.current = newScroll
-        container.scrollTop = newScroll
+        const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        lastScrollRef.current = reduced ? target : lastScrollRef.current + diff * 0.03
+        container.scrollTop = lastScrollRef.current
       }
-
-      rafRef.current = requestAnimationFrame(smoothScroll)
+      rafRef.current = requestAnimationFrame(followStream)
     }
-
-    rafRef.current = requestAnimationFrame(smoothScroll)
+    rafRef.current = requestAnimationFrame(followStream)
 
     return () => {
       if (rafRef.current) {
@@ -111,99 +100,82 @@ export function MessageList({
 
   const handleScroll = () => {
     if (!containerRef.current || isStreaming) return
-
     const { scrollTop, scrollHeight, clientHeight } = containerRef.current
-    const isAtBottom = scrollHeight - scrollTop - clientHeight < 150
-    setAutoScroll(isAtBottom)
+    setAutoScroll(scrollHeight - scrollTop - clientHeight < 150)
   }
 
-  const latestUserMessage = (() => {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      if (messages[i]?.role === "user") return String(messages[i]?.content || "")
+  let latestUserMessage = ""
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i]?.role === "user") {
+      latestUserMessage = String(messages[i]?.content || "")
+      break
     }
-    return ""
-  })()
-  const shouldAnimateOrb = isStreaming
-
-  if (!isLoaded) {
-    return <div className="absolute inset-0" />
   }
+
+  const visibleMessages = messages.filter(
+    (message) =>
+      // Empty assistant placeholders that are not streaming are stale; hide them.
+      message.role === "user" || String(message.content || "").trim() || streamingAssistantId === message.id,
+  )
+
+  // The runtime can report "thinking" before the first stream event names a reply id: show a pending row then.
+  const lastVisible = visibleMessages[visibleMessages.length - 1]
+  const showPendingRow =
+    isStreaming && !visibleMessages.some((m) => m.id === streamingAssistantId) && lastVisible?.role === "user"
 
   return (
     <div
       ref={containerRef}
       onScroll={handleScroll}
-      className="pc-log absolute inset-0 overflow-y-auto overflow-x-hidden no-scrollbar pt-3 pb-20 border-none"
+      className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
       role="log"
-      aria-label="Chat messages"
+      aria-label="Messages"
       aria-live="polite"
+      aria-busy={!isLoaded || undefined}
     >
-    <div
-      className={cn(
-        "pc-log-inner mx-auto w-full min-h-full origin-top px-4 sm:px-5 flex flex-col justify-start",
-        compactMode ? "max-w-3xl space-y-3" : "max-w-none space-y-4",
-      )}
-      style={{
-        transform: `scale(${zoom / 100})`,
-        transformOrigin: "top left",
-        width: `${10000 / zoom}%`,
-        transition: "transform 0.2s ease",
-      }}
-    >
-      {messages.length === 0 && !error && !isStreaming && (
-        <div className="pc-empty">
-          <NovaCatPortrait state="idle" scale={4} accent={orbPalette.circle1} />
-          <div className="pc-bubble pc-bubble--nova pc-bubble--center">
-            <div className="pc-bubble-body text-center">
-              <p className="pc-empty-title">
-                Hi, my name is U.B Agents
-              </p>
-              <p className="pc-empty-sub">
-                What can I help you with today?
-              </p>
+      {!isLoaded ? (
+        <div className={cn(CHAT_COLUMN_CLASS, "space-y-6 py-8")} aria-label="Loading messages" role="status">
+          <div className="flex justify-end">
+            <Skeleton className="h-9 w-2/5 rounded-lg" />
+          </div>
+          <div className="flex gap-3">
+            <Skeleton className="size-6 rounded-md" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-4/5" />
             </div>
           </div>
         </div>
-      )}
-
-      {messages.map((message) => {
-        const isAssistantStreaming = message.role === "assistant" && streamingAssistantId === message.id
-        // Hide empty assistant messages that are not actively streaming (stale placeholders)
-        if (message.role === "assistant" && !String(message.content || "").trim() && !isAssistantStreaming) return null
-        return (
-          <MessageBubble
-            key={message.id}
-            message={message}
-            isStreaming={isAssistantStreaming}
-            compactMode={compactMode}
-            orbPalette={orbPalette}
-            orbAnimated={shouldAnimateOrb && isAssistantStreaming}
-            thinkingStatus={thinkingStatus}
-            latestUserMessage={latestUserMessage}
-            onUseSuggestedWording={onUseSuggestedWording}
-          />
-        )
-      })}
-
-      {error && (
-        <div
-          className="pc-error"
-          role="alert"
-        >
-          <AlertCircle className="w-5 h-5 shrink-0" />
-          <div className="flex-1">
-            <p className="text-sm font-medium">Something went wrong</p>
-            <p className="text-xs mt-0.5 opacity-80">{error}</p>
-          </div>
-          <Button variant="ghost" size="sm" onClick={onRetry} className="pc-chip-btn">
-            <RefreshCw className="w-4 h-4 mr-1" />
-            Retry
-          </Button>
+      ) : visibleMessages.length === 0 && !isStreaming ? (
+        <div className={cn(CHAT_COLUMN_CLASS, "flex min-h-full flex-col justify-center py-10")}>{emptyState}</div>
+      ) : (
+        <div className={cn(CHAT_COLUMN_CLASS, "flex flex-col pt-6 pb-4", compactMode ? "gap-3" : "gap-5")}>
+          {visibleMessages.map((message) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              isStreaming={message.role === "assistant" && streamingAssistantId === message.id}
+              compactMode={compactMode}
+              assistantName={assistantName}
+              modelId={modelByMessageId[message.id]}
+              thinkingStatus={thinkingStatus}
+              latestUserMessage={latestUserMessage}
+              onUseSuggestedWording={onUseSuggestedWording}
+            />
+          ))}
+          {showPendingRow ? (
+            <MessageBubble
+              message={{ id: "pending-reply", role: "assistant", content: "", createdAt: lastVisible.createdAt }}
+              isStreaming
+              compactMode={compactMode}
+              assistantName={assistantName}
+              thinkingStatus={thinkingStatus}
+              latestUserMessage={latestUserMessage}
+            />
+          ) : null}
         </div>
       )}
-
-      <div ref={bottomRef} aria-hidden="true" className="h-2" />
-    </div>
     </div>
   )
 }

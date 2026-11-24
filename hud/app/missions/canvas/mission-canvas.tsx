@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type DragEvent, type ReactNode } from "react"
 import {
   ReactFlow,
   Background,
@@ -10,26 +10,29 @@ import {
   addEdge,
   useNodesState,
   useEdgesState,
+  useReactFlow,
   type Node as RFNode,
   type Edge,
   type Connection,
+  type OnSelectionChangeParams,
   ReactFlowProvider,
-  Panel,
 } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
-import { CheckCircle2, Database, Rows4, Save, ShieldAlert, Play } from "lucide-react"
-import { cn } from "@/lib/shared/utils"
+import { ArrowLeft, Check, MousePointerClick, Play, Save } from "lucide-react"
+
+import { Badge, Button, EmptyState, IconButton, StatusDot, Tabs, TabsList, TabsTrigger, toast } from "@/components/ui"
 import type { Mission, MissionConnection, MissionNode } from "@/lib/missions/types"
-import { getNodeCatalogEntry, getPaletteCatalog, PALETTE_CATEGORIES, type NodeCatalogEntry } from "@/lib/missions/catalog"
+import { getNodeCatalogEntry, type NodeCatalogEntry } from "@/lib/missions/catalog"
 import {
   buildCommandSpineAgentIds,
   buildProviderSelectorDefaults,
   buildScopedAgentId,
 } from "@/lib/missions/workflow/agent-topology"
-import { validateMissionGraphForVersioning, type MissionGraphValidationIssue } from "@/lib/missions/workflow/versioning/mission-graph-validation"
-import { ACCENT_COLORS, loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
+import { validateMissionGraphForVersioning } from "@/lib/missions/workflow/versioning/mission-graph-validation"
 import { getRuntimeTimezone } from "@/lib/shared/timezone"
-import { FluidSelect } from "@/components/ui/fluid-select"
+import { AGENT_NODE_NOTE } from "./category-tone"
+import { NodeConfigPanel } from "./node-config-panel"
+import { NodePalette } from "./node-palette"
 import { BaseNode, type MissionNodeData } from "./nodes/base-node"
 
 type CanvasNodeType = NodeCatalogEntry["type"]
@@ -67,8 +70,6 @@ function missionConnectionsToRFEdges(connections: MissionConnection[]): Edge[] {
     target: c.targetNodeId,
     targetHandle: c.targetPort,
     type: "smoothstep",
-    animated: true,
-    style: { stroke: "hsl(var(--mission-flow-edge) / 0.68)", strokeWidth: 1.7, strokeDasharray: "6 7" },
   }))
 }
 
@@ -115,10 +116,10 @@ type CommandLaneId = "operator" | "council" | "domain-manager" | "worker" | "aud
 const COMMAND_LANES: Array<{ id: CommandLaneId; label: string; y: number }> = [
   { id: "operator", label: "Operator", y: 120 },
   { id: "council", label: "Council", y: 240 },
-  { id: "domain-manager", label: "Domain Manager", y: 360 },
+  { id: "domain-manager", label: "Domain manager", y: 360 },
   { id: "worker", label: "Worker", y: 480 },
   { id: "audit", label: "Audit", y: 600 },
-  { id: "provider", label: "Provider Rail", y: 720 },
+  { id: "provider", label: "Provider rail", y: 720 },
 ]
 
 function getCommandLaneForNode(node: MissionNode): CommandLaneId | null {
@@ -181,17 +182,6 @@ function collectAgentStateInspector(mission: Pick<Mission, "nodes">): {
     undeclaredReads,
     undeclaredWrites,
   }
-}
-
-function hexToRgbString(hex: string): string {
-  const normalized = hex.startsWith("#") ? hex.slice(1) : hex
-  const full = normalized.length === 3 ? normalized.split("").map((c) => `${c}${c}`).join("") : normalized
-  if (!/^[0-9a-fA-F]{6}$/.test(full)) return "255, 255, 255"
-  const num = Number.parseInt(full, 16)
-  const r = (num >> 16) & 255
-  const g = (num >> 8) & 255
-  const b = num & 255
-  return `${r}, ${g}, ${b}`
 }
 
 function buildDefaultNodeConfig(type: CanvasNodeType, label: string, id: string, position: { x: number; y: number }): Record<string, unknown> {
@@ -552,155 +542,52 @@ function buildCommandSpineTemplate(
   })
 }
 
-function CategoryAddMenu({
-  categoryLabel,
-  entries,
-  buttonTone,
-  menuTone,
-  optionTone,
-  onAddNode,
-}: {
-  categoryLabel: string
-  entries: NodeCatalogEntry[]
-  buttonTone: string
-  menuTone: string
-  optionTone: string
-  onAddNode: (entry: NodeCatalogEntry) => void
-}) {
-  const [value, setValue] = useState("")
-  const options = useMemo(() => entries.map((entry) => ({ value: entry.type, label: entry.label })), [entries])
+/** ReactFlow's theme variables mapped to Nova tokens, so the canvas follows light/dark and the accent. */
+const FLOW_STYLE = {
+  "--xy-background-color": "var(--canvas)",
+  "--xy-background-pattern-color": "var(--border-strong)",
+  "--xy-edge-stroke": "var(--border-strong)",
+  "--xy-edge-stroke-selected": "var(--accent)",
+  "--xy-edge-stroke-width": "1.5",
+  "--xy-connectionline-stroke": "var(--accent)",
+  "--xy-connectionline-stroke-width": "1.5",
+  "--xy-handle-background-color": "var(--surface-3)",
+  "--xy-handle-border-color": "var(--border-strong)",
+  "--xy-minimap-background-color": "var(--surface)",
+  "--xy-minimap-mask-background-color": "var(--active)",
+  "--xy-minimap-mask-stroke-color": "var(--border-strong)",
+  "--xy-minimap-mask-stroke-width": "1",
+  "--xy-minimap-node-background-color": "var(--surface-3)",
+  "--xy-minimap-node-stroke-color": "var(--border-strong)",
+  "--xy-controls-button-background-color": "var(--surface)",
+  "--xy-controls-button-background-color-hover": "var(--surface-3)",
+  "--xy-controls-button-color": "var(--fg-muted)",
+  "--xy-controls-button-color-hover": "var(--fg)",
+  "--xy-controls-button-border-color": "var(--border)",
+  "--xy-controls-box-shadow": "none",
+  "--xy-selection-background-color": "rgba(var(--accent-rgb), 0.08)",
+  "--xy-selection-border": "1px solid var(--accent)",
+  "--xy-node-border-radius": "6px",
+} as CSSProperties
 
-  return (
-    <div className="w-29.5">
-      <FluidSelect
-        isLight={false}
-        value={value}
-        options={options}
-        placeholder={categoryLabel}
-        onChange={(next) => {
-          const selected = entries.find((entry) => entry.type === next)
-          if (!selected) return
-          onAddNode(selected)
-          setValue("")
-        }}
-        buttonClassName={cn("h-8 px-2 text-[11px]", buttonTone)}
-        menuClassName={menuTone}
-        optionActiveClassName={optionTone}
-      />
-    </div>
+const RUNNING_EDGE_STYLE: CSSProperties = { stroke: "var(--accent)", strokeWidth: 1.75 }
+
+function subscribeToThemeClass(onChange: () => void) {
+  const observer = new MutationObserver(onChange)
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] })
+  return () => observer.disconnect()
+}
+
+/** Follows the `light`/`dark` class on <html> (the theme source of truth) for ReactFlow's colorMode. */
+function useDocumentColorMode(): "light" | "dark" {
+  return useSyncExternalStore(
+    subscribeToThemeClass,
+    () => (document.documentElement.classList.contains("light") ? "light" : "dark"),
+    () => "dark",
   )
 }
 
-function CanvasToolbar({
-  mission,
-  onSave,
-  onRun,
-  onExit,
-  onAddNode,
-  catalogEntries,
-  isSaving,
-  isRunning,
-  justSaved,
-}: {
-  mission: Mission
-  onSave: () => void
-  onRun: () => void
-  onExit?: () => void
-  onAddNode: (entry: NodeCatalogEntry) => void
-  catalogEntries: NodeCatalogEntry[]
-  isSaving?: boolean
-  isRunning?: boolean
-  justSaved?: boolean
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/12 bg-black/70 px-3 py-2 shadow-[0_18px_42px_rgba(0,0,0,0.5)] backdrop-blur-xl max-w-[calc(100vw-2rem)]">
-      {PALETTE_CATEGORIES.map((cat) => (
-        <CategoryAddMenu
-          key={cat.id}
-          categoryLabel={cat.label}
-          entries={catalogEntries.filter((entry) => entry.category === cat.id)}
-          buttonTone={
-            cat.id === "triggers"
-              ? "border-amber-300/35 bg-amber-500/16 text-amber-100"
-              : cat.id === "data"
-                ? "border-cyan-300/35 bg-cyan-500/16 text-cyan-100"
-                : cat.id === "ai"
-                  ? "border-violet-300/35 bg-violet-500/16 text-violet-100"
-                  : cat.id === "logic"
-                    ? "border-orange-300/35 bg-orange-500/16 text-orange-100"
-                    : cat.id === "transform"
-                      ? "border-emerald-300/35 bg-emerald-500/16 text-emerald-100"
-                      : "border-pink-300/35 bg-pink-500/16 text-pink-100"
-          }
-          menuTone={
-            cat.id === "triggers"
-              ? "!border-amber-300/25 !bg-amber-500/10"
-              : cat.id === "data"
-                ? "!border-cyan-300/25 !bg-cyan-500/10"
-                : cat.id === "ai"
-                  ? "!border-violet-300/25 !bg-violet-500/10"
-                  : cat.id === "logic"
-                    ? "!border-orange-300/25 !bg-orange-500/10"
-                    : cat.id === "transform"
-                      ? "!border-emerald-300/25 !bg-emerald-500/10"
-                      : "!border-pink-300/25 !bg-pink-500/10"
-          }
-          optionTone={
-            cat.id === "triggers"
-              ? "!bg-amber-500/22 !text-amber-100"
-              : cat.id === "data"
-                ? "!bg-cyan-500/22 !text-cyan-100"
-                : cat.id === "ai"
-                  ? "!bg-violet-500/22 !text-violet-100"
-                  : cat.id === "logic"
-                    ? "!bg-orange-500/22 !text-orange-100"
-                    : cat.id === "transform"
-                      ? "!bg-emerald-500/22 !text-emerald-100"
-                      : "!bg-pink-500/22 !text-pink-100"
-          }
-          onAddNode={onAddNode}
-        />
-      ))}
-      <div className="hidden sm:block h-6 w-px bg-white/14" />
-      <div className="flex flex-col leading-tight min-w-0">
-        <span className="max-w-40 xl:max-w-55 truncate text-sm font-semibold text-white/92">{mission.label}</span>
-        <span className="text-[10px] uppercase tracking-widest text-white/42 truncate">{mission.category} | {mission.status}</span>
-      </div>
-      <div className="ml-auto flex items-center gap-1.5 shrink-0">
-        <button
-          onClick={onSave}
-          disabled={isSaving}
-          className={cn(
-            "flex items-center gap-1.5 rounded-lg border border-emerald-300/35 bg-emerald-500/18 px-2.5 py-1.5 text-xs font-medium text-emerald-100 transition-colors hover:bg-emerald-500/28",
-            isSaving && "opacity-50",
-          )}
-        >
-          {justSaved && !isSaving ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
-          <span className="hidden sm:inline">{isSaving ? "Saving..." : justSaved ? "Saved" : "Save"}</span>
-        </button>
-        <button
-          onClick={onRun}
-          disabled={isRunning}
-          className={cn(
-            "flex items-center gap-1.5 rounded-lg border border-cyan-300/35 bg-cyan-500/18 px-2.5 py-1.5 text-xs font-medium text-cyan-100 transition-colors hover:bg-cyan-500/28",
-            isRunning && "opacity-50",
-          )}
-        >
-          <Play className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">{isRunning ? "Running..." : "Run"}</span>
-        </button>
-        {onExit ? (
-          <button
-            onClick={onExit}
-            className="rounded-lg border border-rose-300/35 bg-rose-500/18 px-2.5 py-1.5 text-xs font-medium text-rose-100 transition-colors hover:bg-rose-500/28"
-          >
-            Exit
-          </button>
-        ) : null}
-      </div>
-    </div>
-  )
-}
+type RightTab = "node" | "checks" | "lanes"
 
 interface MissionCanvasProps {
   mission: Mission
@@ -710,6 +597,17 @@ interface MissionCanvasProps {
   traceStatuses?: Record<string, "running" | "completed" | "failed">
   isSaving?: boolean
   isRunning?: boolean
+  /** Extra controls placed in the canvas header before Save/Run (e.g. version history). */
+  headerActions?: ReactNode
+}
+
+function StatRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-center justify-between py-1">
+      <dt className="text-xs text-muted">{label}</dt>
+      <dd className="font-mono text-xs text-fg tabular-nums">{value}</dd>
+    </div>
+  )
 }
 
 function MissionCanvasInner({
@@ -720,13 +618,14 @@ function MissionCanvasInner({
   traceStatuses = {},
   isSaving,
   isRunning,
+  headerActions,
 }: MissionCanvasProps) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
+  const { screenToFlowPosition, fitView } = useReactFlow()
+  const colorMode = useDocumentColorMode()
   const [justSaved, setJustSaved] = useState(false)
-  const [spotlightEnabled, setSpotlightEnabled] = useState(true)
-  const [spotlightRgb, setSpotlightRgb] = useState("255, 255, 255")
-  const [spotlightPos, setSpotlightPos] = useState<{ x: number; y: number } | null>(null)
   const saveFlashTimeoutRef = useRef<number | null>(null)
+  const [rightTab, setRightTab] = useState<RightTab>("node")
 
   const initialRFNodes = useMemo(
     () => missionNodesToRFNodes(mission.nodes, traceStatuses),
@@ -742,8 +641,6 @@ function MissionCanvasInner({
   const [rfNodes, setRFNodes, onNodesChange] = useNodesState<RFNode<MissionNodeData>>(initialRFNodes)
   const [rfEdges, setRFEdges, onEdgesChange] = useEdgesState(initialRFEdges)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
-  const [validationTouched, setValidationTouched] = useState(false)
-  const paletteCatalog = useMemo(() => getPaletteCatalog(), [])
 
   const draftMission = useMemo((): Mission => {
     const updatedNodes = rfNodesToMissionNodes(rfNodes, mission.nodes)
@@ -751,20 +648,11 @@ function MissionCanvasInner({
     return { ...mission, nodes: updatedNodes, connections: updatedConnections }
   }, [mission, rfEdges, rfNodes])
 
-  const buildDraftMission = useCallback((): Mission => {
-    return { ...draftMission, updatedAt: new Date().toISOString() }
-  }, [draftMission])
+  const buildDraftMission = useCallback((): Mission => ({ ...draftMission, updatedAt: new Date().toISOString() }), [draftMission])
 
   const validationIssues = useMemo(() => validateMissionGraphForVersioning(draftMission), [draftMission])
   const laneCountById = useMemo(() => {
-    const counts: Record<CommandLaneId, number> = {
-      operator: 0,
-      council: 0,
-      "domain-manager": 0,
-      worker: 0,
-      audit: 0,
-      provider: 0,
-    }
+    const counts: Record<CommandLaneId, number> = { operator: 0, council: 0, "domain-manager": 0, worker: 0, audit: 0, provider: 0 }
     for (const node of draftMission.nodes) {
       const lane = getCommandLaneForNode(node)
       if (lane) counts[lane] += 1
@@ -788,111 +676,116 @@ function MissionCanvasInner({
     () =>
       rfNodes.map((n) => {
         const status = traceStatuses[n.id]
-        return {
-          ...n,
-          data: {
-            ...n.data,
-            isRunning: status === "running",
-            hasCompleted: status === "completed",
-            hasError: status === "failed",
-          },
-        }
+        return { ...n, data: { ...n.data, isRunning: status === "running", hasCompleted: status === "completed", hasError: status === "failed" } }
       }),
     [rfNodes, traceStatuses],
   )
 
+  const edgesWithStatus = useMemo(
+    () =>
+      rfEdges.map((edge) => {
+        const live = traceStatuses[edge.source] === "running" || traceStatuses[edge.target] === "running"
+        return live ? { ...edge, animated: true, style: RUNNING_EDGE_STYLE } : edge
+      }),
+    [rfEdges, traceStatuses],
+  )
+
+  const selectedNode = useMemo(() => rfNodes.find((node) => node.id === selectedNodeId) || null, [rfNodes, selectedNodeId])
+
   const onConnect = useCallback(
     (connection: Connection) => {
-      const edge: Edge = {
-        ...connection,
-        id: `conn-${Date.now()}`,
-        type: "smoothstep",
-        animated: true,
-        style: { stroke: "hsl(var(--mission-flow-edge) / 0.68)", strokeWidth: 1.7, strokeDasharray: "6 7" },
-      }
-      setRFEdges((eds) => addEdge(edge, eds))
+      setRFEdges((eds) => addEdge({ ...connection, id: `conn-${Date.now()}`, type: "smoothstep" }, eds))
     },
     [setRFEdges],
   )
+
+  const onSelectionChange = useCallback(({ nodes }: OnSelectionChangeParams) => {
+    const id = nodes[0]?.id || null
+    setSelectedNodeId(id)
+    if (id) setRightTab("node")
+  }, [])
 
   const onDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     event.dataTransfer.dropEffect = "copy"
   }, [])
 
-  const onDrop = useCallback(
-    (event: DragEvent<HTMLDivElement>) => {
-      event.preventDefault()
-      const nodeType = event.dataTransfer.getData("application/nova-mission-node-type") as CanvasNodeType
-      const nodeLabel = event.dataTransfer.getData("application/nova-mission-node-label")
-      if (!nodeType) return
-
-      const wrapper = reactFlowWrapper.current
-      if (!wrapper) return
-
-      const bounds = wrapper.getBoundingClientRect()
-      const position = {
-        x: event.clientX - bounds.left - 130,
-        y: event.clientY - bounds.top - 50,
-      }
-
-      const newNodeId = `node-${Date.now()}`
-      const entry = getNodeCatalogEntry(nodeType)
-      if (!entry) return
-
-      const nodeConfig = buildDefaultNodeConfig(nodeType, nodeLabel || entry.label, newNodeId, position)
+  const appendNode = useCallback(
+    (entry: NodeCatalogEntry, position: { x: number; y: number }, label?: string) => {
+      const id = `node-${Date.now()}`
+      const nodeConfig = buildDefaultNodeConfig(entry.type, label || entry.label, id, position)
       const newNode: RFNode<MissionNodeData> = {
-        id: newNodeId,
+        id,
         type: "missionNode",
         position,
-        data: {
-          nodeConfig,
-          catalogEntry: entry,
-          label: String(nodeConfig.label || entry.label),
-        },
+        data: { nodeConfig, catalogEntry: entry, label: String(nodeConfig.label || entry.label) },
       }
       setRFNodes((nds) => [...nds, newNode])
     },
     [setRFNodes],
   )
 
+  const onDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      const nodeType = event.dataTransfer.getData("application/nova-mission-node-type") as CanvasNodeType
+      const nodeLabel = event.dataTransfer.getData("application/nova-mission-node-label")
+      const entry = nodeType ? getNodeCatalogEntry(nodeType) : undefined
+      if (!entry) return
+      const point = screenToFlowPosition({ x: event.clientX, y: event.clientY })
+      appendNode(entry, { x: point.x - 112, y: point.y - 24 }, nodeLabel)
+    },
+    [appendNode, screenToFlowPosition],
+  )
+
   const handleAddNode = useCallback(
     (entry: NodeCatalogEntry) => {
-      const id = `node-${Date.now()}`
-      const position = { x: 260 + Math.random() * 180, y: 200 + Math.random() * 120 }
-      const nodeConfig = buildDefaultNodeConfig(entry.type, entry.label, id, position)
-      const newNode: RFNode<MissionNodeData> = {
-        id,
-        type: "missionNode",
-        position,
-        data: {
-          nodeConfig,
-          catalogEntry: entry,
-          label: String(nodeConfig.label || entry.label),
-        },
+      // Chain new nodes to the right of the right-most node; the first one lands in the middle of the view.
+      const last = rfNodes.reduce<RFNode<MissionNodeData> | null>((best, node) => (!best || node.position.x > best.position.x ? node : best), null)
+      if (last) {
+        appendNode(entry, { x: last.position.x + 280, y: last.position.y })
+        window.requestAnimationFrame(() => { void fitView({ padding: 0.2, maxZoom: 1 }) })
+        return
       }
-      setRFNodes((nds) => [...nds, newNode])
+      const bounds = reactFlowWrapper.current?.getBoundingClientRect()
+      const center = bounds
+        ? screenToFlowPosition({ x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 })
+        : { x: 260, y: 200 }
+      appendNode(entry, { x: center.x - 112, y: center.y - 24 })
+    },
+    [appendNode, fitView, rfNodes, screenToFlowPosition],
+  )
+
+  const updateNodeConfig = useCallback(
+    (nodeId: string, updates: Record<string, unknown>) => {
+      setRFNodes((nodes) =>
+        nodes.map((node) => {
+          if (node.id !== nodeId) return node
+          const nextConfig = { ...(node.data.nodeConfig || {}), ...updates }
+          return {
+            ...node,
+            data: { ...node.data, label: typeof nextConfig.label === "string" ? nextConfig.label : node.data.label, nodeConfig: nextConfig },
+          }
+        }),
+      )
     },
     [setRFNodes],
+  )
+
+  const deleteNode = useCallback(
+    (nodeId: string) => {
+      setRFNodes((nodes) => nodes.filter((node) => node.id !== nodeId))
+      setRFEdges((edges) => edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId))
+      setSelectedNodeId(null)
+    },
+    [setRFEdges, setRFNodes],
   )
 
   const snapSelectedNodeToLane = useCallback((laneId: CommandLaneId) => {
     if (!selectedNodeId) return
     const lane = COMMAND_LANES.find((item) => item.id === laneId)
     if (!lane) return
-    setRFNodes((nodes) =>
-      nodes.map((node) =>
-        node.id === selectedNodeId
-          ? {
-              ...node,
-              position: {
-                ...node.position,
-                y: lane.y,
-              },
-            }
-          : node,
-      ),
-    )
+    setRFNodes((nodes) => nodes.map((node) => (node.id === selectedNodeId ? { ...node, position: { ...node.position, y: lane.y } } : node)))
   }, [selectedNodeId, setRFNodes])
 
   const autoArrangeCommandLanes = useCallback(() => {
@@ -900,23 +793,16 @@ function MissionCanvasInner({
     for (const lane of COMMAND_LANES) laneBuckets.set(lane.id, [])
     for (const node of draftMission.nodes) {
       const lane = getCommandLaneForNode(node)
-      if (!lane) continue
-      laneBuckets.get(lane)?.push(node.id)
+      if (lane) laneBuckets.get(lane)?.push(node.id)
     }
     const nextPositionById = new Map<string, { x: number; y: number }>()
     for (const lane of COMMAND_LANES) {
-      const ids = laneBuckets.get(lane.id) || []
-      ids.forEach((id, idx) => {
-        nextPositionById.set(id, { x: 220 + idx * 240, y: lane.y })
-      })
+      ;(laneBuckets.get(lane.id) || []).forEach((id, idx) => nextPositionById.set(id, { x: 220 + idx * 240, y: lane.y }))
     }
-    setRFNodes((nodes) =>
-      nodes.map((node) => {
-        const next = nextPositionById.get(node.id)
-        if (!next) return node
-        return { ...node, position: next }
-      }),
-    )
+    setRFNodes((nodes) => nodes.map((node) => {
+      const next = nextPositionById.get(node.id)
+      return next ? { ...node, position: next } : node
+    }))
   }, [draftMission.nodes, setRFNodes])
 
   const insertCommandSpineTemplate = useCallback(() => {
@@ -924,7 +810,7 @@ function MissionCanvasInner({
     const startX = (Number.isFinite(maxX) ? maxX : 0) + 260
     const idPrefix = `spine-${Date.now()}`
     const templateNodes = buildCommandSpineTemplate(startX, idPrefix)
-    const newNodes: RFNode<MissionNodeData>[] = templateNodes
+    const newNodes = templateNodes
       .map((node) => {
         const entry = getNodeCatalogEntry(node.type)
         if (!entry) return null
@@ -932,73 +818,45 @@ function MissionCanvasInner({
           id: node.id,
           type: "missionNode",
           position: node.position,
-          data: {
-            nodeConfig: node.config,
-            catalogEntry: entry,
-            label: String(node.config.label || node.label),
-          },
+          data: { nodeConfig: node.config, catalogEntry: entry, label: String(node.config.label || node.label) },
         }
       })
       .filter(Boolean) as RFNode<MissionNodeData>[]
 
-    const specsByKey = new Map(templateNodes.map((node) => [node.key, node.id]))
-    const edges: Edge[] = [
-      { id: `${idPrefix}-c1`, source: specsByKey.get("trigger") || "", sourceHandle: "main", target: specsByKey.get("operator") || "", targetHandle: "main" },
-      { id: `${idPrefix}-c2`, source: specsByKey.get("operator") || "", sourceHandle: "main", target: specsByKey.get("handoff-op-council") || "", targetHandle: "main" },
-      { id: `${idPrefix}-c3`, source: specsByKey.get("handoff-op-council") || "", sourceHandle: "main", target: specsByKey.get("council") || "", targetHandle: "main" },
-      { id: `${idPrefix}-c4`, source: specsByKey.get("council") || "", sourceHandle: "main", target: specsByKey.get("handoff-council-manager") || "", targetHandle: "main" },
-      { id: `${idPrefix}-c5`, source: specsByKey.get("handoff-council-manager") || "", sourceHandle: "main", target: specsByKey.get("manager") || "", targetHandle: "main" },
-      { id: `${idPrefix}-c6`, source: specsByKey.get("manager") || "", sourceHandle: "main", target: specsByKey.get("handoff-manager-worker") || "", targetHandle: "main" },
-      { id: `${idPrefix}-c7`, source: specsByKey.get("handoff-manager-worker") || "", sourceHandle: "main", target: specsByKey.get("worker") || "", targetHandle: "main" },
-      { id: `${idPrefix}-c8`, source: specsByKey.get("worker") || "", sourceHandle: "main", target: specsByKey.get("handoff-worker-audit") || "", targetHandle: "main" },
-      { id: `${idPrefix}-c9`, source: specsByKey.get("handoff-worker-audit") || "", sourceHandle: "main", target: specsByKey.get("provider") || "", targetHandle: "main" },
-      { id: `${idPrefix}-c10`, source: specsByKey.get("provider") || "", sourceHandle: "main", target: specsByKey.get("audit") || "", targetHandle: "main" },
-      { id: `${idPrefix}-c11`, source: specsByKey.get("audit") || "", sourceHandle: "main", target: specsByKey.get("handoff-audit-op") || "", targetHandle: "main" },
-      { id: `${idPrefix}-c12`, source: specsByKey.get("handoff-audit-op") || "", sourceHandle: "main", target: specsByKey.get("output") || "", targetHandle: "main" },
+    const idByKey = new Map(templateNodes.map((node) => [node.key, node.id]))
+    const chain = [
+      "trigger", "operator", "handoff-op-council", "council", "handoff-council-manager", "manager", "handoff-manager-worker",
+      "worker", "handoff-worker-audit", "provider", "audit", "handoff-audit-op", "output",
     ]
-      .filter((edge) => edge.source && edge.target)
-      .map((edge) => ({
-        ...edge,
-        type: "smoothstep",
-        animated: true,
-        style: { stroke: "hsl(var(--mission-flow-edge) / 0.68)", strokeWidth: 1.7, strokeDasharray: "6 7" },
-      }))
+    const edges: Edge[] = chain.slice(1).map((key, index) => ({
+      id: `${idPrefix}-c${index + 1}`,
+      source: idByKey.get(chain[index]) || "",
+      sourceHandle: "main",
+      target: idByKey.get(key) || "",
+      targetHandle: "main",
+      type: "smoothstep",
+    })).filter((edge) => edge.source && edge.target)
 
     setRFNodes((nodes) => [...nodes, ...newNodes])
     setRFEdges((current) => [...current, ...edges])
   }, [rfNodes, setRFEdges, setRFNodes])
 
-  useEffect(() => {
-    const syncSpotlightSettings = () => {
-      const appSettings = loadUserSettings().app
-      const palette = ACCENT_COLORS[appSettings.spotlightColor] || ACCENT_COLORS.violet
-      setSpotlightRgb(hexToRgbString(palette.primary))
-      setSpotlightEnabled(appSettings.spotlightEnabled ?? true)
-    }
-    syncSpotlightSettings()
-    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, syncSpotlightSettings as EventListener)
-    return () => {
-      window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncSpotlightSettings as EventListener)
-    }
+  useEffect(() => () => {
+    if (saveFlashTimeoutRef.current) window.clearTimeout(saveFlashTimeoutRef.current)
   }, [])
 
-  useEffect(() => {
-    if (validationTouched && validationIssues.length === 0) {
-      setValidationTouched(false)
-    }
-  }, [validationIssues.length, validationTouched])
-
-  useEffect(() => {
-    return () => {
-      if (saveFlashTimeoutRef.current) {
-        window.clearTimeout(saveFlashTimeoutRef.current)
-      }
-    }
-  }, [])
+  const blockOnIssues = useCallback((): boolean => {
+    if (validationIssues.length === 0) return false
+    setRightTab("checks")
+    toast.error({
+      title: `Fix ${validationIssues.length} ${validationIssues.length === 1 ? "issue" : "issues"} first`,
+      description: "The Checks tab lists what blocks saving and running.",
+    })
+    return true
+  }, [validationIssues.length])
 
   const handleSave = useCallback(async () => {
-    setValidationTouched(true)
-    if (validationIssues.length > 0) {
+    if (blockOnIssues()) {
       setJustSaved(false)
       return
     }
@@ -1009,225 +867,210 @@ function MissionCanvasInner({
         return
       }
       setJustSaved(true)
-      if (saveFlashTimeoutRef.current) {
-        window.clearTimeout(saveFlashTimeoutRef.current)
-      }
-      saveFlashTimeoutRef.current = window.setTimeout(() => {
-        setJustSaved(false)
-      }, 1500)
+      if (saveFlashTimeoutRef.current) window.clearTimeout(saveFlashTimeoutRef.current)
+      saveFlashTimeoutRef.current = window.setTimeout(() => setJustSaved(false), 1500)
     } catch {
       setJustSaved(false)
     }
-  }, [buildDraftMission, onSave, validationIssues.length])
+  }, [blockOnIssues, buildDraftMission, onSave])
 
   const handleRun = useCallback(async () => {
-    setValidationTouched(true)
-    if (validationIssues.length > 0) return
-    const draftMission = buildDraftMission()
-    const saved = await onSave(draftMission)
+    if (blockOnIssues()) return
+    const next = buildDraftMission()
+    const saved = await onSave(next)
     if (saved === false) return
-    if (onRun) {
-      await onRun(draftMission)
-    }
-  }, [buildDraftMission, onRun, onSave, validationIssues.length])
+    if (onRun) await onRun(next)
+  }, [blockOnIssues, buildDraftMission, onRun, onSave])
 
-  const handleCanvasMouseMove = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    const bounds = event.currentTarget.getBoundingClientRect()
-    setSpotlightPos({
-      x: event.clientX - bounds.left,
-      y: event.clientY - bounds.top,
-    })
-  }, [])
-
-  const spotlightStyle = useMemo<CSSProperties>(() => {
-    const x = spotlightPos?.x ?? -9999
-    const y = spotlightPos?.y ?? -9999
-    return {
-      opacity: spotlightEnabled && spotlightPos ? 1 : 0,
-      background: `radial-gradient(72px circle at ${x}px ${y}px, rgba(${spotlightRgb}, 0.1) 0%, rgba(${spotlightRgb}, 0.045) 40%, transparent 72%)`,
-    }
-  }, [spotlightEnabled, spotlightPos, spotlightRgb])
+  const hasGaps = inspector.undeclaredReads.length > 0 || inspector.undeclaredWrites.length > 0
 
   return (
-    <div className="mission-canvas-theme flex h-full w-full overflow-hidden">
-      <div
-        className="relative flex-1 overflow-hidden bg-black"
-        ref={reactFlowWrapper}
-        onMouseMove={handleCanvasMouseMove}
-        onMouseLeave={() => setSpotlightPos(null)}
-      >
-        <div className="pointer-events-none absolute inset-0 z-60 transition-opacity duration-150" style={spotlightStyle} />
-        <ReactFlow
-          nodes={nodesWithStatus}
-          edges={rfEdges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onDrop={onDrop}
-          onDragOver={onDragOver}
-          onSelectionChange={({ nodes }) => setSelectedNodeId(nodes[0]?.id || null)}
-          nodeTypes={NODE_TYPES}
-          fitView
-          fitViewOptions={{ padding: 0.16 }}
-          minZoom={0.2}
-          maxZoom={2}
-          defaultEdgeOptions={{
-            type: "smoothstep",
-            animated: true,
-            style: { stroke: "hsl(var(--mission-flow-edge) / 0.68)", strokeWidth: 1.7, strokeDasharray: "6 7" },
-          }}
-          proOptions={{ hideAttribution: true }}
-          className="bg-transparent"
-        >
-          <Background id="canvas-grid-dots" variant={BackgroundVariant.Dots} color="hsl(var(--mission-flow-dot) / 0.28)" gap={20} size={1.2} />
-          <Controls />
-          <MiniMap
-            nodeColor={(n) => {
-              const entry = (n.data as MissionNodeData)?.catalogEntry
-              return entry ? entry.borderColor.replace("border-", "").replace("/40", "") : "#888"
-            }}
-            className="rounded-lg!"
-          />
-          <Panel position="top-center">
-            <CanvasToolbar
-              mission={mission}
-              onSave={handleSave}
-              onRun={handleRun}
-              onExit={onExit}
-              onAddNode={handleAddNode}
-              catalogEntries={paletteCatalog}
-              isSaving={isSaving}
-              isRunning={isRunning}
-              justSaved={justSaved}
-            />
-          </Panel>
-          <Panel position="top-left">
-            <div className="w-72 rounded-xl border border-white/12 bg-black/70 p-3 text-white shadow-[0_18px_42px_rgba(0,0,0,0.5)] backdrop-blur-xl">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-cyan-100/90">
-                  <Rows4 className="h-3.5 w-3.5" />
-                  Command Lanes
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={insertCommandSpineTemplate}
-                    className="rounded border border-indigo-300/35 bg-indigo-500/12 px-2 py-0.5 text-[10px] font-medium text-indigo-100 hover:bg-indigo-500/22"
-                  >
-                    Insert Spine
-                  </button>
-                  <button
-                    type="button"
-                    onClick={autoArrangeCommandLanes}
-                    className="rounded border border-cyan-300/35 bg-cyan-500/12 px-2 py-0.5 text-[10px] font-medium text-cyan-100 hover:bg-cyan-500/22"
-                  >
-                    Auto-arrange
-                  </button>
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                {COMMAND_LANES.map((lane) => (
-                  <div key={lane.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5">
-                    <div className="min-w-0">
-                      <div className="truncate text-[11px] text-white/85">{lane.label}</div>
-                      <div className="text-[10px] text-white/45">Y = {lane.y}</div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="rounded border border-white/15 px-1.5 py-0.5 text-[10px] text-white/65">{laneCountById[lane.id]}</span>
-                      <button
-                        type="button"
-                        onClick={() => snapSelectedNodeToLane(lane.id)}
-                        disabled={!selectedNodeId}
-                        className="rounded border border-cyan-300/35 bg-cyan-500/15 px-2 py-0.5 text-[10px] font-medium text-cyan-100 hover:bg-cyan-500/25 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        Snap
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-2 text-[10px] text-white/45">
-                {selectedNodeId ? `Selected node: ${selectedNodeId}` : "Select a node to snap it into a command lane."}
+    <div className="flex h-full min-h-0 w-full flex-col bg-canvas text-fg">
+      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-surface px-3">
+        {onExit ? (
+          <IconButton aria-label="Close canvas" size="sm" onClick={onExit}>
+            <ArrowLeft />
+          </IconButton>
+        ) : null}
+        <div className="flex min-w-0 items-center gap-2.5">
+          <h1 className="truncate text-md font-medium text-fg">{mission.label || "Untitled mission"}</h1>
+          <Badge tone={mission.status === "active" ? "success" : "neutral"}>{mission.status}</Badge>
+          <span className="hidden text-xs text-muted tabular-nums md:inline">
+            {rfNodes.length} {rfNodes.length === 1 ? "node" : "nodes"}, {rfEdges.length} {rfEdges.length === 1 ? "connection" : "connections"}
+          </span>
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {validationIssues.length > 0 ? (
+            <Button variant="ghost" size="sm" onClick={() => setRightTab("checks")} className="text-danger hover:text-danger">
+              <StatusDot tone="danger" />
+              {validationIssues.length} {validationIssues.length === 1 ? "issue" : "issues"}
+            </Button>
+          ) : null}
+          {headerActions}
+          <Button variant="secondary" size="sm" onClick={() => void handleSave()} loading={isSaving}>
+            {justSaved && !isSaving ? <Check /> : <Save />}
+            {justSaved && !isSaving ? "Saved" : "Save"}
+          </Button>
+          {onRun ? (
+            <Button size="sm" onClick={() => void handleRun()} loading={isRunning} disabled={isSaving}>
+              <Play />
+              Run
+            </Button>
+          ) : null}
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+        <NodePalette onAddNode={handleAddNode} />
+
+        <div className="relative min-w-0 flex-1" ref={reactFlowWrapper}>
+          <ReactFlow
+            nodes={nodesWithStatus}
+            edges={edgesWithStatus}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onDrop={onDrop}
+            onDragOver={onDragOver}
+            onSelectionChange={onSelectionChange}
+            nodeTypes={NODE_TYPES}
+            colorMode={colorMode}
+            fitView
+            fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+            minZoom={0.2}
+            maxZoom={2}
+            defaultEdgeOptions={{ type: "smoothstep" }}
+            proOptions={{ hideAttribution: true }}
+            style={FLOW_STYLE}
+          >
+            <Background id="mission-canvas-dots" variant={BackgroundVariant.Dots} gap={20} size={1.5} />
+            <Controls showInteractive={false} className="overflow-hidden rounded-md! border! border-border!" />
+            <MiniMap pannable zoomable className="hidden overflow-hidden xl:block rounded-md! border! border-border!" />
+          </ReactFlow>
+          {rfNodes.length === 0 ? (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="max-w-xs rounded-lg border border-border bg-surface px-5 py-4 text-center">
+                <p className="text-sm font-medium text-fg">Start with a trigger</p>
+                <p className="mt-1 text-xs text-muted">Pick a trigger from the list on the left, then add the steps it should run and connect them.</p>
               </div>
             </div>
-          </Panel>
-          <Panel position="bottom-right">
-            <div className="w-80 rounded-xl border border-white/12 bg-black/70 p-3 text-white shadow-[0_18px_42px_rgba(0,0,0,0.5)] backdrop-blur-xl">
-              <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-indigo-100/90">
-                <Database className="h-3.5 w-3.5" />
-                Agent State Inspector
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-[10px]">
-                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
-                  <div className="text-white/60">Declared Reads</div>
-                  <div className="mt-1 font-medium text-white/90">{inspector.declaredReads.length}</div>
-                </div>
-                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
-                  <div className="text-white/60">Declared Writes</div>
-                  <div className="mt-1 font-medium text-white/90">{inspector.declaredWrites.length}</div>
-                </div>
-                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
-                  <div className="text-white/60">State Reads</div>
-                  <div className="mt-1 font-medium text-white/90">{inspector.stateReadKeys.length}</div>
-                </div>
-                <div className="rounded border border-white/10 bg-white/[0.03] p-2">
-                  <div className="text-white/60">State Writes</div>
-                  <div className="mt-1 font-medium text-white/90">{inspector.stateWriteKeys.length}</div>
-                </div>
-              </div>
-              {inspector.writePolicies.length > 0 && (
-                <div className="mt-2 rounded border border-white/10 bg-white/[0.03] p-2">
-                  <div className="mb-1 text-[10px] uppercase tracking-[0.1em] text-white/55">Write Policies</div>
-                  <div className="max-h-24 space-y-1 overflow-y-auto pr-1 text-[10px]">
-                    {inspector.writePolicies.map((policy) => (
-                      <div key={policy.key} className="flex items-center justify-between gap-2">
-                        <span className="truncate text-white/85">{policy.key}</span>
-                        <span className="truncate text-white/55">{policy.agentIds.join(", ") || "none"}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {(inspector.undeclaredReads.length > 0 || inspector.undeclaredWrites.length > 0) && (
-                <div className="mt-2 rounded border border-rose-300/30 bg-rose-500/10 p-2 text-[10px] text-rose-100">
-                  <div className="mb-1 font-semibold uppercase tracking-[0.1em]">Contract Gaps</div>
-                  {inspector.undeclaredReads.length > 0 && <div>Undeclared reads: {inspector.undeclaredReads.join(", ")}</div>}
-                  {inspector.undeclaredWrites.length > 0 && <div>Undeclared writes: {inspector.undeclaredWrites.join(", ")}</div>}
-                </div>
-              )}
-            </div>
-          </Panel>
-          {(validationTouched || validationIssues.length > 0) && (
-            <Panel position="bottom-left">
-              <div className="w-96 rounded-xl border border-rose-300/30 bg-rose-500/10 p-3 text-rose-100 shadow-[0_18px_42px_rgba(0,0,0,0.5)] backdrop-blur-xl">
-                <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em]">
-                  <ShieldAlert className="h-3.5 w-3.5" />
-                  Validation Blockers ({validationIssues.length})
-                </div>
+          ) : null}
+        </div>
+
+        <aside aria-label="Inspector" className="flex w-72 shrink-0 xl:w-80 flex-col border-l border-border bg-surface">
+          <Tabs value={rightTab} onValueChange={(value) => setRightTab(value as RightTab)}>
+            <TabsList aria-label="Inspector sections" className="px-4">
+              <TabsTrigger value="node">Node</TabsTrigger>
+              <TabsTrigger value="checks" count={validationIssues.length}>Checks</TabsTrigger>
+              <TabsTrigger value="lanes">Agent lanes</TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          {rightTab === "node" ? (
+            selectedNode ? (
+              <NodeConfigPanel
+                key={selectedNode.id}
+                nodeId={selectedNode.id}
+                nodeConfig={(selectedNode.data.nodeConfig || {}) as Record<string, unknown>}
+                catalogEntry={selectedNode.data.catalogEntry}
+                onUpdate={updateNodeConfig}
+                onDelete={deleteNode}
+                onClose={() => setRFNodes((nodes) => nodes.map((node) => (node.selected ? { ...node, selected: false } : node)))}
+              />
+            ) : (
+              <EmptyState
+                size="compact"
+                icon={<MousePointerClick />}
+                title="No node selected"
+                description="Select a node on the canvas to edit its settings."
+                className="flex-1"
+              />
+            )
+          ) : null}
+
+          {rightTab === "checks" ? (
+            <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 py-4">
+              <section className="flex flex-col gap-2">
+                <h3 className="text-sm font-medium text-fg">Validation</h3>
                 {validationIssues.length === 0 ? (
-                  <div className="text-[11px] text-emerald-100">No blockers. Save/run is allowed.</div>
+                  <p className="flex items-center gap-2 text-sm text-muted">
+                    <StatusDot tone="success" />
+                    No blockers. You can save and run.
+                  </p>
                 ) : (
-                  <div className="max-h-28 space-y-1 overflow-y-auto pr-1 text-[11px]">
-                    {validationIssues.slice(0, 6).map((issue: MissionGraphValidationIssue, index) => (
-                      <div key={`${issue.code}-${index}`} className="rounded border border-rose-300/20 bg-black/25 px-2 py-1">
-                        <div className="font-mono text-[10px] text-rose-200/85">{issue.code}</div>
-                        <div>{issue.message}</div>
+                  <ul className="flex flex-col gap-1.5">
+                    {validationIssues.map((issue, index) => (
+                      <li key={`${issue.code}-${index}`} className="rounded-md border border-border border-l-2 border-l-danger bg-surface-2 px-2.5 py-2">
+                        <p className="text-sm text-fg">{issue.message}</p>
+                        <p className="mt-0.5 font-mono text-2xs text-faint">{issue.code}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {outputBypassEdges.length > 0 ? (
+                  <p className="text-xs text-muted">
+                    Connections that skip the audit step: <span className="font-mono">{outputBypassEdges.map((edge) => edge.id).join(", ")}</span>
+                  </p>
+                ) : null}
+              </section>
+
+              <section className="flex flex-col gap-1">
+                <h3 className="text-sm font-medium text-fg">State contract</h3>
+                <p className="text-xs text-muted">Keys agent nodes declare, compared with state read and write nodes.</p>
+                <dl className="mt-1 divide-y divide-border-subtle">
+                  <StatRow label="Declared reads" value={inspector.declaredReads.length} />
+                  <StatRow label="Declared writes" value={inspector.declaredWrites.length} />
+                  <StatRow label="State reads" value={inspector.stateReadKeys.length} />
+                  <StatRow label="State writes" value={inspector.stateWriteKeys.length} />
+                </dl>
+                {inspector.writePolicies.length > 0 ? (
+                  <div className="mt-2 flex flex-col gap-1">
+                    <h4 className="text-xs font-medium text-muted">Write policies</h4>
+                    {inspector.writePolicies.map((policy) => (
+                      <div key={policy.key} className="flex items-center justify-between gap-2 font-mono text-2xs">
+                        <span className="truncate text-fg">{policy.key}</span>
+                        <span className="truncate text-faint">{policy.agentIds.join(", ") || "none"}</span>
                       </div>
                     ))}
-                    {validationIssues.length > 6 && (
-                      <div className="text-[10px] text-rose-200/80">+{validationIssues.length - 6} more issue(s)</div>
-                    )}
-                    {outputBypassEdges.length > 0 && (
-                      <div className="rounded border border-rose-300/25 bg-black/25 px-2 py-1 text-[10px]">
-                        Output bypass edges: {outputBypassEdges.map((edge) => edge.id).join(", ")}
-                      </div>
-                    )}
                   </div>
-                )}
+                ) : null}
+                {hasGaps ? (
+                  <div className="mt-2 rounded-md border border-warning-muted bg-warning-muted px-2.5 py-2 text-xs text-warning">
+                    {inspector.undeclaredReads.length > 0 ? <p>Undeclared reads: <span className="font-mono">{inspector.undeclaredReads.join(", ")}</span></p> : null}
+                    {inspector.undeclaredWrites.length > 0 ? <p>Undeclared writes: <span className="font-mono">{inspector.undeclaredWrites.join(", ")}</span></p> : null}
+                  </div>
+                ) : null}
+              </section>
+            </div>
+          ) : null}
+
+          {rightTab === "lanes" ? (
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
+              <p className="text-xs text-muted">{AGENT_NODE_NOTE}</p>
+              <div className="flex gap-2">
+                <Button variant="secondary" size="sm" onClick={insertCommandSpineTemplate}>Insert agent template</Button>
+                <Button variant="ghost" size="sm" onClick={autoArrangeCommandLanes}>Auto-arrange</Button>
               </div>
-            </Panel>
-          )}
-        </ReactFlow>
+              <ul className="divide-y divide-border-subtle rounded-md border border-border">
+                {COMMAND_LANES.map((lane) => (
+                  <li key={lane.id} className="flex items-center gap-2 px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm text-fg">{lane.label}</p>
+                      <p className="font-mono text-2xs text-faint tabular-nums">y {lane.y}</p>
+                    </div>
+                    <span className="font-mono text-xs text-muted tabular-nums">{laneCountById[lane.id]}</span>
+                    <Button variant="ghost" size="xs" onClick={() => snapSelectedNodeToLane(lane.id)} disabled={!selectedNodeId}>
+                      Snap
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-2xs text-faint">
+                {selectedNodeId ? <>Snaps <span className="font-mono">{selectedNodeId}</span> to a lane.</> : "Select a node to snap it to a lane."}
+              </p>
+            </div>
+          ) : null}
+        </aside>
       </div>
     </div>
   )
@@ -1240,4 +1083,3 @@ export function MissionCanvas(props: MissionCanvasProps) {
     </ReactFlowProvider>
   )
 }
-

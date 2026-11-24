@@ -5,15 +5,33 @@ import path from "node:path";
 
 const hudRoot = path.join(process.cwd(), "hud");
 const read = (rel) => fs.readFileSync(path.join(hudRoot, rel), "utf8");
+const exists = (rel) => fs.existsSync(path.join(hudRoot, rel));
 
+// Every UI file of /runs, /deployments and /deployments/new, plus the shared agent-run components.
 const uiFiles = [
-  "components/agents/task-card.tsx",
-  "components/agents/task-list.tsx",
-  "components/agents/advanced-task-form.tsx",
-  "app/home/components/agent-tasks-home-module.tsx",
+  "app/runs/page.tsx",
+  "app/runs/components/runs-screen.tsx",
+  "app/runs/components/runs-table.tsx",
+  "app/runs/components/run-detail-sheet.tsx",
+  "app/runs/components/run-row-actions.tsx",
+  "app/runs/components/waiting-for-you.tsx",
+  "app/runs/hooks/use-run-actions.ts",
+  "app/runs/lib/run-rows.ts",
   "app/deployments/page.tsx",
+  "app/deployments/new/page.tsx",
+  "app/deployments/components/deployment-list-screen.tsx",
+  "app/deployments/components/deployment-detail-sheet.tsx",
+  "app/deployments/components/new-deployment-screen.tsx",
   "app/deployments/components/new-deployment-flow.tsx",
-  "app/home/components/rooms/room-new-deployment.tsx",
+  "app/deployments/components/new-deployment-tabs.ts",
+  "app/deployments/components/manager-panel.tsx",
+  "app/deployments/components/automation-panel.tsx",
+  "app/deployments/hooks/use-deployment-manager.ts",
+  "app/deployments/hooks/use-deployments-data.ts",
+  "components/agents/advanced-task-form.tsx",
+  "components/agents/budget.tsx",
+  "components/agents/raise-budget-form.tsx",
+  "components/agents/permission-modes.ts",
 ];
 
 let passed = 0;
@@ -28,68 +46,115 @@ function check(name, fn) {
   }
 }
 
-check("home-main-screen wires AgentTasksHomeModule and NotesHomeModule", () => {
-  const screen = read("app/home/components/home-main-screen.tsx");
-  assert.match(screen, /import \{ AgentTasksHomeModule \} from "\.\/agent-tasks-home-module"/);
-  assert.match(screen, /import \{ NotesHomeModule \} from "\.\/notes-home-module"/);
-  assert.match(screen, /<AgentTasksHomeModule/);
-  assert.match(screen, /<NotesHomeModule/);
-  assert.doesNotMatch(screen, /Placeholder(One|Two)HomeModule/);
+check("/runs renders the runs screen with status tabs, waiting-for-you and the run sheet", () => {
+  assert.match(read("app/runs/page.tsx"), /<RunsScreen \/>/);
+  const screen = read("app/runs/components/runs-screen.tsx");
+  assert.match(screen, /searchParams\.get\("run"\)/, "/runs?run=<id> must open that run");
+  assert.match(screen, /<WaitingForYou/);
+  assert.match(screen, /<RunDetailSheet/);
+  assert.match(screen, /<RunsTable/);
+  assert.match(screen, /useAgentTasks\(\)/);
+  assert.match(screen, /useDeploymentsData\(\)/);
+  const rows = read("app/runs/lib/run-rows.ts");
+  for (const label of ["All", "Needs approval", "Running", "Completed", "Failed"]) {
+    assert.match(rows, new RegExp(`label: "${label}"`), `missing tab ${label}`);
+  }
 });
 
-check("module is driven by useAgentTasks and opens the Depot creation view in place", () => {
-  const mod = read("app/home/components/agent-tasks-home-module.tsx");
-  const state = read("app/home/hooks/use-home-main-screen-state.ts");
-  const screen = read("app/home/components/home-main-screen.tsx");
-  assert.doesNotMatch(state, /\/deployments/, "Home must not navigate to the retired /deployments page");
-  assert.doesNotMatch(screen, /"\/deployments/, "Home must not navigate to the retired /deployments page");
-  assert.match(screen, /<RoomNewDeployment/);
-  assert.match(mod, /agentTasks/); // the tasks come from Home (useAgentTasks in home-main-screen), not a poll of its own
-  assert.match(mod, /onCreateDeployment/);
-  assert.doesNotMatch(mod, /<CreateTaskModal/);
-  assert.match(mod, /<TaskList/);
-  assert.doesNotMatch(mod, /setInterval/);
+check("run rows map every deployment-run and agent-task status", () => {
+  const rows = read("app/runs/lib/run-rows.ts");
+  for (const status of ["pending", "queued", "running", "paused", "succeeded", "failed", "cancelled", "dead"]) {
+    assert.match(rows, new RegExp(`\\n  ${status}: "`), `run status not mapped: ${status}`);
+  }
+  for (const status of ["queued", "running", "paused", "completed", "failed", "cancelled"]) {
+    assert.ok(rows.includes(`${status}: "`), `task status not mapped: ${status}`);
+  }
+  assert.match(rows, /pauseReason === "approval"/);
+  assert.match(rows, /pauseReason === "budget"/);
+  assert.match(rows, /runNeedsReview\(run\)/);
 });
 
-check("/deployments only redirects to the Depot room on Home", () => {
+check("run actions cover approve, deny, cancel, pause/resume and raise budget", () => {
+  const actions = read("app/runs/hooks/use-run-actions.ts");
+  for (const action of ["approve", "deny", "approve-tool", "deny-tool", "pause", "resume", "cancel", "retry", "rerun", "delete"]) {
+    assert.ok(actions.includes(`"${action}"`), `missing action ${action}`);
+  }
+  assert.match(actions, /data\.raiseBudget\(row\.run\.id, input\)/);
+  assert.match(actions, /agentTasks\.raiseBudget\(row\.task\.id, input\)/);
+  const data = read("app/deployments/hooks/use-deployments-data.ts");
+  assert.match(data, /\/api\/deployment-runs\/\$\{encodeURIComponent\(runId\)\}\/budget/);
+  assert.match(data, /\/approval/);
+  assert.match(data, /\/action/);
+});
+
+check("budget states ok / warning / degraded / exhausted have labels", () => {
+  const budget = read("components/agents/budget.tsx");
+  for (const state of ["ok", "warning", "degraded", "exhausted"]) {
+    assert.match(budget, new RegExp(`\\n  ${state}: \\{`), `missing budget state ${state}`);
+  }
+});
+
+check("/deployments is the list page with a detail sheet and a confirmed delete", () => {
   const page = read("app/deployments/page.tsx");
-  assert.match(page, /redirect\("\/home\?room=depot"\)/);
-  assert.match(page, /section=new-deployment&tab=/);
-  assert.ok(!fs.existsSync(path.join(hudRoot, "app/deployments/components/deployments-screen.tsx")), "legacy page UI must stay deleted");
+  assert.doesNotMatch(page, /redirect\(/, "/deployments must not redirect any more");
+  assert.match(page, /<DeploymentListScreen \/>/);
+  const screen = read("app/deployments/components/deployment-list-screen.tsx");
+  assert.match(screen, /<DeploymentDetailSheet/);
+  assert.match(screen, /<Dialog/);
+  assert.match(screen, /NEW_DEPLOYMENT_HREF/);
+  assert.match(screen, /\/missions\?editId=/);
+  assert.match(read("app/deployments/components/deployment-detail-sheet.tsx"), /\/runs\?run=/);
 });
 
-check("task card renders all 6 statuses", () => {
-  const card = read("components/agents/task-card.tsx");
-  for (const status of ["running", "queued", "paused", "completed", "failed", "cancelled"]) {
-    assert.ok(card.includes(`${status}: { label:`), `missing status style: ${status}`);
+check("/deployments/new hosts NewDeploymentFlow with tab fallback, prompt prefill and launch navigation", () => {
+  assert.match(read("app/deployments/new/page.tsx"), /<NewDeploymentScreen \/>/);
+  const screen = read("app/deployments/components/new-deployment-screen.tsx");
+  assert.match(screen, /isNewDeploymentTab\(requestedTab\) \? requestedTab : "describe"/);
+  assert.match(screen, /searchParams\.get\("prompt"\)/);
+  assert.match(screen, /<NewDeploymentFlow/);
+  assert.match(screen, /\/runs\?run=/);
+  assert.match(screen, /Deployment launched/);
+  const tabs = read("app/deployments/components/new-deployment-tabs.ts");
+  for (const tab of ["describe", "task", "automation"]) assert.match(tabs, new RegExp(`id: "${tab}"`));
+  const flow = read("app/deployments/components/new-deployment-flow.tsx");
+  assert.match(flow, /<ManagerPanel/);
+  assert.match(flow, /<AdvancedTaskForm/);
+  assert.match(flow, /<AutomationPanel/);
+  assert.match(flow, /MissionCanvasModal/);
+});
+
+check("legacy Depot room and redirect stay deleted; old links redirect to the new pages", () => {
+  for (const rel of [
+    "app/home/components/rooms/room-new-deployment.tsx",
+    "app/home/components/rooms/room-deployments-panel.tsx",
+    "app/deployments/components/deployments-screen.tsx",
+    "app/deployments/components/deployment-ui.tsx",
+    "components/agents/task-card.tsx",
+    "components/agents/task-list.tsx",
+  ]) {
+    assert.ok(!exists(rel), `${rel} must stay deleted`);
   }
+  const config = read("next.config.js");
+  assert.match(config, /destination: "\/deployments\/new\?tab=automation"/);
+  assert.match(config, /homeRoom\("depot", "\/runs"\)/);
 });
 
-check("task list groups Running / Queued / Completed / Failed", () => {
-  const list = read("components/agents/task-list.tsx");
-  for (const label of ["Running", "Queued", "Completed", "Failed"]) {
-    assert.match(list, new RegExp(`label: "${label}"`));
-  }
-  assert.match(list, /statuses: \["queued", "paused"\]/);
-  assert.match(list, /statuses: \["failed", "cancelled"\]/);
-});
-
-check("modal wires all 5 permission modes and the bypass warning", () => {
-  const card = read("components/agents/task-card.tsx");
-  const modal = read("components/agents/advanced-task-form.tsx");
+check("task form wires all 5 permission modes and the bypass warning", () => {
+  const modes = read("components/agents/permission-modes.ts");
+  const form = read("components/agents/advanced-task-form.tsx");
   for (const mode of ["default", "accept-edits", "plan-mode", "dont-ask", "bypass"]) {
-    assert.ok(card.includes(mode), `permission label missing: ${mode}`);
+    assert.ok(modes.includes(mode), `permission label missing: ${mode}`);
   }
-  assert.match(modal, /PERMISSION_MODE_LABELS/);
-  assert.match(modal, /permissionMode === "bypass"/);
-  assert.match(modal, /Bypass allows elevated operations/);
+  assert.match(form, /PERMISSION_MODE_LABELS/);
+  assert.match(form, /permissionMode === "bypass"/);
+  assert.match(form, /Bypass allows elevated operations/);
 });
 
-check("advanced form loads configured provider options from the server", () => {
-  const modal = read("components/agents/advanced-task-form.tsx");
+check("task form loads configured provider options from the server", () => {
+  const form = read("components/agents/advanced-task-form.tsx");
   const selection = read("lib/integrations/llm/provider-selection.ts");
-  assert.match(modal, /TASK_OPTIONS_URL = "\/api\/agent-tasks\/options"/);
-  assert.match(modal, />Provider</);
+  assert.match(form, /TASK_OPTIONS_URL = "\/api\/agent-tasks\/options"/);
+  assert.match(form, /label="Provider"/);
   assert.match(selection, /listConfiguredLlmProviders/);
   assert.match(selection, /validateConfiguredLlmSelection/);
   for (const constant of ["CLAUDE_MODEL_OPTIONS", "OPENAI_MODEL_OPTIONS", "GEMINI_MODEL_OPTIONS", "GROK_MODEL_OPTIONS"]) {
@@ -97,18 +162,15 @@ check("advanced form loads configured provider options from the server", () => {
   }
 });
 
-check("no legacy /api/tasks route and no console.log in the UI", () => {
+check("no legacy API, console.log, old product name or legacy skin classes in the run/deployment UI", () => {
+  const legacy = /font-pixel|home-spotlight|home-border-glow|holo-|pixel-ui|\btext-s-\d|\bbg-s-\d|bg-accent-(10|15|20)\b|backdrop-blur|text-white\/|bg-black\//;
   for (const rel of uiFiles) {
     const source = read(rel);
     assert.ok(!source.includes("/api/tasks"), `${rel} references /api/tasks`);
     assert.ok(!source.includes("console.log"), `${rel} contains console.log`);
+    assert.ok(!source.includes("U.B Agents"), `${rel} still says U.B Agents`);
+    assert.doesNotMatch(source, legacy, `${rel} uses a legacy skin class`);
   }
-});
-
-check("no horizontal-overflow regressions in the task list container", () => {
-  const list = read("components/agents/task-list.tsx");
-  assert.match(list, /overflow-y-auto overflow-x-hidden/);
-  assert.match(list, /min-h-0/);
 });
 
 console.log(`${passed} checks passed`);

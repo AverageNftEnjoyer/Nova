@@ -1,7 +1,7 @@
 "use client"
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react"
-import { ACCENT_COLORS, loadUserSettings, updateAppSettings, USER_SETTINGS_UPDATED_EVENT, type SpotlightColor } from "@/lib/settings/userSettings"
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
+import { loadUserSettings, updateAppSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
 
 type Theme = "dark" | "light"
 type ThemeSetting = "dark" | "light" | "system"
@@ -38,34 +38,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>("dark")
   const [fontSizeSetting, setFontSizeSetting] = useState<FontSizeSetting>("medium")
 
-  const applySpotlightColor = useCallback((color: SpotlightColor) => {
-    if (typeof document === "undefined") return
-    const hex = ACCENT_COLORS[color].primary
-    const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-    const rgb = match
-      ? `${parseInt(match[1], 16)}, ${parseInt(match[2], 16)}, ${parseInt(match[3], 16)}`
-      : "255, 255, 255"
-    document.documentElement.style.setProperty("--spotlight-rgb", rgb)
-  }, [])
-
   useEffect(() => {
     const app = loadUserSettings().app
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setThemeSettingState(app.theme)
     setTheme(resolveTheme(app.theme))
     setFontSizeSetting(app.fontSize)
-    applySpotlightColor(app.spotlightColor)
-  }, [applySpotlightColor])
+  }, [])
 
+  // The text size setting multiplies the CSS root scale (theme.css steps --root-scale up on very wide viewports).
   const applyFontScale = (setting: FontSizeSetting) => {
-    if (typeof window === "undefined") return
-
-    // Medium is the responsive baseline based on viewport width.
-    const basePx = Math.max(14, Math.min(18, window.innerWidth / 90))
+    if (typeof document === "undefined") return
     const multiplier = setting === "small" ? 0.92 : setting === "large" ? 1.12 : 1
-    const sizePx = basePx * multiplier
-
-    document.documentElement.style.fontSize = `${sizePx.toFixed(2)}px`
+    document.documentElement.style.setProperty("--font-scale", String(multiplier))
   }
 
   // Listen for system theme changes when using "system" setting
@@ -103,26 +88,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       applyFontScale(next)
     }
 
-    const handleResize = () => applyFontScale(fontSizeSetting)
-
     window.addEventListener(USER_SETTINGS_UPDATED_EVENT, syncFromSettings as EventListener)
-    window.addEventListener("resize", handleResize)
-
-    return () => {
-      window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncFromSettings as EventListener)
-      window.removeEventListener("resize", handleResize)
-    }
+    return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncFromSettings as EventListener)
   }, [fontSizeSetting])
-
-  useEffect(() => {
-    const syncSpotlightColor = () => {
-      const next = loadUserSettings().app.spotlightColor
-      applySpotlightColor(next)
-    }
-
-    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, syncSpotlightColor as EventListener)
-    return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncSpotlightColor as EventListener)
-  }, [applySpotlightColor])
 
   // Update theme setting (called from settings modal)
   const setThemeSetting = (setting: ThemeSetting) => {

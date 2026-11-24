@@ -1,7 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import { ChevronDown, ChevronUp } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { History, RefreshCw } from "lucide-react"
+
+import { Button, EmptyState, Field, Input, Portal, Sheet, SkeletonRows, useModalBehavior } from "@/components/ui"
 import type { Mission } from "@/lib/missions/types"
 import { MissionCanvas } from "../canvas/mission-canvas"
 import { fetchMissionVersions, restoreMissionVersion, type MissionVersionRecord } from "../api"
@@ -15,23 +17,26 @@ interface MissionCanvasModalProps {
   isSaving?: boolean
 }
 
-export function MissionCanvasModal({
-  mission,
-  open,
-  onClose,
-  onSave,
-  onRun,
-  isSaving,
-}: MissionCanvasModalProps) {
+// Escape does not close the canvas: unsaved graph edits would be lost. The header's back button closes it.
+const ignoreEscape = () => {}
+
+/** Full-screen mission canvas (used by /missions and Advanced deployments), with version history in a side sheet. */
+export function MissionCanvasModal({ mission, open, onClose, onSave, onRun, isSaving }: MissionCanvasModalProps) {
+  const rootRef = useRef<HTMLDivElement | null>(null)
   const [draftMission, setDraftMission] = useState<Mission | null>(mission)
   const [isRunning, setIsRunning] = useState(false)
   const [traceStatuses, setTraceStatuses] = useState<Record<string, "running" | "completed" | "failed">>({})
+  const [versionsOpen, setVersionsOpen] = useState(false)
   const [versions, setVersions] = useState<MissionVersionRecord[]>([])
   const [versionsLoading, setVersionsLoading] = useState(false)
   const [versionsError, setVersionsError] = useState("")
   const [restoreReason, setRestoreReason] = useState("")
   const [restoringVersionId, setRestoringVersionId] = useState("")
   const [versionStatus, setVersionStatus] = useState("")
+  // Bumped on restore so the canvas remounts with the restored graph (it reads nodes once per mount).
+  const [restoreCount, setRestoreCount] = useState(0)
+
+  useModalBehavior(open && Boolean(draftMission), rootRef, ignoreEscape)
 
   useEffect(() => {
     setDraftMission(mission)
@@ -60,20 +65,20 @@ export function MissionCanvasModal({
     void loadVersions()
   }, [loadVersions])
 
-  const handleRun = useCallback(async (draftMission: Mission) => {
+  const handleRun = useCallback(async (next: Mission) => {
     if (!onRun) return
     setIsRunning(true)
     setTraceStatuses({})
     try {
-      await onRun(draftMission)
+      await onRun(next)
     } finally {
       setIsRunning(false)
     }
   }, [onRun])
 
-  const handleSave = useCallback(async (nextMission: Mission) => {
-    setDraftMission(nextMission)
-    return onSave(nextMission)
+  const handleSave = useCallback(async (next: Mission) => {
+    setDraftMission(next)
+    return onSave(next)
   }, [onSave])
 
   const handleRestoreVersion = useCallback(async (versionId: string) => {
@@ -82,16 +87,13 @@ export function MissionCanvasModal({
     setVersionStatus("")
     setVersionsError("")
     try {
-      const response = await restoreMissionVersion({
-        missionId: draftMission.id,
-        versionId,
-        reason: restoreReason.trim() || undefined,
-      })
+      const response = await restoreMissionVersion({ missionId: draftMission.id, versionId, reason: restoreReason.trim() || undefined })
       const data = response.data
       if (!response.ok || !data?.ok || !data?.mission || typeof data.mission !== "object") {
         throw new Error(data?.error || "Failed to restore mission version.")
       }
       setDraftMission(data.mission as Mission)
+      setRestoreCount((count) => count + 1)
       setTraceStatuses({})
       setVersionStatus(`Restored version ${versionId}.`)
       await loadVersions()
@@ -102,81 +104,85 @@ export function MissionCanvasModal({
     }
   }, [draftMission?.id, loadVersions, restoreReason])
 
-  const [versionsExpanded, setVersionsExpanded] = useState(false)
-
   if (!open || !draftMission) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch justify-stretch bg-zinc-950/90 backdrop-blur-sm">
-      <div className="h-full w-full">
-        <div className="pointer-events-auto absolute right-4 top-4 z-60 w-72 xl:w-80 rounded-xl border border-white/15 bg-black/70 text-white shadow-[0_18px_42px_rgba(0,0,0,0.55)] backdrop-blur-xl">
-          <button
-            type="button"
-            onClick={() => setVersionsExpanded((v) => !v)}
-            className="flex w-full items-center justify-between px-3 py-2.5 hover:bg-white/4 transition-colors rounded-t-xl"
-          >
-            <h3 className="text-sm font-semibold">Mission Versions</h3>
-            <div className="flex items-center gap-1.5">
-              {versions.length > 0 && (
-                <span className="text-[10px] font-mono text-white/50">{versions.length}</span>
-              )}
-              {versionsExpanded ? <ChevronUp className="h-3.5 w-3.5 text-white/60" /> : <ChevronDown className="h-3.5 w-3.5 text-white/60" />}
-            </div>
-          </button>
-          {versionsExpanded && (
-            <div className="px-3 pb-3 border-t border-white/8">
-              <div className="mt-2 mb-2 flex items-center justify-end">
-                <button
-                  type="button"
-                  onClick={() => { void loadVersions() }}
-                  disabled={versionsLoading}
-                  className="rounded border border-white/20 px-2 py-1 text-[11px] text-white/85 hover:bg-white/10 disabled:opacity-60"
-                >
-                  Refresh
-                </button>
-              </div>
-              <label className="mb-1 block text-[11px] font-medium text-white/70">Restore reason</label>
-              <input
-                value={restoreReason}
-                onChange={(event) => setRestoreReason(event.target.value)}
-                placeholder="Optional change note"
-                className="mb-2 w-full rounded border border-white/20 bg-black/35 px-2 py-1.5 text-xs text-white placeholder:text-white/40 focus:border-white/35 focus:outline-none"
-              />
-              {versionStatus ? <div className="mb-2 rounded border border-emerald-400/30 bg-emerald-500/12 px-2 py-1 text-[11px] text-emerald-200">{versionStatus}</div> : null}
-              {versionsError ? <div className="mb-2 rounded border border-rose-400/35 bg-rose-500/12 px-2 py-1 text-[11px] text-rose-200">{versionsError}</div> : null}
-              <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
-                {versionsLoading ? <div className="text-[11px] text-white/60">Loading versions...</div> : null}
-                {!versionsLoading && versions.length === 0 ? <div className="text-[11px] text-white/60">No versions found.</div> : null}
-                {versions.map((entry) => (
-                  <div key={entry.versionId} className="rounded border border-white/12 bg-black/25 px-2 py-1.5">
-                    <div className="text-[11px] font-medium text-white/90">{new Date(entry.ts).toLocaleString()}</div>
-                    <div className="text-[10px] uppercase tracking-[0.08em] text-white/55">
-                      {entry.eventType} | source v{entry.sourceMissionVersion}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => { void handleRestoreVersion(entry.versionId) }}
-                      disabled={Boolean(restoringVersionId)}
-                      className="mt-1 rounded border border-cyan-300/35 bg-cyan-500/14 px-2 py-1 text-[11px] font-medium text-cyan-100 hover:bg-cyan-500/22 disabled:opacity-60"
-                    >
-                      {restoringVersionId === entry.versionId ? "Restoring..." : "Restore"}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+    <Portal>
+      <div
+        ref={rootRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Mission canvas: ${draftMission.label || "Untitled mission"}`}
+        tabIndex={-1}
+        className="fixed inset-0 z-140 flex bg-canvas animate-overlay-in focus-visible:outline-none"
+      >
         <MissionCanvas
+          key={`${draftMission.id}-${restoreCount}`}
           mission={draftMission}
           onSave={handleSave}
-          onRun={handleRun}
+          onRun={onRun ? handleRun : undefined}
           onExit={onClose}
           traceStatuses={traceStatuses}
           isSaving={isSaving}
           isRunning={isRunning}
+          headerActions={(
+            <Button variant="ghost" size="sm" onClick={() => setVersionsOpen(true)}>
+              <History />
+              Versions
+              {versions.length > 0 ? <span className="font-mono text-2xs text-faint tabular-nums">{versions.length}</span> : null}
+            </Button>
+          )}
         />
       </div>
-    </div>
+
+      <Sheet
+        open={versionsOpen}
+        onOpenChange={setVersionsOpen}
+        title="Version history"
+        description="Restoring a version replaces the canvas with that saved graph."
+        size="sm"
+        actions={(
+          <Button variant="ghost" size="sm" onClick={() => void loadVersions()} loading={versionsLoading}>
+            <RefreshCw />
+            Refresh
+          </Button>
+        )}
+      >
+        <div className="flex flex-col gap-4">
+          <Field label="Restore note" hint="Optional. Saved with the restored version.">
+            <Input value={restoreReason} onChange={(event) => setRestoreReason(event.target.value)} placeholder="Why you are restoring" />
+          </Field>
+          {versionStatus ? <p className="rounded-md bg-success-muted px-3 py-2 text-xs text-success">{versionStatus}</p> : null}
+          {versionsError ? <p className="rounded-md bg-danger-muted px-3 py-2 text-xs text-danger">{versionsError}</p> : null}
+          {versionsLoading && versions.length === 0 ? (
+            <SkeletonRows rows={4} />
+          ) : versions.length === 0 ? (
+            <EmptyState size="compact" title="No versions yet" description="A version is recorded each time this mission is saved." />
+          ) : (
+            <ul className="divide-y divide-border-subtle rounded-md border border-border">
+              {versions.map((entry) => (
+                <li key={entry.versionId} className="flex items-center gap-3 px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-mono text-xs text-fg tabular-nums">{new Date(entry.ts).toLocaleString()}</p>
+                    <p className="truncate text-2xs text-muted">
+                      {entry.eventType}, from v{entry.sourceMissionVersion}
+                    </p>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void handleRestoreVersion(entry.versionId)}
+                    loading={restoringVersionId === entry.versionId}
+                    disabled={Boolean(restoringVersionId) && restoringVersionId !== entry.versionId}
+                  >
+                    Restore
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </Sheet>
+    </Portal>
   )
 }

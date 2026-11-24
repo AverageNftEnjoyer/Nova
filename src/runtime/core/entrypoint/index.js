@@ -1,4 +1,4 @@
-// ===== U.B Agents Runtime =====
+// ===== Nova Runtime =====
 // Runtime shell entrypoint owned by src/. This wires gateway + voice loop startup.
 
 import path from "path";
@@ -92,7 +92,7 @@ export async function startNovaRuntime({ onReady, handleInput } = {}) {
 
   initVoiceBroadcast(broadcastState, getVoiceRoutingUserContextId);
 
-  let runtimeHandleInput = async () => "U.B Agents runtime is starting. Chat handler unavailable.";
+  let runtimeHandleInput = async () => "Nova runtime is starting. Chat handler unavailable.";
   if (typeof handleInput === "function") {
     runtimeHandleInput = handleInput;
   } else {
@@ -169,7 +169,7 @@ export async function startNovaRuntime({ onReady, handleInput } = {}) {
   if (stopped || abort.signal.aborted) return;
 
   cleanupAudioArtifacts();
-  console.log("U.B Agents online.");
+  console.log("Nova online.");
   const startupVoiceUserContextId = getVoiceRoutingUserContextId();
   broadcastState(
     getMuted({ userContextId: startupVoiceUserContextId }) ? "muted" : "idle",

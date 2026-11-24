@@ -1,227 +1,182 @@
 "use client"
 
-import { useCallback, useState } from "react"
-import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/shared/utils"
-import { isBlockedAssistantName, MAX_ASSISTANT_NAME_LENGTH } from "@/lib/settings/userSettings"
-import {
-  SettingInput,
-  SettingTextarea,
-  SettingSelect,
-  getSettingsCardClass,
-  playClickSound,
-} from "@/components/settings/settings-primitives"
-import type { UserSettings } from "@/lib/settings/userSettings"
+import { useState } from "react"
+import { Button, Input, Select, Textarea } from "@/components/ui"
+import { SettingRow, SettingsGroup } from "@/components/settings/settings-primitives"
+import { isBlockedAssistantName, MAX_ASSISTANT_NAME_LENGTH, MAX_PREFERRED_CITY_LENGTH, type UserSettings } from "@/lib/settings/userSettings"
 
 interface Props {
-  isLight: boolean
   settings: UserSettings
   updatePersonalization: (key: string, value: string | string[]) => void
   onNavigateToSkills: () => void
 }
 
-export function SettingsPersonalizationPanel({ isLight, settings, updatePersonalization, onNavigateToSkills }: Props) {
-  const [assistantNameValidation, setAssistantNameValidation] = useState("")
+interface ChoiceRow {
+  key: "communicationStyle" | "tone" | "proactivity" | "humor_level" | "structure_preference" | "challenge_level" | "risk_tolerance"
+  label: string
+  hint: string
+  options: { value: string; label: string; description?: string }[]
+}
 
-  const handleAssistantNameChange = useCallback((value: string) => {
-    const candidate = String(value || "").trim()
-    if (isBlockedAssistantName(candidate)) {
-      setAssistantNameValidation("That name is not allowed. Please choose a different assistant name.")
-    } else if (candidate.length > MAX_ASSISTANT_NAME_LENGTH) {
-      setAssistantNameValidation(`Assistant name must be ${MAX_ASSISTANT_NAME_LENGTH} characters or fewer.`)
-    } else {
-      setAssistantNameValidation("")
+const STYLE_ROWS: ChoiceRow[] = [
+  {
+    key: "communicationStyle",
+    label: "Formality",
+    hint: "How formal replies are.",
+    options: [
+      { value: "formal", label: "Formal" },
+      { value: "professional", label: "Professional" },
+      { value: "friendly", label: "Friendly" },
+      { value: "casual", label: "Casual" },
+    ],
+  },
+  {
+    key: "tone",
+    label: "Tone",
+    hint: "The overall voice of replies.",
+    options: [
+      { value: "neutral", label: "Neutral" },
+      { value: "enthusiastic", label: "Enthusiastic" },
+      { value: "calm", label: "Calm" },
+      { value: "direct", label: "Direct" },
+      { value: "relaxed", label: "Relaxed" },
+    ],
+  },
+  {
+    key: "structure_preference",
+    label: "Structure",
+    hint: "Prose, lists, or a mix of both.",
+    options: [
+      { value: "freeform", label: "Freeform", description: "Flowing prose" },
+      { value: "mixed", label: "Mixed", description: "Prose and structure as needed" },
+      { value: "structured", label: "Structured", description: "Bullets, headers and lists" },
+    ],
+  },
+]
+
+const BEHAVIOUR_ROWS: ChoiceRow[] = [
+  {
+    key: "proactivity",
+    label: "Proactivity",
+    hint: "Whether it offers next steps you didn't ask for.",
+    options: [
+      { value: "reactive", label: "Reactive", description: "Only answers what is asked" },
+      { value: "balanced", label: "Balanced", description: "Suggests when clearly helpful" },
+      { value: "proactive", label: "Proactive", description: "Surfaces next steps and issues" },
+    ],
+  },
+  {
+    key: "challenge_level",
+    label: "Pushback",
+    hint: "How readily it disagrees with you.",
+    options: [
+      { value: "supportive", label: "Supportive", description: "Validates and encourages" },
+      { value: "neutral", label: "Neutral", description: "Balanced perspective" },
+      { value: "challenger", label: "Challenger", description: "Pushes back on weak ideas" },
+    ],
+  },
+  {
+    key: "risk_tolerance",
+    label: "Risk tolerance",
+    hint: "How bold its recommendations are.",
+    options: [
+      { value: "conservative", label: "Conservative", description: "Highlights risks, prefers safe defaults" },
+      { value: "balanced", label: "Balanced", description: "Weighs opportunity and risk" },
+      { value: "bold", label: "Bold", description: "Favours ambitious, decisive options" },
+    ],
+  },
+  {
+    key: "humor_level",
+    label: "Humour",
+    hint: "How much wit shows up in replies.",
+    options: [
+      { value: "none", label: "None", description: "Strictly professional" },
+      { value: "subtle", label: "Subtle", description: "Light wit when it fits" },
+      { value: "playful", label: "Playful", description: "Banter welcome" },
+    ],
+  },
+]
+
+export function SettingsPersonalizationPanel({ settings, updatePersonalization, onNavigateToSkills }: Props) {
+  const p = settings.personalization
+  const [assistantNameDraft, setAssistantNameDraft] = useState(p.assistantName)
+  const [assistantNameError, setAssistantNameError] = useState("")
+
+  const changeAssistantName = (value: string) => {
+    setAssistantNameDraft(value)
+    if (isBlockedAssistantName(value.trim())) {
+      setAssistantNameError("That name is not allowed. Choose a different one.")
+      return
     }
+    setAssistantNameError("")
     updatePersonalization("assistantName", value)
-  }, [updatePersonalization])
+  }
+
+  const renderChoice = (row: ChoiceRow) => (
+    <SettingRow key={row.key} label={row.label} hint={row.hint}>
+      <Select
+        value={p[row.key]}
+        options={row.options}
+        onValueChange={(value) => updatePersonalization(row.key, value)}
+        className="w-52"
+      />
+    </SettingRow>
+  )
 
   return (
-    <div className="space-y-5">
-      <div className="p-4 rounded-xl bg-accent-10 border border-accent-30 transition-colors duration-150 hover:bg-accent-15 mb-4">
-        <p className="text-sm text-accent-secondary">
-          Help U.B Agents understand you better by filling in these details.
-          This information helps personalize your experience.
-        </p>
-      </div>
+    <div className="flex flex-col gap-8">
+      <SettingsGroup title="About you" description="Nova uses these details to address you and tailor answers.">
+        <SettingRow label="Assistant name" hint="What you call your assistant. Empty means Nova." error={assistantNameError || undefined}>
+          <Input
+            value={assistantNameDraft}
+            onChange={(e) => changeAssistantName(e.target.value)}
+            onBlur={() => setAssistantNameDraft(settings.personalization.assistantName)}
+            placeholder="Nova"
+            maxLength={MAX_ASSISTANT_NAME_LENGTH}
+            className="w-52"
+          />
+        </SettingRow>
+        <SettingRow label="Nickname" hint="What Nova calls you.">
+          <Input value={p.nickname} onChange={(e) => updatePersonalization("nickname", e.target.value)} placeholder="Your first name" className="w-52" />
+        </SettingRow>
+        <SettingRow label="Occupation" hint="Your role, so examples fit your work.">
+          <Input value={p.occupation} onChange={(e) => updatePersonalization("occupation", e.target.value)} placeholder="Software developer" className="w-52" />
+        </SettingRow>
+        <SettingRow label="Weather city" hint="Used for the weather on Home. You can also say it in chat.">
+          <Input
+            value={p.preferredCity}
+            onChange={(e) => updatePersonalization("preferredCity", e.target.value)}
+            placeholder="Austin, TX"
+            maxLength={MAX_PREFERRED_CITY_LENGTH}
+            className="w-52"
+          />
+        </SettingRow>
+        <SettingRow label="Language" hint="The language Nova replies in.">
+          <Input value={p.preferredLanguage} onChange={(e) => updatePersonalization("preferredLanguage", e.target.value)} placeholder="English" className="w-52" />
+        </SettingRow>
+        <SettingRow stacked label="Things to know about you" hint="Traits and preferences, e.g. prefers concise answers, works late.">
+          <Textarea
+            value={p.characteristics}
+            onChange={(e) => updatePersonalization("characteristics", e.target.value)}
+            autoGrow
+            minRows={3}
+            maxRows={8}
+            placeholder="Detail-oriented, prefers short answers with the command first"
+          />
+        </SettingRow>
+      </SettingsGroup>
 
-      <SettingInput
-        label="Assistant Name"
-        description="What do you want to call your assistant?"
-        value={settings.personalization.assistantName}
-        onChange={handleAssistantNameChange}
-        placeholder="e.g., U.B Agents, Atlas..."
-        errorText={assistantNameValidation || undefined}
-        isLight={isLight}
-      />
+      <SettingsGroup title="Reply style">{STYLE_ROWS.map(renderChoice)}</SettingsGroup>
 
-      <SettingInput
-        label="Nickname"
-        description="What should U.B Agents call you?"
-        value={settings.personalization.nickname}
-        onChange={(v) => updatePersonalization("nickname", v)}
-        placeholder="e.g., Boss, Chief, Captain..."
-        isLight={isLight}
-      />
+      <SettingsGroup title="Behaviour">{BEHAVIOUR_ROWS.map(renderChoice)}</SettingsGroup>
 
-      <SettingInput
-        label="Occupation"
-        description="Your profession or role"
-        value={settings.personalization.occupation}
-        onChange={(v) => updatePersonalization("occupation", v)}
-        placeholder="e.g., Software Developer, Designer..."
-        isLight={isLight}
-      />
-
-      <SettingInput
-        label="Preferred Weather City"
-        description="Used for the Home weather module. You can also tell U.B Agents: set my weather city to Miami, FL."
-        value={settings.personalization.preferredCity}
-        onChange={(v) => updatePersonalization("preferredCity", v)}
-        placeholder="e.g., Austin, TX"
-        isLight={isLight}
-      />
-
-      <SettingInput
-        label="Preferred Language"
-        description="Your preferred language for responses"
-        value={settings.personalization.preferredLanguage}
-        onChange={(v) => updatePersonalization("preferredLanguage", v)}
-        isLight={isLight}
-      />
-
-      <SettingSelect
-        label="Communication Style"
-        description="How formal should U.B Agents be?"
-        isLight={isLight}
-        value={settings.personalization.communicationStyle}
-        options={[
-          { value: "formal", label: "Formal" },
-          { value: "professional", label: "Professional" },
-          { value: "friendly", label: "Friendly" },
-          { value: "casual", label: "Casual" },
-        ]}
-        onChange={(v) => updatePersonalization("communicationStyle", v)}
-      />
-
-      <SettingSelect
-        label="Response Tone"
-        description="U.B Agents' conversational tone"
-        isLight={isLight}
-        value={settings.personalization.tone}
-        options={[
-          { value: "neutral", label: "Neutral" },
-          { value: "enthusiastic", label: "Enthusiastic" },
-          { value: "calm", label: "Calm" },
-          { value: "direct", label: "Direct" },
-          { value: "relaxed", label: "Relaxed" },
-        ]}
-        onChange={(v) => updatePersonalization("tone", v)}
-      />
-
-      <SettingTextarea
-        label="Your Characteristics"
-        description="Describe yourself - personality traits, preferences, quirks"
-        value={settings.personalization.characteristics}
-        onChange={(v) => updatePersonalization("characteristics", v)}
-        placeholder="e.g., I'm detail-oriented, prefer concise answers, work late nights..."
-        rows={3}
-        isLight={isLight}
-      />
-
-      <div className={cn("flex items-center gap-3 pt-1 pb-0.5")}>
-        <div className={cn("h-px flex-1", isLight ? "bg-[#d5dce8]" : "bg-white/10")} />
-        <span className={cn("text-xs font-semibold tracking-widest uppercase", isLight ? "text-s-40" : "text-slate-500")}>
-          Behavior Tuning
-        </span>
-        <div className={cn("h-px flex-1", isLight ? "bg-[#d5dce8]" : "bg-white/10")} />
-      </div>
-
-      <SettingSelect
-        label="Proactivity"
-        description="How often should U.B Agents volunteer suggestions unprompted?"
-        isLight={isLight}
-        value={settings.personalization.proactivity}
-        options={[
-          { value: "reactive", label: "Reactive — only answer what's asked" },
-          { value: "balanced", label: "Balanced — suggest when clearly helpful" },
-          { value: "proactive", label: "Proactive — surface next steps and issues" },
-        ]}
-        onChange={(v) => updatePersonalization("proactivity", v)}
-      />
-
-      <SettingSelect
-        label="Humor"
-        description="How much personality and wit in responses?"
-        isLight={isLight}
-        value={settings.personalization.humor_level}
-        options={[
-          { value: "none", label: "None — strictly professional" },
-          { value: "subtle", label: "Subtle — light wit when it fits" },
-          { value: "playful", label: "Playful — banter welcome" },
-        ]}
-        onChange={(v) => updatePersonalization("humor_level", v)}
-      />
-
-      <SettingSelect
-        label="Response Structure"
-        description="Preferred format for answers"
-        isLight={isLight}
-        value={settings.personalization.structure_preference}
-        options={[
-          { value: "freeform", label: "Freeform — flowing prose" },
-          { value: "mixed", label: "Mixed — prose and structure as needed" },
-          { value: "structured", label: "Structured — bullets, headers, lists" },
-        ]}
-        onChange={(v) => updatePersonalization("structure_preference", v)}
-      />
-
-      <SettingSelect
-        label="Challenge Mode"
-        description="Should U.B Agents push back or stay supportive?"
-        isLight={isLight}
-        value={settings.personalization.challenge_level}
-        options={[
-          { value: "supportive", label: "Supportive — validate and encourage" },
-          { value: "neutral", label: "Neutral — balanced perspective" },
-          { value: "challenger", label: "Challenger — push back on weak ideas" },
-        ]}
-        onChange={(v) => updatePersonalization("challenge_level", v)}
-      />
-
-      <SettingSelect
-        label="Risk Tolerance"
-        description="How bold should U.B Agents be in recommendations?"
-        isLight={isLight}
-        value={settings.personalization.risk_tolerance}
-        options={[
-          { value: "conservative", label: "Conservative — highlight risks, prefer safe defaults" },
-          { value: "balanced", label: "Balanced — weigh opportunity and risk" },
-          { value: "bold", label: "Bold — favor ambitious, decisive options" },
-        ]}
-        onChange={(v) => updatePersonalization("risk_tolerance", v)}
-      />
-
-      <div className={cn(getSettingsCardClass(isLight), "p-4")}>
-        <p className={cn("text-sm mb-0.5", isLight ? "text-s-70" : "text-slate-200")}>Skill-Based Behavior</p>
-        <p className={cn("text-xs mb-3", isLight ? "text-s-30" : "text-slate-500")}>
-          Behavior customization now lives in Skills. Create and edit
-          <code className="mx-1">SKILL.md</code>
-          templates in the Skills section.
-        </p>
-        <Button
-          onClick={() => { playClickSound(); onNavigateToSkills() }}
-          variant="outline"
-          size="sm"
-          className={cn(
-            "fx-spotlight-card fx-border-glow",
-            isLight
-              ? "text-s-50 border-[#d5dce8] hover:border-accent-30 hover:text-accent hover:bg-accent-10"
-              : "text-slate-300 border-white/15 hover:border-accent-30 hover:text-accent hover:bg-accent-10",
-          )}
-        >
-          Open Skills
-        </Button>
-      </div>
+      <SettingsGroup>
+        <SettingRow label="Custom behaviour" hint="Detailed instructions for specific kinds of requests live in skills.">
+          <Button variant="secondary" size="sm" onClick={onNavigateToSkills}>
+            Open skills
+          </Button>
+        </SettingRow>
+      </SettingsGroup>
     </div>
   )
 }

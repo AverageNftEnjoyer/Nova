@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react"
-import { useRouter } from "next/navigation"
 import {
   type ChatMessage,
   type Conversation,
@@ -34,6 +33,7 @@ export interface UseConversationsReturn {
   conversations: Conversation[]
   activeConvo: Conversation | null
   isLoaded: boolean
+  isSynced: boolean
   mergedCountRef: React.MutableRefObject<number>
   sendMessage: (
     content: string,
@@ -125,11 +125,12 @@ export function useConversations({
   chatTransportEvents,
   clearAgentMessages,
 }: UseConversationsOptions): UseConversationsReturn {
-  const router = useRouter()
 
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConvo, setActiveConvo] = useState<Conversation | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
+  // True once the first server thread list has been merged in (or failed): URL intents wait for it.
+  const [isSynced, setIsSynced] = useState(false)
 
   const mergedCountRef = useRef(0)
   const processedTransportSeqRef = useRef(0)
@@ -616,6 +617,8 @@ export function useConversations({
           setActiveConvo(null)
         }
         setIsLoaded(true)
+      } finally {
+        if (!cancelled) setIsSynced(true)
       }
     })()
 
@@ -738,7 +741,6 @@ export function useConversations({
     ensureServerConversationForOptimistic,
     sendMessage,
   } = useConversationActions({
-    router,
     conversations,
     activeConvo,
     agentConnected,
@@ -765,6 +767,7 @@ export function useConversations({
     conversations,
     activeConvo,
     isLoaded,
+    isSynced,
     mergedCountRef,
     sendMessage,
     handleNewChat,

@@ -1,12 +1,11 @@
 "use client"
 
-import { CheckCircle2, Loader2, Rocket, Send, Sparkles } from "lucide-react"
+import { ArrowUp, Check, Rocket } from "lucide-react"
 import { useEffect, useRef } from "react"
 
-import { primaryButtonClass, selectedSurfaceClass } from "@/lib/shared/surfaces"
-import { cn } from "@/lib/shared/utils"
+import { Badge, Button, IconButton, Kbd, Spinner, StatusDot, Textarea } from "@/components/ui"
+import { formatUsd } from "@/components/agents/run-format"
 import type { DeploymentManager } from "../hooks/use-deployment-manager"
-import { StatusChip } from "./deployment-ui"
 
 const EXAMPLE_OUTCOMES = [
   "Research three accounting tools, compare them against my requirements, and send me a recommendation.",
@@ -17,191 +16,173 @@ const EXAMPLE_OUTCOMES = [
 const RISK_TONE = { low: "success", medium: "warning", high: "danger" } as const
 
 interface ManagerPanelProps {
-  isLight: boolean
-  subPanelClass: string
   manager: DeploymentManager
 }
 
-export function ManagerPanel({ isLight, subPanelClass, manager }: ManagerPanelProps) {
+/** Simple mode: describe an outcome, Nova returns a validated plan, you launch it. */
+export function ManagerPanel({ manager }: ManagerPanelProps) {
   const { input, setInput, requests, busy, plan, plannedDeployment, launching, error, connected, novaState, thinkingStatus } = manager
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
-  const scrollRef = useRef<HTMLDivElement | null>(null)
-  const mutedText = isLight ? "text-s-50" : "text-slate-400"
-  const strongText = isLight ? "text-s-90" : "text-slate-100"
   const hasConversation = requests.length > 0
 
-  // Keep the newest request / plan in view as the conversation grows.
   useEffect(() => {
-    const node = scrollRef.current
-    if (node) node.scrollTop = node.scrollHeight
-  }, [requests.length, plan, busy, error])
-
-  const applyExample = (text: string) => {
-    setInput(text)
-    inputRef.current?.focus()
-  }
+    const node = inputRef.current
+    if (!node) return
+    node.focus()
+    node.setSelectionRange(node.value.length, node.value.length)
+  }, [])
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div ref={scrollRef} className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
-        {!hasConversation ? (
-          <div className="mx-auto flex h-full max-w-2xl flex-col items-center justify-center px-4 py-6 text-center">
-            <span className={cn("grid h-11 w-11 place-items-center rounded-xl border", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/25")}>
-              <Sparkles className="h-5 w-5 text-accent" />
-            </span>
-            <h3 className={cn("mt-4 text-lg font-semibold tracking-tight", strongText)}>What should U.B Agents deploy?</h3>
-            <p className={cn("mt-1.5 max-w-lg text-sm leading-6", mutedText)}>
-              Describe the result you want. U.B Agents decides whether it is a one-off task or a reusable automation, picks
-              the tools, and asks for your review before sensitive work.
-            </p>
-            <div className="mt-5 grid w-full gap-1.5">
-              {EXAMPLE_OUTCOMES.map((example) => (
-                <button
-                  key={example}
-                  type="button"
-                  onClick={() => applyExample(example)}
-                  className={cn(
-                    "rounded-md px-3 py-2 text-left text-[12px] leading-5 transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover",
-                    subPanelClass,
-                    isLight ? "text-s-70 hover:text-s-90" : "text-slate-300 hover:text-white",
-                  )}
-                >
-                  {example}
-                </button>
-              ))}
-            </div>
+    <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_17rem]">
+      <div className="flex min-w-0 flex-col gap-4">
+        <form onSubmit={manager.submit} className="flex flex-col gap-2">
+          <label htmlFor="deployment-outcome" className="text-md font-medium text-fg">
+            What should Nova get done?
+          </label>
+          <div className="relative">
+            <Textarea
+              id="deployment-outcome"
+              ref={inputRef}
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault()
+                  event.currentTarget.form?.requestSubmit()
+                }
+              }}
+              autoGrow
+              minRows={4}
+              maxRows={12}
+              placeholder="Describe the result you want, not the steps."
+              className="pb-11 text-sm leading-6"
+            />
+            <IconButton
+              type="submit"
+              variant="primary"
+              size="sm"
+              aria-label="Plan this deployment"
+              disabled={busy || !input.trim()}
+              className="absolute right-2 bottom-2"
+            >
+              <ArrowUp />
+            </IconButton>
           </div>
-        ) : (
-          <div className="mx-auto flex max-w-3xl flex-col gap-3 px-1 py-2">
+          <p className="flex items-center gap-1.5 text-xs text-muted">
+            <StatusDot tone={connected ? "success" : "warning"} size="sm" />
+            {connected ? (
+              <>
+                <Kbd>Enter</Kbd> to plan, <Kbd>Shift</Kbd> <Kbd>Enter</Kbd> for a new line
+              </>
+            ) : (
+              "The runtime is offline. The server still plans and validates your request."
+            )}
+          </p>
+        </form>
+
+        {hasConversation ? (
+          <ol className="flex flex-col gap-2" aria-label="Requests">
             {requests.map((request, index) => (
-              <article
-                key={`${request}-${index}`}
-                className={cn(
-                  "ml-auto max-w-[85%] rounded-lg border px-3.5 py-2.5 text-sm leading-6",
-                  selectedSurfaceClass(isLight),
-                )}
-              >
+              <li key={`${request}-${index}`} className="rounded-lg border border-border bg-surface-2 px-3.5 py-2.5 text-sm text-fg">
                 {request}
-              </article>
+              </li>
             ))}
+          </ol>
+        ) : null}
 
-            {busy || novaState === "thinking" ? (
-              <div className={cn("flex items-center gap-2 text-sm", mutedText)} role="status">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {busy ? "U.B Agents is building and validating the deployment plan…" : thinkingStatus || "U.B Agents is planning…"}
+        {busy || novaState === "thinking" ? (
+          <p className="flex items-center gap-2 text-sm text-muted" role="status">
+            <Spinner size="sm" />
+            {busy ? "Building and validating the plan" : thinkingStatus || "Planning"}
+          </p>
+        ) : null}
+
+        {error ? (
+          <p role="alert" className="rounded-lg border border-danger/40 bg-danger-muted px-3.5 py-2.5 text-sm text-fg">
+            {error}
+          </p>
+        ) : null}
+
+        {plan && plannedDeployment ? (
+          <article className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4" aria-label="Validated plan">
+            <header className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs text-muted">Validated plan</p>
+                <h3 className="mt-0.5 text-md font-medium text-fg">{plannedDeployment.title}</h3>
               </div>
+              <Badge tone="accent">{plan.kind === "automation" ? "Automation" : "One-off task"}</Badge>
+            </header>
+
+            {plan.acceptanceCriteria.length > 0 ? (
+              <ul className="flex flex-col gap-1.5">
+                {plan.acceptanceCriteria.map((criterion) => (
+                  <li key={criterion} className="flex items-start gap-2 text-sm text-fg">
+                    <Check className="mt-0.5 size-3.5 shrink-0 text-accent" aria-hidden />
+                    {criterion}
+                  </li>
+                ))}
+              </ul>
             ) : null}
 
-            {plan && plannedDeployment ? (
-              <article className={cn("max-w-[92%] rounded-lg p-4 home-spotlight-card home-border-glow", subPanelClass)}>
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className={cn("text-[11px] font-medium", mutedText)}>Validated manager plan</p>
-                    <h4 className={cn("mt-0.5 text-[15px] font-semibold leading-6", strongText)}>{plannedDeployment.title}</h4>
-                  </div>
-                  <StatusChip isLight={isLight} tone="accent">
-                    {plan.kind === "automation" ? "Automation" : "One-off task"}
-                  </StatusChip>
-                </div>
+            <div className="flex flex-wrap gap-1.5">
+              <Badge tone={RISK_TONE[plan.risk]}>{`${plan.risk[0].toUpperCase()}${plan.risk.slice(1)} risk`}</Badge>
+              <Badge tone={plan.reviewRequired ? "warning" : "neutral"}>{plan.reviewRequired ? "Review required" : "No review needed"}</Badge>
+              {plan.budgetEstimate.costUsd !== null ? <Badge mono>{`About ${formatUsd(plan.budgetEstimate.costUsd)}`}</Badge> : null}
+            </div>
 
-                {plan.acceptanceCriteria.length > 0 ? (
-                  <ul className="mt-3 space-y-1.5">
-                    {plan.acceptanceCriteria.map((criterion) => (
-                      <li key={criterion} className={cn("flex items-start gap-2 text-sm leading-5", isLight ? "text-s-70" : "text-slate-300")}>
-                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent" />
-                        {criterion}
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  <StatusChip isLight={isLight} tone={RISK_TONE[plan.risk]}>
-                    {plan.risk} risk
-                  </StatusChip>
-                  <StatusChip isLight={isLight} tone={plan.reviewRequired ? "warning" : "neutral"}>
-                    {plan.reviewRequired ? "Review required" : "No review needed"}
-                  </StatusChip>
-                  {plan.budgetEstimate.costUsd !== null ? (
-                    <StatusChip isLight={isLight} tone="neutral">
-                      About ${plan.budgetEstimate.costUsd.toFixed(2)}
-                    </StatusChip>
-                  ) : null}
-                </div>
+            {plan.specialists.length > 0 || plan.tools.length > 0 ? (
+              <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-1 text-xs">
                 {plan.specialists.length > 0 ? (
-                  <p className={cn("mt-2 text-xs leading-5", mutedText)}>Specialists: {plan.specialists.join(", ")}</p>
+                  <>
+                    <dt className="text-muted">Specialists</dt>
+                    <dd className="font-mono text-fg">{plan.specialists.join(", ")}</dd>
+                  </>
                 ) : null}
-
-                <button
-                  type="button"
-                  data-primary="true"
-                  onClick={() => void manager.launch()}
-                  disabled={launching}
-                  className={cn(
-                    "mt-4 inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors disabled:opacity-50",
-                    "home-spotlight-card home-border-glow home-spotlight-card--hover",
-                    primaryButtonClass(isLight),
-                  )}
-                >
-                  {launching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4 text-accent" />}
-                  {plan.kind === "automation" ? "Deploy automation" : "Queue task"}
-                </button>
-              </article>
+                {plan.tools.length > 0 ? (
+                  <>
+                    <dt className="text-muted">Tools</dt>
+                    <dd className="font-mono text-fg">{plan.tools.join(", ")}</dd>
+                  </>
+                ) : null}
+              </dl>
             ) : null}
+            {plan.rationale ? <p className="text-xs text-muted">{plan.rationale}</p> : null}
 
-            {error ? (
-              <p role="alert" className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-3.5 py-2.5 text-sm text-rose-400">
-                {error}
-              </p>
-            ) : null}
-          </div>
-        )}
+            <div className="flex items-center justify-end gap-2 border-t border-border-subtle pt-3">
+              {plan.reviewRequired ? <p className="mr-auto text-xs text-muted">Launching counts as your approval of this plan.</p> : null}
+              <Button onClick={() => void manager.launch()} loading={launching}>
+                <Rocket />
+                {plan.kind === "automation" ? "Deploy automation" : "Queue task"}
+              </Button>
+            </div>
+          </article>
+        ) : null}
       </div>
 
-      <form onSubmit={manager.submit} className="mt-3 shrink-0">
-        <div
-          className={cn(
-            "deployment-composer flex items-end gap-2 rounded-lg border p-2 transition-colors focus-within:border-accent-30",
-            isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/30",
-          )}
-        >
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault()
-                event.currentTarget.form?.requestSubmit()
-              }
-            }}
-            rows={2}
-            aria-label="Deployment outcome"
-            placeholder="Describe an outcome, not implementation steps…"
-            className={cn(
-              "deployment-composer-input min-h-12 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm leading-6 outline-none",
-              isLight ? "text-s-90 placeholder:text-s-40" : "text-slate-100 placeholder:text-slate-500",
-            )}
-          />
-          <button
-            type="submit"
-            disabled={busy || !input.trim()}
-            aria-label="Send deployment request"
-            className={cn(
-              "grid h-9 w-9 shrink-0 place-items-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-              primaryButtonClass(isLight),
-            )}
-          >
-            <Send className="h-4 w-4" />
-          </button>
-        </div>
-        <p className={cn("mt-1.5 flex items-center gap-1.5 px-1 text-[11px]", mutedText)}>
-          <span className={cn("h-1.5 w-1.5 rounded-full", connected ? "bg-emerald-500" : "bg-yellow-500")} aria-hidden="true" />
-          {connected
-            ? "Enter to send, Shift+Enter for a new line"
-            : "U.B Agents' runtime is offline. The server still plans and validates your request."}
+      <aside className="flex flex-col gap-3 lg:border-l lg:border-border-subtle lg:pl-6">
+        <h3 className="text-sm font-medium text-fg">How it works</h3>
+        <p className="text-sm text-muted">
+          Nova decides whether this is a one-off task or a reusable automation, picks the tools, and asks for your review
+          before sensitive work. Nothing runs until you launch the plan.
         </p>
-      </form>
+        <h3 className="mt-3 text-sm font-medium text-fg">Try one</h3>
+        <ul className="flex flex-col gap-1">
+          {EXAMPLE_OUTCOMES.map((example) => (
+            <li key={example}>
+              <button
+                type="button"
+                onClick={() => {
+                  setInput(example)
+                  inputRef.current?.focus()
+                }}
+                className="w-full rounded-md px-2 py-1.5 text-left text-xs text-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-ring"
+              >
+                {example}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </aside>
     </div>
   )
 }

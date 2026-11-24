@@ -7,7 +7,7 @@ import {
   syncWorkspaceContextFiles,
   type WorkspaceContextSyncInput,
 } from "@/lib/workspace/context-sync"
-import { isBlockedAssistantName, MAX_ASSISTANT_NAME_LENGTH } from "@/lib/settings/userSettings"
+import { isBlockedAssistantName, LEGACY_DEFAULT_ASSISTANT_NAME, MAX_ASSISTANT_NAME_LENGTH } from "@/lib/settings/userSettings"
 
 export const runtime = "nodejs"
 
@@ -23,8 +23,8 @@ function normalizeBody(body: unknown): WorkspaceContextSyncInput {
 
   const assistantNameCandidate = String(source.assistantName || "").trim().slice(0, MAX_ASSISTANT_NAME_LENGTH)
   const assistantName =
-    !assistantNameCandidate || assistantNameCandidate === "Nova" || isBlockedAssistantName(assistantNameCandidate)
-      ? "U.B Agents"
+    !assistantNameCandidate || assistantNameCandidate === LEGACY_DEFAULT_ASSISTANT_NAME || isBlockedAssistantName(assistantNameCandidate)
+      ? "Nova"
       : assistantNameCandidate
   return {
     assistantName,

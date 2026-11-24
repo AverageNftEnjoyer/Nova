@@ -1,73 +1,115 @@
 "use client"
 
-import { cn } from "@/lib/shared/utils"
-import type { Message } from "./chat-types"
-import { MarkdownRenderer } from "@/components/chat/markdown-renderer"
 import Image from "next/image"
-import type { OrbPalette } from "@/components/chat/nova-orb-indicator"
-import { NovaCatPortrait } from "@/components/chat/nova-cat-portrait"
-import { Check, RotateCcw, Sparkles, User } from "lucide-react"
-import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
 import { useEffect, useMemo, useRef, useState } from "react"
+import { Check, Copy, RotateCcw, Wand2 } from "lucide-react"
+import { cn } from "@/lib/shared/utils"
+import { Badge, IconButton, StatusDot, Tooltip } from "@/components/ui"
+import { MarkdownRenderer } from "@/components/chat/markdown-renderer"
+import { loadUserSettings, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
+import type { Message } from "./chat-types"
 
-// ── Thinking-state cycling (previously in TypingIndicator) ──────────────────
+// Thinking labels shown before the first token, when the runtime only reports a generic status.
 const DEFAULT_THINKING_POOL = [
-  "Drafting response", "Composing reply", "Putting thoughts together", "Forming a response",
-  "Working on a reply", "Thinking it through", "Piecing it together", "Considering",
-  "Gathering my thoughts", "Crafting", "Preparing", "Working through this",
-  "Building a response", "Getting this together", "Shaping a reply", "Sorting through ideas",
-  "Almost there", "Refining my thoughts", "Connecting the dots", "Processing your request",
-  "Figuring this out", "Cooking up a reply", "Organizing my thoughts", "Running through options",
-  "Polishing the reply", "Sketching a response", "Rizzing", "One sec bro",
+  "Thinking",
+  "Drafting a reply",
+  "Working through this",
+  "Considering options",
+  "Putting this together",
+  "Checking details",
 ] as const
-
-const WEATHER_THINKING_STATES = ["Checking weather", "Searching forecast", "Reviewing conditions", "Pulling up the forecast", "Reading conditions"] as const
-const WEB_THINKING_STATES = ["Searching the web", "Reviewing sources", "Verifying details", "Looking this up", "Scanning results"] as const
-const CODE_THINKING_STATES = ["Reading code", "Tracing the issue", "Testing an approach", "Analyzing the code", "Working through the logic"] as const
-
+const WEATHER_THINKING_STATES = ["Checking the forecast", "Reading conditions", "Looking up the weather"] as const
+const WEB_THINKING_STATES = ["Searching the web", "Reviewing sources", "Verifying details"] as const
+const CODE_THINKING_STATES = ["Reading code", "Tracing the issue", "Working through the logic"] as const
 const GENERIC_BACKEND_STATUSES = new Set(["drafting response", "finalizing response", "thinking", "reasoning"])
 
-function pickRandomSubset(pool: readonly string[], count: number): string[] {
-  return [...pool].sort(() => Math.random() - 0.5).slice(0, count)
+function selectThinkingStates(message: string): readonly string[] {
+  const text = String(message || "").toLowerCase()
+  if (/\b(weather|forecast|temperature|rain|snow|wind|humidity)\b/.test(text)) return WEATHER_THINKING_STATES
+  if (/\b(latest|news|current|price|score|search|look up|lookup|find)\b/.test(text)) return WEB_THINKING_STATES
+  if (/\b(code|bug|error|debug|fix|refactor|typescript|javascript|python|function|stack)\b/.test(text)) return CODE_THINKING_STATES
+  return DEFAULT_THINKING_POOL
 }
 
-function selectThinkingStatesFromMessage(message: string): string[] {
-  const text = String(message || "").toLowerCase()
-  if (/\b(weather|forecast|temperature|rain|snow|wind|humidity)\b/.test(text)) return pickRandomSubset(WEATHER_THINKING_STATES, 4)
-  if (/\b(latest|news|current|price|score|search|look up|lookup|find)\b/.test(text)) return pickRandomSubset(WEB_THINKING_STATES, 4)
-  if (/\b(code|bug|error|debug|fix|refactor|typescript|javascript|python|function|stack)\b/.test(text)) return pickRandomSubset(CODE_THINKING_STATES, 4)
-  return pickRandomSubset(DEFAULT_THINKING_POOL, 4)
+function prefersReducedMotion(): boolean {
+  if (typeof window === "undefined") return false
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches
 }
-// ────────────────────────────────────────────────────────────────────────────
+
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+}
+
+function formatFullTime(date: Date): string {
+  return date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
+}
+
+/** Small square mark for assistant rows (no avatar art). */
+export function NovaMark({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-accent-border bg-accent-muted text-2xs font-semibold text-accent-text",
+        className,
+      )}
+    >
+      N
+    </span>
+  )
+}
 
 interface MessageBubbleProps {
   message: Message
   isStreaming?: boolean
   compactMode?: boolean
-  orbPalette: OrbPalette
-  orbAnimated?: boolean
+  assistantName: string
+  /** Model that produced this reply, when the runtime reported it. */
+  modelId?: string
   thinkingStatus?: string
   latestUserMessage?: string
   onUseSuggestedWording?: (message: Message) => void | Promise<void>
 }
 
-// Format time for display
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+function CopyMessageButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<number | null>(null)
+  useEffect(() => () => {
+    if (timer.current !== null) window.clearTimeout(timer.current)
+  }, [])
+  return (
+    <Tooltip content={copied ? "Copied" : "Copy reply"}>
+      <IconButton
+        size="sm"
+        aria-label={copied ? "Copied" : "Copy reply"}
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(text)
+            setCopied(true)
+            if (timer.current !== null) window.clearTimeout(timer.current)
+            timer.current = window.setTimeout(() => setCopied(false), 1_500)
+          } catch {
+            setCopied(false)
+          }
+        }}
+      >
+        {copied ? <Check className="text-success" /> : <Copy />}
+      </IconButton>
+    </Tooltip>
+  )
 }
 
 export function MessageBubble({
   message,
   isStreaming = false,
   compactMode = false,
-  orbPalette,
-  orbAnimated = false,
+  assistantName,
+  modelId = "",
   thinkingStatus = "",
   latestUserMessage = "",
   onUseSuggestedWording,
 }: MessageBubbleProps) {
   const isUser = message.role === "user"
-  const [avatar, setAvatar] = useState<string | null>(null)
   const [showNlpEditHints, setShowNlpEditHints] = useState(() => loadUserSettings().notifications.nlpEditHintsEnabled)
   const [nlpHintOpen, setNlpHintOpen] = useState(false)
   const [nlpSuggestedUsed, setNlpSuggestedUsed] = useState(false)
@@ -81,20 +123,14 @@ export function MessageBubble({
   const lastRevealMessageIdRef = useRef<string>(message.id)
 
   useEffect(() => {
-    const syncAvatar = () => setAvatar(loadUserSettings().profile.avatar ?? null)
-    const syncNlpEditHints = () => setShowNlpEditHints(loadUserSettings().notifications.nlpEditHintsEnabled)
-    syncAvatar()
-    syncNlpEditHints()
-    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, syncAvatar as EventListener)
-    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, syncNlpEditHints as EventListener)
-    return () => {
-      window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncAvatar as EventListener)
-      window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, syncNlpEditHints as EventListener)
-    }
+    const sync = () => setShowNlpEditHints(loadUserSettings().notifications.nlpEditHintsEnabled)
+    sync()
+    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, sync as EventListener)
+    return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, sync as EventListener)
   }, [])
 
   useEffect(() => {
-    setNlpHintOpen(false)
+    setNlpHintOpen(false)  
     setNlpSuggestedUsed(false)
     setNlpSuggestedSending(false)
   }, [message.id])
@@ -103,11 +139,12 @@ export function MessageBubble({
     displayedContentRef.current = displayedContent
   }, [displayedContent])
 
+  // Streamed text is revealed at a steady pace so bursts of tokens read smoothly. Reduced motion shows it as it lands.
   useEffect(() => {
     const raw = message.content || ""
-    if (isUser) {
+    if (isUser || prefersReducedMotion()) {
       revealTargetRef.current = raw
-      setDisplayedContent(raw)
+      setDisplayedContent(raw)  
       if (revealFrameRef.current !== null) {
         cancelAnimationFrame(revealFrameRef.current)
         revealFrameRef.current = null
@@ -117,8 +154,8 @@ export function MessageBubble({
       return
     }
 
-    // True when this effect re-ran only because more streaming content arrived
-    // for the same message — the RAF loop should continue uninterrupted.
+    // True when this effect re-ran only because more streaming content arrived for the same message:
+    // the RAF loop should continue uninterrupted.
     const isContentUpdate = lastRevealMessageIdRef.current === message.id && isStreaming
 
     if (lastRevealMessageIdRef.current !== message.id) {
@@ -159,8 +196,6 @@ export function MessageBubble({
     const target = revealTargetRef.current
     const current = displayedContentRef.current
     if (current.length < target.length) {
-      // Only reset timing when actually starting a fresh loop, not when extending
-      // an already-running animation with new content.
       if (revealFrameRef.current === null) {
         revealLastAtRef.current = performance.now()
         revealFrameRef.current = requestAnimationFrame(tick)
@@ -176,8 +211,6 @@ export function MessageBubble({
     }
 
     return () => {
-      // During streaming of the same message, the RAF loop must continue
-      // across content updates — don't cancel or reset carry, just let it run.
       if (isContentUpdate) return
       if (revealFrameRef.current !== null) {
         cancelAnimationFrame(revealFrameRef.current)
@@ -187,13 +220,11 @@ export function MessageBubble({
     }
   }, [message.content, isStreaming, isUser, message.id])
 
-  const assistantContent = useMemo(() => (isUser ? (message.content || "") : displayedContent), [displayedContent, isUser, message.content])
-
-  // ── Pre-content thinking state (replaces separate TypingIndicator) ──────────
+  // Pre-content thinking state: the assistant row with a quiet status line until the first token.
   const isPreContent = !isUser && isStreaming && !String(message.content || "").trim()
   const rawThinkingStatus = String(thinkingStatus || "").trim().replace(/\s+/g, " ")
   const isGenericThinkingStatus = !rawThinkingStatus || GENERIC_BACKEND_STATUSES.has(rawThinkingStatus.toLowerCase())
-  const thinkingStates = useMemo(() => selectThinkingStatesFromMessage(latestUserMessage), [latestUserMessage])
+  const thinkingStates = useMemo(() => selectThinkingStates(latestUserMessage), [latestUserMessage])
   const [thinkingStateIndex, setThinkingStateIndex] = useState(0)
 
   useEffect(() => {
@@ -204,140 +235,144 @@ export function MessageBubble({
     return () => window.clearInterval(timer)
   }, [isPreContent, isGenericThinkingStatus, thinkingStates])
 
-  const activeThinkingState = useMemo(() => {
-    if (!isGenericThinkingStatus) return rawThinkingStatus
-    return thinkingStates[thinkingStateIndex % Math.max(1, thinkingStates.length)] ?? "Thinking"
-  }, [isGenericThinkingStatus, rawThinkingStatus, thinkingStateIndex, thinkingStates])
-  // ────────────────────────────────────────────────────────────────────────────
+  const activeThinkingState = isGenericThinkingStatus
+    ? thinkingStates[thinkingStateIndex % Math.max(1, thinkingStates.length)] ?? "Thinking"
+    : rawThinkingStatus
 
-  const hasNlpRewrite = isUser
-    && showNlpEditHints
-    && !message.nlpBypass
-    && typeof message.nlpCleanText === "string"
-    && message.nlpCleanText.trim().length > 0
-    && message.nlpCleanText.trim() !== (message.content || "").trim()
+  const hasNlpRewrite =
+    isUser &&
+    showNlpEditHints &&
+    !message.nlpBypass &&
+    typeof message.nlpCleanText === "string" &&
+    message.nlpCleanText.trim().length > 0 &&
+    message.nlpCleanText.trim() !== (message.content || "").trim()
   const nlpConfidence = typeof message.nlpConfidence === "number" ? message.nlpConfidence : 1
   const nlpCorrectionCount = typeof message.nlpCorrectionCount === "number" ? message.nlpCorrectionCount : 0
   const shouldShowNlpHint = hasNlpRewrite && (nlpConfidence < 0.8 || nlpCorrectionCount >= 2)
 
+  const timeLabel = (
+    <time
+      dateTime={message.createdAt.toISOString()}
+      title={formatFullTime(message.createdAt)}
+      className="font-mono text-2xs tabular-nums text-faint opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 group-focus-within/msg:opacity-100"
+    >
+      {formatTime(message.createdAt)}
+    </time>
+  )
+
   if (!isUser) {
     if (isPreContent) {
       return (
-        <div className="pc-row" role="status" aria-label="Assistant is typing" aria-live="polite" aria-atomic="true">
-          <NovaCatPortrait state="thinking" scale={2} accent={orbPalette.circle1} className="pc-avatar" />
-          <div className="thinking-wrap pc-bubble pc-bubble--nova pc-bubble--thinking">
-            <span className="thinking-text">
-              <span className="thinking-word-slot">
-                <span className="thinking-word">{activeThinkingState}</span>
-              </span>
-            </span>
-            <span className="pc-typing" aria-hidden="true">
-              <i />
-              <i />
-              <i />
-            </span>
+        <div className="flex gap-3" role="status" aria-live="polite" aria-atomic="true">
+          <NovaMark className="mt-0.5" />
+          <div className="flex h-7 items-center gap-2 text-sm text-muted">
+            <StatusDot tone="running" size="sm" />
+            <span>{activeThinkingState}</span>
           </div>
         </div>
       )
     }
 
+    const source = message.sender && message.sender.trim() ? message.sender.trim() : assistantName
     return (
-      <div className="pc-row">
-        <NovaCatPortrait state={orbAnimated ? "speaking" : "idle"} scale={2} accent={orbPalette.circle1} className="pc-avatar" />
-        <div className={cn("pc-col", compactMode ? "pc-col--compact" : "pc-col--wide")}>
-          <div className="pc-bubble pc-bubble--nova" style={{ willChange: isStreaming ? "height" : "auto" }}>
-            <div className={compactMode ? "pc-bubble-body pc-bubble-body--compact" : "pc-bubble-body"}>
-              <MarkdownRenderer content={assistantContent || " "} isStreaming={isStreaming} className="leading-7 text-sm" />
+      <article className="group/msg flex gap-3" aria-label={`${source} reply`}>
+        <NovaMark className="mt-0.5" />
+        <div className="min-w-0 flex-1">
+          <header className="flex h-7 items-center gap-2">
+            <span className="text-xs font-medium text-fg">{source}</span>
+            {message.missionLabel ? (
+              <Badge tone="neutral" variant="outline" title="Posted by a mission run">
+                {message.missionLabel}
+              </Badge>
+            ) : null}
+            {modelId ? <span className="truncate font-mono text-2xs text-faint">{modelId}</span> : null}
+            {timeLabel}
+          </header>
+          <MarkdownRenderer content={displayedContent || ""} isStreaming={isStreaming} />
+          {!isStreaming && message.content.trim() ? (
+            <div
+              className={cn(
+                "-ml-1.5 flex h-7 items-center opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 group-focus-within/msg:opacity-100",
+                compactMode && "h-6",
+              )}
+            >
+              <CopyMessageButton text={message.content} />
             </div>
-          </div>
-          <span className={cn("pc-time", compactMode && "pc-time--compact")}>{formatTime(message.createdAt)}</span>
+          ) : (
+            <div className={compactMode ? "h-2" : "h-3"} />
+          )}
         </div>
-      </div>
+      </article>
     )
   }
 
   return (
-    <div className="pc-row pc-row--user">
-      <div className={cn("pc-col pc-col--user", compactMode ? "pc-col--compact" : "pc-col--wide")}>
-        {/* Bubble */}
-        <div className="pc-bubble pc-bubble--user" style={{ willChange: isStreaming ? "height" : "auto" }}>
-          <div className={compactMode ? "pc-bubble-body pc-bubble-body--compact" : "pc-bubble-body"}>
-            <div className="flex flex-col gap-2">
-              {message.imageData && (
-                <div className="pc-attachment">
-                  <Image
-                    src={message.imageData || "/placeholder.svg"}
-                    alt="Uploaded image"
-                    width={80}
-                    height={80}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              )}
-              <p className="text-sm whitespace-pre-wrap wrap-break-word wrap-anywhere">{message.content}</p>
-            </div>
+    <div className="group/msg flex flex-col items-end gap-1">
+      <div className="max-w-[85%] rounded-lg border border-subtle bg-surface-2 px-3 py-2">
+        {message.imageData ? (
+          <div className="mb-2 overflow-hidden rounded-md border border-border">
+            <Image
+              src={message.imageData}
+              alt="Attached image"
+              width={240}
+              height={240}
+              unoptimized
+              className="h-auto max-h-60 w-auto max-w-full object-contain"
+            />
           </div>
-        </div>
+        ) : null}
+        <p className="whitespace-pre-wrap text-sm leading-6 text-fg wrap-break-word wrap-anywhere">{message.content}</p>
+      </div>
 
-        {shouldShowNlpHint && (
-          <div className={cn("pc-nlp", compactMode ? "pc-col--compact" : "pc-col--wide")}>
+      <div className="flex items-center gap-2">
+        {shouldShowNlpHint ? (
+          <button
+            type="button"
+            onClick={() => setNlpHintOpen((prev) => !prev)}
+            aria-expanded={nlpHintOpen}
+            className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-2xs text-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-ring"
+          >
+            <Wand2 className="size-3" aria-hidden />
+            Interpreted
+          </button>
+        ) : null}
+        {timeLabel}
+      </div>
+
+      {shouldShowNlpHint && nlpHintOpen ? (
+        <div className="w-full max-w-[85%] rounded-lg border border-border bg-surface px-3 py-2.5 animate-pop-in">
+          <p className="text-xs text-muted">Nova read this as</p>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-fg wrap-break-word">{message.nlpCleanText}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <button
               type="button"
-              onClick={() => setNlpHintOpen((prev) => !prev)}
-              className="pc-chip-btn"
-              aria-expanded={nlpHintOpen}
-              aria-label="Toggle edited input details"
+              disabled={nlpSuggestedUsed || nlpSuggestedSending}
+              onClick={async () => {
+                if (nlpSuggestedUsed || nlpSuggestedSending) return
+                setNlpSuggestedSending(true)
+                try {
+                  await onUseSuggestedWording?.(message)
+                  setNlpSuggestedUsed(true)
+                  setNlpHintOpen(false)
+                } finally {
+                  setNlpSuggestedSending(false)
+                }
+              }}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-surface-3 px-2.5 text-xs font-medium text-fg transition-colors hover:border-border-strong disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-ring"
             >
-              <Sparkles className="h-3.5 w-3.5" />
-              Edited
+              <RotateCcw className="size-3" aria-hidden />
+              {nlpSuggestedUsed ? "Sent" : nlpSuggestedSending ? "Sending" : "Send this wording"}
             </button>
-            {nlpHintOpen && (
-              <div className="pc-card">
-                <p className="pc-card-label">Interpreted as</p>
-                <p className="mt-1 text-xs whitespace-pre-wrap break-words">{message.nlpCleanText}</p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={nlpSuggestedUsed || nlpSuggestedSending}
-                    onClick={async () => {
-                      if (nlpSuggestedUsed || nlpSuggestedSending) return
-                      setNlpSuggestedSending(true)
-                      try {
-                        await onUseSuggestedWording?.(message)
-                        setNlpSuggestedUsed(true)
-                        setNlpHintOpen(false)
-                      } finally {
-                        setNlpSuggestedSending(false)
-                      }
-                    }}
-                    className="pc-chip-btn"
-                  >
-                    <RotateCcw className="h-3 w-3" />
-                    {nlpSuggestedUsed ? "Suggested sent" : nlpSuggestedSending ? "Sending..." : "Use suggested"}
-                  </button>
-                  <button type="button" onClick={() => setNlpHintOpen(false)} className="pc-chip-btn">
-                    <Check className="h-3 w-3" />
-                    Keep interpreted
-                  </button>
-                </div>
-              </div>
-            )}
+            <button
+              type="button"
+              onClick={() => setNlpHintOpen(false)}
+              className="inline-flex h-7 items-center rounded-md px-2.5 text-xs text-muted transition-colors hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-ring"
+            >
+              Keep as is
+            </button>
           </div>
-        )}
-
-        {/* Timestamp */}
-        <span className={cn("pc-time", compactMode && "pc-time--compact")}>{formatTime(message.createdAt)}</span>
-      </div>
-      <div className="pc-avatar pc-avatar--user">
-        {avatar ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={avatar} alt="Profile" className="h-full w-full object-cover" />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <User className="h-4 w-4" />
-          </div>
-        )}
-      </div>
+        </div>
+      ) : null}
     </div>
   )
 }

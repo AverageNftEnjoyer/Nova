@@ -1,39 +1,26 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Nova HUD
 
-## Getting Started
+The Next.js 16 (App Router) front end of Nova, the local-first LLM agentic framework platform. In development it talks to the agent runtime over `ws://localhost:8765`; in the packaged Electron app the main process hosts this server and the runtime in-process (`electron/production-server.js`).
 
-First, run the development server:
+## Run
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run dev            # HUD only, http://localhost:3000 (from the repo root, `npm run dev` starts the runtime too)
+npm run electron:dev   # desktop window
+npm run build          # production build
+npm run test:smoke     # Playwright smoke tests (tests/smoke/)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Layout
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- `app/` - routes: `/home` (command center), `/chat`, `/runs`, `/deployments` and `/deployments/new`, `/missions` and `/missions/calendar`, `/integrations` (`?setup=<key>&tab=`), `/analytics`, `/history`, `/polymarket`, `/dev-logs`, and the internal `/dev/design` preview. `app/api/` holds the API routes.
+- `components/shell/` - the app shell: sidebar, top bar, Ctrl+K command palette, `openSettings(section)`.
+- `components/ui/` - design system primitives (import from `@/components/ui`); tokens in `app/styles/theme.css`. Rules: `../docs/frontend/design-system.md`.
+- `components/settings/` - the Settings dialog (profile, personalization, appearance, audio, notifications, agent-budgets, model-routing, skills, local-data).
+- `lib/` - client and server libraries (deployments, missions, integrations, analytics, settings).
+- `electron/` - Electron main process, preload, production server, auto-updater.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Old `/home?room=...` and `/deployments?mode=...` links redirect in `next.config.js`.
 
 ## Telegram Notifications (Desktop + Phone)
 
@@ -49,7 +36,7 @@ Set these in your environment:
 ### API
 
 - `POST /api/missions/trigger`
-  - body: `{ "message": "Hello from U.B Agents", "chatIds": ["123456"] }`
+  - body: `{ "message": "Hello from Nova", "chatIds": ["123456"] }`
 - `GET /api/missions`
 - `POST /api/missions`
   - body: `{ "mission": { ...nativeMissionGraph } }`
@@ -61,7 +48,7 @@ Scheduler checks every 30 seconds and sends once per local day per schedule.
 
 ## Local Auth
 
-U.B Agents HUD is local-first. API routes use `requireLocalUser()` and a fixed local identity.
+Nova HUD is local-first. API routes use `requireLocalUser()` and a fixed local identity.
 There is no hosted auth provider and no cloud database.
 
 ### Scriptable CLI
@@ -69,13 +56,13 @@ There is no hosted auth provider and no cloud database.
 Use:
 
 ```bash
-npm run notify:send -- --message "U.B Agents check-in"
+npm run notify:send -- --message "Nova check-in"
 ```
 
 Optional recipients override:
 
 ```bash
-npm run notify:send -- --message "U.B Agents check-in" --chatIds "123456,789012"
+npm run notify:send -- --message "Nova check-in" --chatIds "123456,789012"
 ```
 
 ## Mission Web Search Behavior

@@ -1,4 +1,4 @@
-import type { FluidSelectOption } from "@/components/ui/fluid-select"
+import type { SelectOption } from "@/components/ui/select"
 
 // Same shape as ModelPricing in src/providers/pricing (USD per 1M tokens), the single price source.
 export type ModelPricing = {
@@ -14,4 +14,4 @@ export type ModelOption = {
   priceHint: string
 }
 
-export type { FluidSelectOption }
+export type { SelectOption }

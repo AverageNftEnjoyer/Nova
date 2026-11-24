@@ -9,7 +9,7 @@ const INACTIVE_DEBOUNCE_MS = 250
 /**
  * Single source of truth for "is the window visibly active".
  * Mirrors usePageActive() onto <html data-page-active="true|false"> so global CSS
- * (see utilities.css) can pause every running animation while the window is
+ * (see theme.css) can pause every running animation while the window is
  * hidden or unfocused, and non-React consumers (e.g. the background video) can react.
  */
 export function PageActiveController() {

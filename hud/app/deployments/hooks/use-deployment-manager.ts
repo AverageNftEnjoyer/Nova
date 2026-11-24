@@ -4,21 +4,22 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 
 import type { NovaState, useNovaState } from "@/lib/chat/hooks/useNovaState"
 import type { Deployment, DeploymentPlan, DeploymentRun } from "@/lib/deployments/types"
+import type { DeploymentFlowCallbacks } from "./use-deployment-actions"
 
-/** How long the manager waits for U.B Agents' streamed proposal before asking the server to plan on its own. */
+/** How long the manager waits for Nova's streamed proposal before asking the server to plan on its own. */
 const PROPOSAL_TIMEOUT_MS = 60_000
 
 function buildPlanningPrompt(outcome: string): string {
   return [
     "Create a deployment plan for the outcome below.",
     "Return exactly one JSON object with no markdown or prose.",
-    'Schema: {"outcome":"string","acceptanceCriteria":["string"],"kind":"task|automation","specialists":["allowed U.B Agents specialist id"],"tools":["tool_name"],"context":["string"],"risk":"low|medium|high","budgetEstimate":{"costUsd":number|null,"tokens":number|null,"confidence":"low|medium|high"},"reviewRequired":boolean,"rationale":"string"}.',
+    'Schema: {"outcome":"string","acceptanceCriteria":["string"],"kind":"task|automation","specialists":["allowed Nova specialist id"],"tools":["tool_name"],"context":["string"],"risk":"low|medium|high","budgetEstimate":{"costUsd":number|null,"tokens":number|null,"confidence":"low|medium|high"},"reviewRequired":boolean,"rationale":"string"}.',
     "Choose automation only for recurring, scheduled, event-triggered, or reusable work.",
     `Outcome: ${outcome}`,
   ].join("\n")
 }
 
-/** The slice of the page's existing U.B Agents connection the manager needs; it never opens a socket of its own. */
+/** The slice of the page's existing Nova runtime connection the manager needs; it never opens a socket of its own. */
 export type DeploymentNovaConnection = Pick<
   ReturnType<typeof useNovaState>,
   "agentMessages" | "connected" | "sendToAgent" | "state" | "streamingAssistantId" | "thinkingStatus"
@@ -41,14 +42,15 @@ export interface DeploymentManager {
 }
 
 /**
- * Simple mode: sends a strict planning request over U.B Agents' WebSocket, then has the server validate the
+ * Simple mode: sends a strict planning request over Nova's WebSocket, then has the server validate the
  * streamed proposal into a versioned deployment (`/api/deployments/plan`) before anything can launch.
  */
 export function useDeploymentManager(
   nova: DeploymentNovaConnection,
-  onStatus: (message: string) => void,
+  { onLaunched }: Pick<DeploymentFlowCallbacks, "onLaunched">,
+  initialInput = "",
 ): DeploymentManager {
-  const [input, setInput] = useState("")
+  const [input, setInput] = useState(initialInput)
   const [requests, setRequests] = useState<string[]>([])
   const [plannedDeployment, setPlannedDeployment] = useState<Deployment | null>(null)
   const [plan, setPlan] = useState<DeploymentPlan | null>(null)
@@ -80,12 +82,12 @@ export function useDeploymentManager(
           error?: string
         }
         if (!response.ok || !data.ok || !data.deployment || !data.plan) {
-          throw new Error(data.error || "U.B Agents could not produce a valid deployment plan.")
+          throw new Error(data.error || "Nova could not produce a valid deployment plan.")
         }
         setPlannedDeployment(data.deployment)
         setPlan(data.plan)
       } catch (planError) {
-        setError(planError instanceof Error ? planError.message : "U.B Agents could not produce a deployment plan.")
+        setError(planError instanceof Error ? planError.message : "Nova could not produce a deployment plan.")
       } finally {
         setBusy(false)
         setPending(null)
@@ -150,7 +152,10 @@ export function useDeploymentManager(
       })
       const data = (await response.json()) as { ok?: boolean; run?: DeploymentRun; outcome?: string; error?: string }
       if (!response.ok || !data.ok || !data.run) throw new Error(data.error || "Deployment launch failed.")
-      onStatus(data.outcome === "automation_deployed" ? "Automation deployed." : "Task queued.")
+      onLaunched(data.outcome === "automation_deployed" ? "Automation deployed" : "Task queued", {
+        deploymentId: plannedDeployment.id,
+        runId: data.run.id,
+      })
     } catch (launchError) {
       setError(launchError instanceof Error ? launchError.message : "Deployment launch failed.")
     } finally {

@@ -1,10 +1,26 @@
 "use client"
 
-import type { CSSProperties, MutableRefObject } from "react"
-import { ChevronDown, ChevronRight, Clock3, GitBranch, GripVertical, Sparkles, X, Zap } from "lucide-react"
+import { useState, type ReactNode } from "react"
+import { ChevronDown, ChevronRight, GripVertical, Plus, Sparkles, Trash2, X } from "lucide-react"
 
-import { FluidSelect } from "@/components/ui/fluid-select"
-import { NovaSwitch } from "@/components/ui/nova-switch"
+import {
+  Badge,
+  Button,
+  Checkbox,
+  Dialog,
+  DialogBody,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Field,
+  IconButton,
+  Input,
+  Select,
+  Switch,
+  Textarea,
+  type SelectOption,
+} from "@/components/ui"
 import type { IntegrationsSettings } from "@/lib/integrations/store/client-store"
 import { cn } from "@/lib/shared/utils"
 import {
@@ -19,8 +35,7 @@ import {
   STEP_FETCH_SOURCE_OPTIONS,
   STEP_OUTPUT_FREQUENCY_OPTIONS,
   STEP_OUTPUT_TIMING_OPTIONS,
-  STEP_TEXT_THEME,
-  STEP_THEME,
+  STEP_TONE,
   STEP_TRANSFORM_ACTION_OPTIONS,
   STEP_TRANSFORM_FORMAT_OPTIONS,
   STEP_TYPE_OPTIONS,
@@ -29,7 +44,6 @@ import {
 import {
   getDefaultModelForProvider,
   getModelOptionsForProvider,
-  hexToRgba,
   normalizeAiDetailLevel,
   renderStepIcon,
   sanitizeOutputRecipients,
@@ -38,27 +52,108 @@ import type { WorkflowAutofixResponse } from "../api"
 import type { AiIntegrationType, WorkflowStep } from "../types"
 import { TimeField } from "./time-field"
 
-const COINBASE_INTENT_OPTIONS = [
-  { value: "report", label: "Portfolio Report" },
-  { value: "status", label: "Connection Status" },
-  { value: "price", label: "Spot Prices" },
-  { value: "portfolio", label: "Portfolio Snapshot" },
+const COINBASE_INTENT_OPTIONS: SelectOption[] = [
+  { value: "report", label: "Portfolio report" },
+  { value: "status", label: "Connection status" },
+  { value: "price", label: "Spot prices" },
+  { value: "portfolio", label: "Portfolio snapshot" },
   { value: "transactions", label: "Transactions" },
 ]
 
-const COINBASE_CADENCE_OPTIONS = [
+const COINBASE_CADENCE_OPTIONS: SelectOption[] = [
   { value: "daily", label: "Daily" },
   { value: "weekly", label: "Weekly" },
 ]
 
-const COINBASE_FORMAT_STYLE_OPTIONS = [
+const COINBASE_FORMAT_STYLE_OPTIONS: SelectOption[] = [
   { value: "concise", label: "Concise" },
   { value: "standard", label: "Standard" },
   { value: "detailed", label: "Detailed" },
 ]
 
-interface MissionBuilderModalProps {
-  [key: string]: unknown
+export interface MissionBuilderModalProps {
+  builderOpen: boolean
+  playClickSound: () => void
+  setBuilderOpen: (open: boolean) => void
+  newLabel: string
+  setNewLabel: (value: string) => void
+  newDescription: string
+  setNewDescription: (value: string) => void
+  newPriority: string
+  setNewPriority: (value: string) => void
+  tagInput: string
+  setTagInput: (value: string) => void
+  addTag: () => void
+  missionTags: string[]
+  removeTag: (tag: string) => void
+  newTime: string
+  setNewTime: (value: string) => void
+  newScheduleDays: string[]
+  toggleScheduleDay: (day: string) => void
+  newScheduleMode: string
+  setNewScheduleMode: (mode: string) => void
+  workflowSteps: WorkflowStep[]
+  workflowAutofixPreview: WorkflowAutofixResponse | null
+  workflowAutofixSelectionById: Record<string, boolean>
+  workflowAutofixLoading: boolean
+  workflowAutofixApplying: boolean
+  draggingStepId: string | null
+  setDragOverStepId: (id: string | null) => void
+  moveWorkflowStepByDrop: (fromId: string, toId: string) => void
+  setDraggingStepId: (id: string | null) => void
+  dragOverStepId: string | null
+  updateWorkflowStepTitle: (id: string, title: string) => void
+  toggleWorkflowStepCollapsed: (id: string) => void
+  collapsedStepIds: Record<string, boolean>
+  removeWorkflowStep: (id: string) => void
+  detectedTimezone: string
+  updateWorkflowStep: (id: string, updates: Partial<WorkflowStep>) => void
+  apiFetchIntegrationOptions: SelectOption[]
+  catalogApiById: Record<string, { endpoint?: string }>
+  outputChannelOptions: SelectOption[]
+  updateWorkflowStepAi: (
+    id: string,
+    updates: Partial<Pick<WorkflowStep, "aiPrompt" | "aiModel" | "aiIntegration" | "aiDetailLevel">>,
+  ) => void
+  resolveDefaultAiIntegration: () => AiIntegrationType
+  integrationsSettings: IntegrationsSettings
+  configuredAiIntegrationOptions: SelectOption[]
+  novaSuggestForAiStep: (stepId: string) => Promise<void>
+  novaSuggestingByStepId: Record<string, boolean>
+  addWorkflowStep: (type: WorkflowStep["type"]) => void
+  previewWorkflowFixes: () => Promise<void>
+  toggleWorkflowAutofixSelection: (candidateId: string) => void
+  applyWorkflowFixes: (strategy: "safe" | "selected") => Promise<void>
+  missionActive: boolean
+  setMissionActive: (updater: (prev: boolean) => boolean) => void
+  runImmediatelyOnCreate: boolean
+  setRunImmediatelyOnCreate: (updater: (prev: boolean) => boolean) => void
+  editingMissionId: string | null
+  deployMissionFromBuilder: () => Promise<void>
+  deployingMission: boolean
+}
+
+function Section({ title, description, aside, children }: { title: string; description?: string; aside?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-3 border-t border-border-subtle pt-5 first:border-t-0 first:pt-0">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-md font-medium text-fg">{title}</h3>
+          {description ? <p className="text-xs text-muted">{description}</p> : null}
+        </div>
+        {aside}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function SwitchRow({ label, hint, checked, onCheckedChange }: { label: string; hint: string; checked: boolean; onCheckedChange: (next: boolean) => void }) {
+  return (
+    <Field label={label} hint={hint} inline className="rounded-md border border-border-subtle px-3 py-2">
+      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+    </Field>
+  )
 }
 
 export function MissionBuilderModal(props: MissionBuilderModalProps) {
@@ -66,11 +161,6 @@ export function MissionBuilderModal(props: MissionBuilderModalProps) {
     builderOpen,
     playClickSound,
     setBuilderOpen,
-    panelStyle,
-    isLight,
-    orbPalette,
-    builderBodyRef,
-    subPanelClass,
     newLabel,
     setNewLabel,
     newDescription,
@@ -117,7 +207,6 @@ export function MissionBuilderModal(props: MissionBuilderModalProps) {
     previewWorkflowFixes,
     toggleWorkflowAutofixSelection,
     applyWorkflowFixes,
-    builderFooterRef,
     missionActive,
     setMissionActive,
     runImmediatelyOnCreate,
@@ -125,1008 +214,577 @@ export function MissionBuilderModal(props: MissionBuilderModalProps) {
     editingMissionId,
     deployMissionFromBuilder,
     deployingMission,
-  } = props as {
-    builderOpen: boolean
-    playClickSound: () => void
-    setBuilderOpen: (open: boolean) => void
-    panelStyle: CSSProperties
-    isLight: boolean
-    orbPalette: { circle1: string; circle2: string }
-    builderBodyRef: MutableRefObject<HTMLDivElement | null>
-    subPanelClass: string
-    newLabel: string
-    setNewLabel: (value: string) => void
-    newDescription: string
-    setNewDescription: (value: string) => void
-    newPriority: string
-    setNewPriority: (value: string) => void
-    tagInput: string
-    setTagInput: (value: string) => void
-    addTag: () => void
-    missionTags: string[]
-    removeTag: (tag: string) => void
-    newTime: string
-    setNewTime: (value: string) => void
-    newScheduleDays: string[]
-    toggleScheduleDay: (day: string) => void
-    newScheduleMode: string
-    setNewScheduleMode: (mode: string) => void
-    workflowSteps: WorkflowStep[]
-    workflowAutofixPreview: WorkflowAutofixResponse | null
-    workflowAutofixSelectionById: Record<string, boolean>
-    workflowAutofixLoading: boolean
-    workflowAutofixApplying: boolean
-    draggingStepId: string | null
-    setDragOverStepId: (id: string | null) => void
-    moveWorkflowStepByDrop: (fromId: string, toId: string) => void
-    setDraggingStepId: (id: string | null) => void
-    dragOverStepId: string | null
-    updateWorkflowStepTitle: (id: string, title: string) => void
-    toggleWorkflowStepCollapsed: (id: string) => void
-    collapsedStepIds: Record<string, boolean>
-    removeWorkflowStep: (id: string) => void
-    detectedTimezone: string
-    updateWorkflowStep: (id: string, updates: Partial<WorkflowStep>) => void
-    apiFetchIntegrationOptions: Array<{ value: string; label: string }>
-    catalogApiById: Record<string, { endpoint?: string }>
-    outputChannelOptions: Array<{ value: string; label: string }>
-    updateWorkflowStepAi: (
-      id: string,
-      updates: Partial<Pick<WorkflowStep, "aiPrompt" | "aiModel" | "aiIntegration" | "aiDetailLevel">>,
-    ) => void
-    resolveDefaultAiIntegration: () => AiIntegrationType
-    integrationsSettings: IntegrationsSettings
-    configuredAiIntegrationOptions: Array<{ value: string; label: string }>
-    novaSuggestForAiStep: (stepId: string) => Promise<void>
-    novaSuggestingByStepId: Record<string, boolean>
-    addWorkflowStep: (type: WorkflowStep["type"]) => void
-    previewWorkflowFixes: () => Promise<void>
-    toggleWorkflowAutofixSelection: (candidateId: string) => void
-    applyWorkflowFixes: (strategy: "safe" | "selected") => Promise<void>
-    builderFooterRef: MutableRefObject<HTMLDivElement | null>
-    missionActive: boolean
-    setMissionActive: (updater: (prev: boolean) => boolean) => void
-    runImmediatelyOnCreate: boolean
-    setRunImmediatelyOnCreate: (updater: (prev: boolean) => boolean) => void
-    editingMissionId: string | null
-    deployMissionFromBuilder: () => Promise<void>
-    deployingMission: boolean
+  } = props
+  const [timeId] = useState(() => `mission-time-${Math.random().toString(36).slice(2, 8)}`)
+
+  const close = () => {
+    playClickSound()
+    setBuilderOpen(false)
   }
 
-  if (!builderOpen) return null
+  const aiProviderOptions = configuredAiIntegrationOptions.length > 0
+    ? configuredAiIntegrationOptions
+    : [{ value: integrationsSettings.activeLlmProvider, label: AI_PROVIDER_LABELS[integrationsSettings.activeLlmProvider] }]
 
-  return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            className="absolute inset-0 bg-black/45 backdrop-blur-sm"
-            onClick={() => {
-              playClickSound()
-              setBuilderOpen(false)
-            }}
-            aria-label="Close mission builder"
-          />
-          <div
-            style={panelStyle}
-            className={cn(
-              "mission-builder-popup-no-glow relative z-10 w-full max-w-3xl rounded-2xl border overflow-hidden",
-              isLight
-                ? "border-[#d9e0ea] bg-white"
-                : "border-white/20 bg-white/6 backdrop-blur-2xl",
+  const renderStepFields = (step: WorkflowStep) => {
+    switch (step.type) {
+      case "trigger":
+        return (
+          <p className="text-xs text-muted">
+            Runs on the schedule above, in your detected timezone <span className="font-mono">{detectedTimezone}</span>.
+          </p>
+        )
+      case "fetch":
+        return (
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Field label="Data source">
+                <Select value={step.fetchSource ?? "web"} options={STEP_FETCH_SOURCE_OPTIONS} onValueChange={(next) => updateWorkflowStep(step.id, { fetchSource: next as WorkflowStep["fetchSource"] })} />
+              </Field>
+              <Field label="HTTP method">
+                <Select mono value={step.fetchMethod ?? "GET"} options={STEP_FETCH_METHOD_OPTIONS} onValueChange={(next) => updateWorkflowStep(step.id, { fetchMethod: next as WorkflowStep["fetchMethod"] })} />
+              </Field>
+              <Field label="Refresh (minutes)">
+                <Input mono inputMode="numeric" value={step.fetchRefreshMinutes ?? "15"} placeholder="15" onChange={(e) => updateWorkflowStep(step.id, { fetchRefreshMinutes: e.target.value.replace(/\D/g, "").slice(0, 4) })} />
+              </Field>
+            </div>
+            {step.fetchSource === "api" && apiFetchIntegrationOptions.length > 0 ? (
+              <Field label="API integration">
+                <Select
+                  value={step.fetchApiIntegrationId ?? ""}
+                  options={apiFetchIntegrationOptions}
+                  onValueChange={(next) => {
+                    const selected = catalogApiById[next]
+                    updateWorkflowStep(step.id, { fetchApiIntegrationId: next, fetchUrl: selected?.endpoint || step.fetchUrl || "" })
+                  }}
+                />
+              </Field>
+            ) : null}
+            {step.fetchSource === "web" ? (
+              <p className="rounded-md bg-surface-3 px-3 py-2 text-xs text-muted">Brave search is managed for you. No endpoint or auth headers are needed.</p>
+            ) : (
+              <Field label="Endpoint URL">
+                <Input mono value={step.fetchUrl ?? ""} placeholder="https://api.example.com/data" onChange={(e) => updateWorkflowStep(step.id, { fetchUrl: e.target.value })} />
+              </Field>
             )}
-          >
-            {!isLight && (
-              <div
-                className="pointer-events-none absolute inset-0"
-                style={{
-                  background: `linear-gradient(165deg, ${hexToRgba(orbPalette.circle1, 0.16)} 0%, rgba(6,10,20,0.75) 45%, ${hexToRgba(orbPalette.circle2, 0.14)} 100%)`,
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <Field label="Query or params">
+                <Input
+                  value={step.fetchQuery ?? ""}
+                  placeholder={step.fetchSource === "web" ? "nba last night final scores top performers" : "symbol=BTC&window=24h"}
+                  onChange={(e) => updateWorkflowStep(step.id, { fetchQuery: e.target.value })}
+                />
+              </Field>
+              <Field label="CSS selector" hint="Used when scraping a web page.">
+                <Input mono value={step.fetchSelector ?? ""} placeholder="a[href]" onChange={(e) => updateWorkflowStep(step.id, { fetchSelector: e.target.value })} />
+              </Field>
+            </div>
+            <SwitchRow
+              label="Include sources in output"
+              hint="Adds one source link per web request."
+              checked={step.fetchIncludeSources !== false}
+              onCheckedChange={(next) => updateWorkflowStep(step.id, { fetchIncludeSources: next })}
+            />
+            {step.fetchSource !== "web" ? (
+              <Field label="Headers or auth (JSON)">
+                <Textarea mono minRows={2} value={step.fetchHeaders ?? ""} placeholder='{"Authorization":"Bearer ..."}' onChange={(e) => updateWorkflowStep(step.id, { fetchHeaders: e.target.value })} />
+              </Field>
+            ) : null}
+          </div>
+        )
+      case "coinbase":
+        return (
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Field label="Intent">
+                <Select value={step.coinbaseIntent ?? "report"} options={COINBASE_INTENT_OPTIONS} onValueChange={(next) => updateWorkflowStep(step.id, { coinbaseIntent: next as WorkflowStep["coinbaseIntent"] })} />
+              </Field>
+              <Field label="Quote currency">
+                <Input
+                  mono
+                  value={step.coinbaseParams?.quoteCurrency ?? "USD"}
+                  placeholder="USD"
+                  onChange={(e) => updateWorkflowStep(step.id, { coinbaseParams: { ...(step.coinbaseParams || {}), quoteCurrency: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10) } })}
+                />
+              </Field>
+              <Field label="Cadence">
+                <Select
+                  value={typeof step.coinbaseParams?.cadence === "string" && step.coinbaseParams.cadence ? step.coinbaseParams.cadence : "daily"}
+                  options={COINBASE_CADENCE_OPTIONS}
+                  onValueChange={(next) => updateWorkflowStep(step.id, { coinbaseParams: { ...(step.coinbaseParams || {}), cadence: next } })}
+                />
+              </Field>
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <Field label="Assets" hint="Comma-separated, up to 8.">
+                <Input
+                  mono
+                  value={Array.isArray(step.coinbaseParams?.assets) ? step.coinbaseParams.assets.join(",") : "BTC,ETH,SOL"}
+                  placeholder="BTC,ETH,SOL"
+                  onChange={(e) => updateWorkflowStep(step.id, {
+                    coinbaseParams: {
+                      ...(step.coinbaseParams || {}),
+                      assets: e.target.value.split(",").map((item) => item.trim().toUpperCase().replace(/[^A-Z0-9]/g, "")).filter(Boolean).slice(0, 8),
+                    },
+                  })}
+                />
+              </Field>
+              <Field label="Threshold %" aside="Optional">
+                <Input
+                  mono
+                  inputMode="decimal"
+                  value={Number.isFinite(Number(step.coinbaseParams?.thresholdPct)) ? String(step.coinbaseParams?.thresholdPct) : ""}
+                  placeholder="2.5"
+                  onChange={(e) => {
+                    const nextValue = Number.parseFloat(e.target.value.trim())
+                    updateWorkflowStep(step.id, { coinbaseParams: { ...(step.coinbaseParams || {}), thresholdPct: Number.isFinite(nextValue) ? nextValue : undefined } })
+                  }}
+                />
+              </Field>
+              <Field label="Transaction limit" aside="Optional">
+                <Input
+                  mono
+                  inputMode="numeric"
+                  value={Number.isFinite(Number(step.coinbaseParams?.transactionLimit)) ? String(step.coinbaseParams?.transactionLimit) : ""}
+                  placeholder="20"
+                  onChange={(e) => {
+                    const nextNum = Number.parseInt(e.target.value.replace(/\D/g, "").slice(0, 3) || "0", 10)
+                    updateWorkflowStep(step.id, { coinbaseParams: { ...(step.coinbaseParams || {}), transactionLimit: Number.isFinite(nextNum) && nextNum > 0 ? nextNum : undefined } })
+                  }}
+                />
+              </Field>
+              <Field label="Format style">
+                <Select
+                  value={step.coinbaseFormat?.style ?? "standard"}
+                  options={COINBASE_FORMAT_STYLE_OPTIONS}
+                  onValueChange={(next) => updateWorkflowStep(step.id, { coinbaseFormat: { ...(step.coinbaseFormat || {}), style: next as NonNullable<WorkflowStep["coinbaseFormat"]>["style"] } })}
+                />
+              </Field>
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <SwitchRow
+                label="Use prior Coinbase results"
+                hint="Pulls recent step artifacts from this mission."
+                checked={step.coinbaseParams?.includePreviousArtifactContext !== false}
+                onCheckedChange={(next) => updateWorkflowStep(step.id, { coinbaseParams: { ...(step.coinbaseParams || {}), includePreviousArtifactContext: next } })}
+              />
+              <SwitchRow
+                label="Keep raw metadata"
+                hint="Stores tool metadata with the summary."
+                checked={step.coinbaseFormat?.includeRawMetadata !== false}
+                onCheckedChange={(next) => updateWorkflowStep(step.id, { coinbaseFormat: { ...(step.coinbaseFormat || {}), includeRawMetadata: next } })}
+              />
+            </div>
+          </div>
+        )
+      case "transform":
+        return (
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <Field label="Action">
+                <Select value={step.transformAction ?? "normalize"} options={STEP_TRANSFORM_ACTION_OPTIONS} onValueChange={(next) => updateWorkflowStep(step.id, { transformAction: next as WorkflowStep["transformAction"] })} />
+              </Field>
+              <Field label="Output format">
+                <Select value={step.transformFormat ?? "markdown"} options={STEP_TRANSFORM_FORMAT_OPTIONS} onValueChange={(next) => updateWorkflowStep(step.id, { transformFormat: next as WorkflowStep["transformFormat"] })} />
+              </Field>
+            </div>
+            <Field label="Rules">
+              <Textarea
+                minRows={3}
+                value={step.transformInstruction ?? ""}
+                placeholder="Normalize fields, dedupe by ID, sort by priority, format for output."
+                onChange={(e) => updateWorkflowStep(step.id, { transformInstruction: e.target.value })}
+              />
+            </Field>
+          </div>
+        )
+      case "condition":
+        return (
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Field label="Field">
+                <Input mono value={step.conditionField ?? ""} placeholder="priceChangePct" onChange={(e) => updateWorkflowStep(step.id, { conditionField: e.target.value })} />
+              </Field>
+              <Field label="Operator">
+                <Select value={step.conditionOperator ?? "contains"} options={STEP_CONDITION_OPERATOR_OPTIONS} onValueChange={(next) => updateWorkflowStep(step.id, { conditionOperator: next as WorkflowStep["conditionOperator"] })} />
+              </Field>
+              <Field label="Expected value">
+                <Input
+                  value={step.conditionValue ?? ""}
+                  placeholder="5"
+                  disabled={(step.conditionOperator ?? "contains") === "exists"}
+                  onChange={(e) => updateWorkflowStep(step.id, { conditionValue: e.target.value })}
+                />
+              </Field>
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <Field label="Rule logic">
+                <Select value={step.conditionLogic ?? "all"} options={STEP_CONDITION_LOGIC_OPTIONS} onValueChange={(next) => updateWorkflowStep(step.id, { conditionLogic: next as WorkflowStep["conditionLogic"] })} />
+              </Field>
+              <Field label="If the condition fails">
+                <Select value={step.conditionFailureAction ?? "skip"} options={STEP_CONDITION_FAILURE_OPTIONS} onValueChange={(next) => updateWorkflowStep(step.id, { conditionFailureAction: next as WorkflowStep["conditionFailureAction"] })} />
+              </Field>
+            </div>
+          </div>
+        )
+      case "output":
+        return (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <Field label="Delivery channel">
+              <Select
+                value={step.outputChannel ?? "telegram"}
+                options={outputChannelOptions}
+                onValueChange={(next) => {
+                  const nextChannel = next as WorkflowStep["outputChannel"]
+                  updateWorkflowStep(step.id, {
+                    outputChannel: nextChannel,
+                    outputTime: newTime,
+                    outputTiming: step.outputTiming === "scheduled" || step.outputTiming === "digest" ? step.outputTiming : "immediate",
+                    outputFrequency: step.outputFrequency === "multiple" ? "multiple" : "once",
+                    outputRepeatCount: step.outputFrequency === "multiple" ? (step.outputRepeatCount || "3") : "1",
+                    outputRecipients: sanitizeOutputRecipients(nextChannel, step.outputRecipients),
+                    outputTemplate: "",
+                  })
                 }}
               />
-            )}
-            <div
-              className={cn(
-                "relative z-10 flex items-center justify-between px-5 py-4 border-b",
-                isLight ? "border-[#e2e8f2]" : "border-white/10",
-              )}
-              style={{
-                background: `linear-gradient(90deg, ${hexToRgba(orbPalette.circle1, 0.22)} 0%, ${hexToRgba(orbPalette.circle2, 0.12)} 100%)`,
-              }}
-            >
-              <div className="flex items-center gap-3">
-                <div className="h-9 w-9 rounded-xl bg-accent-20 border border-accent-30 inline-flex items-center justify-center">
-                  <Sparkles className="w-4 h-4 text-accent" />
-                </div>
-                <div>
-                  <h3 className={cn("text-2xl font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>Mission Builder</h3>
-                  <p className={cn("text-sm", isLight ? "text-s-60" : "text-slate-300")}>Design your automated workflow</p>
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  playClickSound()
-                  setBuilderOpen(false)
+            </Field>
+            <Field label="Notify when">
+              <Select value={step.outputTiming ?? "immediate"} options={STEP_OUTPUT_TIMING_OPTIONS} onValueChange={(next) => updateWorkflowStep(step.id, { outputTiming: next as WorkflowStep["outputTiming"], outputTime: newTime })} />
+            </Field>
+            <Field label="Notification count">
+              <Select
+                value={step.outputFrequency ?? "once"}
+                options={STEP_OUTPUT_FREQUENCY_OPTIONS}
+                onValueChange={(next) => {
+                  const outputFrequency = next as WorkflowStep["outputFrequency"]
+                  updateWorkflowStep(step.id, { outputFrequency, outputRepeatCount: outputFrequency === "multiple" ? (step.outputRepeatCount || "3") : "1" })
                 }}
-                className={cn(
-                  "mission-builder-hover-gleam h-8 w-8 rounded-md border inline-flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
-                  isLight ? "border-[#d5dce8] bg-white text-s-70" : "border-white/12 bg-black/20 text-slate-300",
-                )}
-                aria-label="Close mission builder"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div
-              ref={builderBodyRef}
-              className="hide-scrollbar relative z-10 p-3.5 h-[68vh] overflow-y-auto! overflow-x-hidden! overscroll-contain touch-pan-y space-y-2.5 home-spotlight-shell"
+              />
+            </Field>
+          </div>
+        )
+      case "ai": {
+        const provider = step.aiIntegration ?? resolveDefaultAiIntegration()
+        return (
+          <div className="flex flex-col gap-3">
+            <Field
+              label="Prompt"
+              aside={(
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => { playClickSound(); void novaSuggestForAiStep(step.id) }}
+                  loading={Boolean(novaSuggestingByStepId[step.id])}
+                >
+                  <Sparkles />
+                  Suggest a prompt
+                </Button>
+              )}
             >
-              <div className={cn("rounded-lg border p-1.5 home-spotlight-card home-border-glow home-spotlight-card--hover", subPanelClass)}>
-                <label className={cn("text-[11px] uppercase tracking-[0.14em]", isLight ? "text-s-50" : "text-slate-500")}>Mission Name</label>
-                <input
-                  value={newLabel}
-                  onChange={(e) => setNewLabel(e.target.value)}
-                  placeholder="e.g. Daily Team Sync"
-                  className={cn("mt-0.5 h-8 w-full bg-transparent text-sm outline-none", isLight ? "text-s-90 placeholder:text-s-40" : "text-slate-100 placeholder:text-slate-500")}
+              <Textarea minRows={3} value={step.aiPrompt ?? ""} placeholder="Describe what the model should do with the data." onChange={(e) => updateWorkflowStepAi(step.id, { aiPrompt: e.target.value })} />
+            </Field>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Field label="Provider">
+                <Select
+                  value={provider}
+                  options={aiProviderOptions}
+                  onValueChange={(next) => {
+                    const nextIntegration = next as AiIntegrationType
+                    updateWorkflowStepAi(step.id, { aiIntegration: nextIntegration, aiModel: getDefaultModelForProvider(nextIntegration, integrationsSettings) })
+                  }}
                 />
-              </div>
-
-              <div className={cn("rounded-lg border p-1.5 home-spotlight-card home-border-glow home-spotlight-card--hover", subPanelClass)}>
-                <label className={cn("text-[11px] uppercase tracking-[0.14em]", isLight ? "text-s-50" : "text-slate-500")}>Description</label>
-                <textarea
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  rows={3}
-                  placeholder="What does this mission accomplish?"
-                  className={cn("mt-0.5 w-full resize-none bg-transparent text-sm outline-none", isLight ? "text-s-90 placeholder:text-s-40" : "text-slate-100 placeholder:text-slate-500")}
-                />
-              </div>
-
-              <div className={cn("rounded-lg border p-1.5 home-spotlight-card home-border-glow home-spotlight-card--hover", subPanelClass)}>
-                <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
-                  <div>
-                    <label className={cn("text-[11px] uppercase tracking-[0.14em]", isLight ? "text-s-50" : "text-slate-500")}>Priority</label>
-                    <FluidSelect value={newPriority} onChange={setNewPriority} options={PRIORITY_OPTIONS} isLight={isLight} className="mt-0.5 w-full" />
-                  </div>
-                  <div>
-                    <label className={cn("text-[11px] uppercase tracking-[0.14em]", isLight ? "text-s-50" : "text-slate-500")}>Tags</label>
-                    <div className={cn("mt-0.5 flex items-center gap-2 rounded-lg border px-2.5", isLight ? "border-[#d5dce8] bg-white" : "border-white/10 bg-black/20")}>
-                      <input
-                        value={tagInput}
-                        onChange={(e) => setTagInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault()
-                            addTag()
-                          }
-                        }}
-                        placeholder="Add tag..."
-                        className={cn("h-8 w-full bg-transparent text-sm outline-none", isLight ? "text-s-90 placeholder:text-s-40" : "text-slate-100 placeholder:text-slate-500")}
-                      />
-                      <button onClick={() => { playClickSound(); addTag() }} className="text-xs text-accent">Add</button>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {missionTags.map((tag) => (
-                        <button key={tag} onClick={() => { playClickSound(); removeTag(tag) }} className={cn("rounded-md px-2 py-1 text-xs border", isLight ? "border-[#d5dce8] bg-white text-s-80" : "border-white/10 bg-black/20 text-slate-200")}>
-                          #{tag} <span className="opacity-70">x</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className={cn("rounded-xl border p-3.5 home-spotlight-card home-border-glow home-spotlight-card--hover", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Clock3 className="w-4 h-4 text-accent" />
-                  <h4 className={cn("text-lg font-semibold", isLight ? "text-s-90" : "text-slate-100")}>Schedule</h4>
-                </div>
-                <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-[208px_minmax(0,1fr)_168px] lg:items-center">
-                  <div className="w-full max-w-full">
-                    <TimeField value24={newTime} onChange24={setNewTime} isLight={isLight} />
-                  </div>
-                  <div className="grid grid-cols-7 gap-1.5">
-                    {WEEKDAY_OPTIONS.map((day) => {
-                      const selected = newScheduleDays.includes(day.id)
-                      return (
-                        <button
-                          key={day.id}
-                        onClick={() => {
-                          playClickSound()
-                          toggleScheduleDay(day.id)
-                        }}
-                        className={cn(
-                          "h-8 w-full px-2 rounded-md text-xs font-medium border transition-colors",
-                          selected
-                            ? "border-accent-30 bg-accent-20 text-accent"
-                            : isLight
-                              ? "border-[#d5dce8] bg-white text-s-70 hover:bg-[#eef3fb]"
-                              : "border-white/10 bg-black/20 text-slate-300 hover:bg-white/8",
-                          )}
-                        >
-                          {day.label}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  <div className="w-full min-w-40 lg:max-w-45 lg:justify-self-end">
-                    <FluidSelect value={newScheduleMode} onChange={setNewScheduleMode} options={SCHEDULE_MODE_OPTIONS} isLight={isLight} />
-                  </div>
-                </div>
-              </div>
-
-              <div className={cn("rounded-xl border p-3.5 home-spotlight-card home-border-glow home-spotlight-card--hover", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
-                <div className="flex items-center justify-between">
-                  <h4 className={cn("text-lg font-semibold inline-flex items-center gap-2", isLight ? "text-s-90" : "text-slate-100")}>
-                    <Zap className="w-4 h-4 text-accent" />
-                    Workflow Steps
-                  </h4>
-                  <span className={cn("text-xs", isLight ? "text-s-60" : "text-slate-400")}>{workflowSteps.length} steps</span>
-                </div>
-                <div className="mt-3 space-y-2">
-                  {workflowSteps.length === 0 && (
-                    <div className={cn("rounded-lg border px-3 py-2 text-sm", isLight ? "border-[#d5dce8] bg-white text-s-60" : "border-white/12 bg-black/20 text-slate-400")}>
-                      No workflow steps yet. Add workflow steps below.
-                    </div>
-                  )}
-                  {workflowSteps.map((step, index) => (
-                    <div
-                      key={step.id}
-                      onDragOver={(event) => {
-                        if (!draggingStepId || draggingStepId === step.id) return
-                        event.preventDefault()
-                        setDragOverStepId(step.id)
-                      }}
-                      onDrop={(event) => {
-                        event.preventDefault()
-                        if (!draggingStepId || draggingStepId === step.id) return
-                        moveWorkflowStepByDrop(draggingStepId, step.id)
-                        setDraggingStepId(null)
-                        setDragOverStepId(null)
-                      }}
-                      onDragLeave={() => {
-                        if (dragOverStepId === step.id) setDragOverStepId(null)
-                      }}
-                      className={cn(
-                        "rounded-lg border px-3 py-2",
-                        isLight ? STEP_THEME[step.type].light : STEP_THEME[step.type].dark,
-                        dragOverStepId === step.id && (isLight ? "ring-2 ring-accent-30" : "ring-2 ring-accent-30/80"),
-                      )}
-                    >
-                      <div className="grid grid-cols-[18px_18px_36px_minmax(0,1fr)_auto] items-center gap-2">
-                        <button
-                          type="button"
-                          draggable
-                          onDragStart={(event) => {
-                            event.dataTransfer.effectAllowed = "move"
-                            event.dataTransfer.setData("text/plain", step.id)
-                            setDraggingStepId(step.id)
-                          }}
-                          onDragEnd={() => {
-                            setDraggingStepId(null)
-                            setDragOverStepId(null)
-                          }}
-                          className={cn(
-                            "h-5 w-5 inline-flex items-center justify-center rounded cursor-grab active:cursor-grabbing transition-all duration-150",
-                            isLight ? "hover:bg-black/5" : "hover:bg-white/10",
-                          )}
-                          aria-label={`Drag step ${index + 1} to reorder`}
-                        >
-                          <GripVertical className={cn("w-3.5 h-3.5", isLight ? "text-s-40" : "text-slate-500")} />
-                        </button>
-                        <span className={cn("text-xs tabular-nums", isLight ? "text-s-60" : "text-slate-400")}>{index + 1}</span>
-                        <span
-                          className={cn(
-                            "h-8 w-8 rounded-md border inline-flex items-center justify-center",
-                            isLight ? STEP_THEME[step.type].pillLight : STEP_THEME[step.type].pillDark,
-                          )}
-                        >
-                          {renderStepIcon(step.type, cn("w-3.5 h-3.5", isLight ? STEP_TEXT_THEME[step.type].light : STEP_TEXT_THEME[step.type].dark))}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <input
-                            value={step.title}
-                            onChange={(e) => updateWorkflowStepTitle(step.id, e.target.value)}
-                            className={cn("h-8 w-full bg-transparent text-sm outline-none", isLight ? "text-s-90" : "text-slate-100")}
-                          />
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => toggleWorkflowStepCollapsed(step.id)}
-                            className={cn(
-                              "h-7 w-7 rounded border inline-flex items-center justify-center transition-colors",
-                              isLight ? "border-[#d5dce8] bg-white text-s-60 hover:bg-[#eef3fb]" : "border-white/15 bg-black/20 text-slate-300 hover:bg-white/8",
-                            )}
-                            aria-label={collapsedStepIds[step.id] ? "Expand step details" : "Collapse step details"}
-                          >
-                            {collapsedStepIds[step.id] ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                          </button>
-                          <button
-                            onClick={() => {
-                              playClickSound()
-                              removeWorkflowStep(step.id)
-                            }}
-                            className="h-7 w-7 rounded border border-rose-300/40 bg-rose-500/15 text-rose-200 inline-flex items-center justify-center transition-all duration-150 hover:-translate-y-px hover:bg-rose-500/25 hover:shadow-[0_8px_20px_-12px_rgba(244,63,94,0.75)] active:translate-y-0"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                      {!collapsedStepIds[step.id] && (
-                        <>
-                          {step.type === "trigger" && (
-                            <div className={cn("mt-3 space-y-1.5 border-t pt-3", isLight ? "border-amber-200/80" : "border-amber-300/20")}>
-                              <p className={cn("text-xs", isLight ? "text-amber-700" : "text-amber-300")}>
-                                Mission trigger uses the schedule above and automatically uses your detected timezone ({detectedTimezone}).
-                              </p>
-                            </div>
-                          )}
-                      {step.type === "fetch" && (
-                        <div className={cn("mt-3 space-y-3 border-t pt-3", isLight ? "border-sky-200/80" : "border-sky-300/20")}>
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>Data Source</label>
-                              <FluidSelect value={step.fetchSource ?? "web"} onChange={(next) => updateWorkflowStep(step.id, { fetchSource: next as WorkflowStep["fetchSource"] })} options={STEP_FETCH_SOURCE_OPTIONS} isLight={isLight} />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>HTTP Method</label>
-                              <FluidSelect value={step.fetchMethod ?? "GET"} onChange={(next) => updateWorkflowStep(step.id, { fetchMethod: next as WorkflowStep["fetchMethod"] })} options={STEP_FETCH_METHOD_OPTIONS} isLight={isLight} />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>Refresh (Minutes)</label>
-                              <input
-                                value={step.fetchRefreshMinutes ?? "15"}
-                                onChange={(e) => updateWorkflowStep(step.id, { fetchRefreshMinutes: e.target.value.replace(/\D/g, "").slice(0, 4) })}
-                                placeholder="15"
-                                className={cn(
-                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
-                                  isLight ? "border-sky-200 bg-white text-s-90 placeholder:text-s-40" : "border-sky-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                                )}
-                              />
-                            </div>
-                          </div>
-                          {step.fetchSource === "api" && apiFetchIntegrationOptions.length > 0 && (
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>API Integration</label>
-                              <FluidSelect
-                                value={step.fetchApiIntegrationId ?? ""}
-                                onChange={(next) => {
-                                  const selected = catalogApiById[next]
-                                  updateWorkflowStep(step.id, {
-                                    fetchApiIntegrationId: next,
-                                    fetchUrl: selected?.endpoint || step.fetchUrl || "",
-                                  })
-                                }}
-                                options={apiFetchIntegrationOptions}
-                                isLight={isLight}
-                              />
-                            </div>
-                          )}
-                          {step.fetchSource === "web" ? (
-                            <div className={cn("rounded-md border px-3 py-2 text-xs", isLight ? "border-sky-200 bg-sky-50/80 text-sky-800" : "border-sky-300/25 bg-sky-500/10 text-sky-200")}>
-                              Brave search is managed automatically. No endpoint URL or auth headers are needed.
-                            </div>
-                          ) : (
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>Endpoint / URL</label>
-                              <input
-                                value={step.fetchUrl ?? ""}
-                                onChange={(e) => updateWorkflowStep(step.id, { fetchUrl: e.target.value })}
-                                placeholder="https://api.example.com/data"
-                                className={cn(
-                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
-                                  isLight ? "border-sky-200 bg-white text-s-90 placeholder:text-s-40" : "border-sky-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                                )}
-                              />
-                            </div>
-                          )}
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>Query / Params</label>
-                              <input
-                                value={step.fetchQuery ?? ""}
-                                onChange={(e) => updateWorkflowStep(step.id, { fetchQuery: e.target.value })}
-                                placeholder={step.fetchSource === "web" ? "nba last night highlights final scores top performers" : "symbol=BTC&window=24h"}
-                                className={cn(
-                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
-                                  isLight ? "border-sky-200 bg-white text-s-90 placeholder:text-s-40" : "border-sky-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                                )}
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>CSS Selector (Web Scrape)</label>
-                              <input
-                                value={step.fetchSelector ?? ""}
-                                onChange={(e) => updateWorkflowStep(step.id, { fetchSelector: e.target.value })}
-                                placeholder="a[href]"
-                                className={cn(
-                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
-                                  isLight ? "border-sky-200 bg-white text-s-90 placeholder:text-s-40" : "border-sky-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                                )}
-                              />
-                            </div>
-                          </div>
-                          <div className={cn("flex items-center justify-between rounded-md border px-3 py-2", isLight ? "border-sky-200 bg-white/90" : "border-sky-300/30 bg-black/20")}>
-                            <div>
-                              <p className={cn("text-xs font-medium", isLight ? "text-sky-700" : "text-sky-300")}>Include Sources In Output</p>
-                              <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>
-                                Adds 1 source per Web Request.
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => updateWorkflowStep(step.id, { fetchIncludeSources: !(step.fetchIncludeSources !== false) })}
-                              className="inline-flex items-center"
-                              aria-label="Toggle source links in output"
-                            >
-                              <NovaSwitch checked={step.fetchIncludeSources !== false} />
-                            </button>
-                          </div>
-                          {step.fetchSource !== "web" && (
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-sky-700" : "text-sky-300")}>Headers / Auth JSON</label>
-                              <textarea
-                                value={step.fetchHeaders ?? ""}
-                                onChange={(e) => updateWorkflowStep(step.id, { fetchHeaders: e.target.value })}
-                                placeholder='{"Authorization":"Bearer ...","X-Source":"nova"}'
-                                className={cn(
-                                  "min-h-16 w-full resize-y rounded-md border px-3 py-2 text-sm outline-none",
-                                  isLight ? "border-sky-200 bg-white text-s-90 placeholder:text-s-40" : "border-sky-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                                )}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      {step.type === "coinbase" && (
-                        <div className={cn("mt-3 space-y-3 border-t pt-3", isLight ? "border-cyan-200/80" : "border-cyan-300/20")}>
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-cyan-700" : "text-cyan-300")}>Intent</label>
-                              <FluidSelect
-                                value={step.coinbaseIntent ?? "report"}
-                                onChange={(next) => updateWorkflowStep(step.id, {
-                                  coinbaseIntent: next as WorkflowStep["coinbaseIntent"],
-                                })}
-                                options={COINBASE_INTENT_OPTIONS}
-                                isLight={isLight}
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-cyan-700" : "text-cyan-300")}>Quote Currency</label>
-                              <input
-                                value={step.coinbaseParams?.quoteCurrency ?? "USD"}
-                                onChange={(e) => updateWorkflowStep(step.id, {
-                                  coinbaseParams: {
-                                    ...(step.coinbaseParams || {}),
-                                    quoteCurrency: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10),
-                                  },
-                                })}
-                                placeholder="USD"
-                                className={cn(
-                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
-                                  isLight ? "border-cyan-200 bg-white text-s-90 placeholder:text-s-40" : "border-cyan-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                                )}
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-cyan-700" : "text-cyan-300")}>Cadence</label>
-                              <FluidSelect
-                                value={typeof step.coinbaseParams?.cadence === "string" && step.coinbaseParams.cadence ? step.coinbaseParams.cadence : "daily"}
-                                onChange={(next) => updateWorkflowStep(step.id, {
-                                  coinbaseParams: {
-                                    ...(step.coinbaseParams || {}),
-                                    cadence: next,
-                                  },
-                                })}
-                                options={COINBASE_CADENCE_OPTIONS}
-                                isLight={isLight}
-                              />
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-cyan-700" : "text-cyan-300")}>Assets (comma-separated)</label>
-                              <input
-                                value={Array.isArray(step.coinbaseParams?.assets) ? step.coinbaseParams?.assets.join(",") : "BTC,ETH,SOL"}
-                                onChange={(e) => updateWorkflowStep(step.id, {
-                                  coinbaseParams: {
-                                    ...(step.coinbaseParams || {}),
-                                    assets: e.target.value
-                                      .split(",")
-                                      .map((item) => item.trim().toUpperCase().replace(/[^A-Z0-9]/g, ""))
-                                      .filter(Boolean)
-                                      .slice(0, 8),
-                                  },
-                                })}
-                                placeholder="BTC,ETH,SOL"
-                                className={cn(
-                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
-                                  isLight ? "border-cyan-200 bg-white text-s-90 placeholder:text-s-40" : "border-cyan-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                                )}
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-cyan-700" : "text-cyan-300")}>Threshold % (optional)</label>
-                              <input
-                                value={Number.isFinite(Number(step.coinbaseParams?.thresholdPct)) ? String(step.coinbaseParams?.thresholdPct) : ""}
-                                onChange={(e) => {
-                                  const nextRaw = e.target.value.trim()
-                                  const nextValue = Number.parseFloat(nextRaw)
-                                  updateWorkflowStep(step.id, {
-                                    coinbaseParams: {
-                                      ...(step.coinbaseParams || {}),
-                                      thresholdPct: Number.isFinite(nextValue) ? nextValue : undefined,
-                                    },
-                                  })
-                                }}
-                                placeholder="2.5"
-                                className={cn(
-                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
-                                  isLight ? "border-cyan-200 bg-white text-s-90 placeholder:text-s-40" : "border-cyan-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                                )}
-                              />
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-cyan-700" : "text-cyan-300")}>Transaction Limit (optional)</label>
-                              <input
-                                value={Number.isFinite(Number(step.coinbaseParams?.transactionLimit)) ? String(step.coinbaseParams?.transactionLimit) : ""}
-                                onChange={(e) => {
-                                  const nextRaw = e.target.value.replace(/\D/g, "").slice(0, 3)
-                                  const nextNum = Number.parseInt(nextRaw || "0", 10)
-                                  updateWorkflowStep(step.id, {
-                                    coinbaseParams: {
-                                      ...(step.coinbaseParams || {}),
-                                      transactionLimit: Number.isFinite(nextNum) && nextNum > 0 ? nextNum : undefined,
-                                    },
-                                  })
-                                }}
-                                placeholder="20"
-                                className={cn(
-                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
-                                  isLight ? "border-cyan-200 bg-white text-s-90 placeholder:text-s-40" : "border-cyan-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                                )}
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-cyan-700" : "text-cyan-300")}>Format Style</label>
-                              <FluidSelect
-                                value={step.coinbaseFormat?.style ?? "standard"}
-                                onChange={(next) => updateWorkflowStep(step.id, {
-                                  coinbaseFormat: {
-                                    ...(step.coinbaseFormat || {}),
-                                    style: next as NonNullable<WorkflowStep["coinbaseFormat"]>["style"],
-                                  },
-                                })}
-                                options={COINBASE_FORMAT_STYLE_OPTIONS}
-                                isLight={isLight}
-                              />
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                            <div className={cn("flex items-center justify-between rounded-md border px-3 py-2", isLight ? "border-cyan-200 bg-white/90" : "border-cyan-300/30 bg-black/20")}>
-                              <div>
-                                <p className={cn("text-xs font-medium", isLight ? "text-cyan-700" : "text-cyan-300")}>Use Prior Coinbase Artifacts</p>
-                                <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Pulls recent step artifacts for this same mission scope.</p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => updateWorkflowStep(step.id, {
-                                  coinbaseParams: {
-                                    ...(step.coinbaseParams || {}),
-                                    includePreviousArtifactContext: !(step.coinbaseParams?.includePreviousArtifactContext !== false),
-                                  },
-                                })}
-                                className="inline-flex items-center"
-                                aria-label="Toggle prior Coinbase artifact context"
-                              >
-                                <NovaSwitch checked={step.coinbaseParams?.includePreviousArtifactContext !== false} />
-                              </button>
-                            </div>
-                            <div className={cn("flex items-center justify-between rounded-md border px-3 py-2", isLight ? "border-cyan-200 bg-white/90" : "border-cyan-300/30 bg-black/20")}>
-                              <div>
-                                <p className={cn("text-xs font-medium", isLight ? "text-cyan-700" : "text-cyan-300")}>Include Raw Metadata</p>
-                                <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>Stores normalized tool metadata with summary artifact.</p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => updateWorkflowStep(step.id, {
-                                  coinbaseFormat: {
-                                    ...(step.coinbaseFormat || {}),
-                                    includeRawMetadata: !(step.coinbaseFormat?.includeRawMetadata === false),
-                                  },
-                                })}
-                                className="inline-flex items-center"
-                                aria-label="Toggle raw Coinbase metadata storage"
-                              >
-                                <NovaSwitch checked={step.coinbaseFormat?.includeRawMetadata !== false} />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      {step.type === "transform" && (
-                        <div className={cn("mt-3 space-y-3 border-t pt-3", isLight ? "border-emerald-200/80" : "border-emerald-300/20")}>
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-emerald-700" : "text-emerald-300")}>Transform Action</label>
-                              <FluidSelect value={step.transformAction ?? "normalize"} onChange={(next) => updateWorkflowStep(step.id, { transformAction: next as WorkflowStep["transformAction"] })} options={STEP_TRANSFORM_ACTION_OPTIONS} isLight={isLight} />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-emerald-700" : "text-emerald-300")}>Output Format</label>
-                              <FluidSelect value={step.transformFormat ?? "markdown"} onChange={(next) => updateWorkflowStep(step.id, { transformFormat: next as WorkflowStep["transformFormat"] })} options={STEP_TRANSFORM_FORMAT_OPTIONS} isLight={isLight} />
-                            </div>
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-emerald-700" : "text-emerald-300")}>Transform Rules</label>
-                            <textarea
-                              value={step.transformInstruction ?? ""}
-                              onChange={(e) => updateWorkflowStep(step.id, { transformInstruction: e.target.value })}
-                              placeholder="Normalize fields, dedupe by ID, sort by priority, format for output."
-                              className={cn(
-                                "min-h-18 w-full resize-y rounded-md border px-3 py-2 text-sm outline-none",
-                                isLight ? "border-emerald-200 bg-white text-s-90 placeholder:text-s-40" : "border-emerald-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                              )}
-                            />
-                          </div>
-                        </div>
-                      )}
-                      {step.type === "condition" && (
-                        <div className={cn("mt-3 space-y-3 border-t pt-3", isLight ? "border-orange-200/80" : "border-orange-300/20")}>
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-orange-700" : "text-orange-300")}>Data Field</label>
-                              <input
-                                value={step.conditionField ?? ""}
-                                onChange={(e) => updateWorkflowStep(step.id, { conditionField: e.target.value })}
-                                placeholder="priceChangePct"
-                                className={cn(
-                                  "h-9 w-full rounded-md border px-3 text-sm outline-none",
-                                  isLight ? "border-orange-200 bg-white text-s-90 placeholder:text-s-40" : "border-orange-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                                )}
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-orange-700" : "text-orange-300")}>Operator</label>
-                              <FluidSelect value={step.conditionOperator ?? "contains"} onChange={(next) => updateWorkflowStep(step.id, { conditionOperator: next as WorkflowStep["conditionOperator"] })} options={STEP_CONDITION_OPERATOR_OPTIONS} isLight={isLight} />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-orange-700" : "text-orange-300")}>Expected Value</label>
-                              <input
-                                value={step.conditionValue ?? ""}
-                                onChange={(e) => updateWorkflowStep(step.id, { conditionValue: e.target.value })}
-                                placeholder="5"
-                                disabled={(step.conditionOperator ?? "contains") === "exists"}
-                                className={cn(
-                                  "h-9 w-full rounded-md border px-3 text-sm outline-none disabled:opacity-50",
-                                  isLight ? "border-orange-200 bg-white text-s-90 placeholder:text-s-40" : "border-orange-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                                )}
-                              />
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-orange-700" : "text-orange-300")}>Rule Logic</label>
-                              <FluidSelect value={step.conditionLogic ?? "all"} onChange={(next) => updateWorkflowStep(step.id, { conditionLogic: next as WorkflowStep["conditionLogic"] })} options={STEP_CONDITION_LOGIC_OPTIONS} isLight={isLight} />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-orange-700" : "text-orange-300")}>If Condition Fails</label>
-                              <FluidSelect value={step.conditionFailureAction ?? "skip"} onChange={(next) => updateWorkflowStep(step.id, { conditionFailureAction: next as WorkflowStep["conditionFailureAction"] })} options={STEP_CONDITION_FAILURE_OPTIONS} isLight={isLight} />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      {step.type === "output" && (
-                        <div className={cn("mt-3 space-y-3 border-t pt-3", isLight ? "border-pink-200/80" : "border-pink-300/20")}>
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-pink-700" : "text-pink-300")}>Delivery Channel</label>
-                              <FluidSelect
-                                value={step.outputChannel ?? "telegram"}
-                                onChange={(next) => {
-                                  const nextChannel = next as WorkflowStep["outputChannel"]
-                                  updateWorkflowStep(step.id, {
-                                    outputChannel: nextChannel,
-                                    outputTime: newTime,
-                                    outputTiming: step.outputTiming === "scheduled" || step.outputTiming === "digest" ? step.outputTiming : "immediate",
-                                    outputFrequency: step.outputFrequency === "multiple" ? "multiple" : "once",
-                                    outputRepeatCount: step.outputFrequency === "multiple" ? (step.outputRepeatCount || "3") : "1",
-                                    outputRecipients: sanitizeOutputRecipients(nextChannel, step.outputRecipients),
-                                    outputTemplate: "",
-                                  })
-                                }}
-                                options={outputChannelOptions}
-                                isLight={isLight}
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-pink-700" : "text-pink-300")}>Notify When</label>
-                              <FluidSelect
-                                value={step.outputTiming ?? "immediate"}
-                                onChange={(next) => updateWorkflowStep(step.id, {
-                                  outputTiming: next as WorkflowStep["outputTiming"],
-                                  outputTime: newTime,
-                                })}
-                                options={STEP_OUTPUT_TIMING_OPTIONS}
-                                isLight={isLight}
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-pink-700" : "text-pink-300")}>Notification Count</label>
-                              <FluidSelect
-                                value={step.outputFrequency ?? "once"}
-                                onChange={(next) => {
-                                  const outputFrequency = next as WorkflowStep["outputFrequency"]
-                                  updateWorkflowStep(step.id, {
-                                    outputFrequency,
-                                    outputRepeatCount: outputFrequency === "multiple" ? (step.outputRepeatCount || "3") : "1",
-                                  })
-                                }}
-                                options={STEP_OUTPUT_FREQUENCY_OPTIONS}
-                                isLight={isLight}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      {step.type === "ai" && (
-                        <div className={cn("mt-3 space-y-3 border-t pt-3", isLight ? "border-violet-200/80" : "border-violet-300/20")}>
-                          <div className="space-y-1.5">
-                            <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-violet-700" : "text-violet-300")}>AI Prompt</label>
-                            <textarea
-                              value={step.aiPrompt ?? ""}
-                              onChange={(e) => updateWorkflowStepAi(step.id, { aiPrompt: e.target.value })}
-                              placeholder="Describe what the AI should do with the data..."
-                              className={cn(
-                                "min-h-22 w-full resize-y rounded-md border px-3 py-2 text-sm outline-none",
-                                isLight
-                                  ? "border-violet-200 bg-white text-s-90 placeholder:text-s-40"
-                                  : "border-violet-300/30 bg-black/20 text-slate-100 placeholder:text-slate-500",
-                              )}
-                            />
-                          </div>
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-violet-700" : "text-violet-300")}>Model</label>
-                              <FluidSelect
-                                value={step.aiModel ?? ""}
-                                onChange={(next) => updateWorkflowStepAi(step.id, { aiModel: next })}
-                                options={getModelOptionsForProvider(step.aiIntegration ?? resolveDefaultAiIntegration(), integrationsSettings, step.aiModel)}
-                                isLight={isLight}
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-violet-700" : "text-violet-300")}>Integration</label>
-                              <FluidSelect
-                                value={step.aiIntegration ?? resolveDefaultAiIntegration()}
-                                onChange={(next) => {
-                                  const nextIntegration = next as AiIntegrationType
-                                  updateWorkflowStepAi(step.id, {
-                                    aiIntegration: nextIntegration,
-                                    aiModel: getDefaultModelForProvider(nextIntegration, integrationsSettings),
-                                  })
-                                }}
-                                options={configuredAiIntegrationOptions.length > 0 ? configuredAiIntegrationOptions : [{ value: integrationsSettings.activeLlmProvider, label: AI_PROVIDER_LABELS[integrationsSettings.activeLlmProvider] }]}
-                                isLight={isLight}
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className={cn("text-[11px] font-medium uppercase tracking-[0.12em]", isLight ? "text-violet-700" : "text-violet-300")}>Detail Level</label>
-                              <FluidSelect
-                                value={step.aiDetailLevel ?? "standard"}
-                                onChange={(next) => updateWorkflowStepAi(step.id, { aiDetailLevel: normalizeAiDetailLevel(next) })}
-                                options={AI_DETAIL_LEVEL_OPTIONS}
-                                isLight={isLight}
-                              />
-                            </div>
-                          </div>
-                          <div className="flex items-center justify-between pt-0.5">
-                            <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", isLight ? "text-violet-700" : "text-violet-300")}>
-                              <GitBranch className="w-3.5 h-3.5" />
-                              Conditional Logic
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                playClickSound()
-                                void novaSuggestForAiStep(step.id)
-                              }}
-                              disabled={Boolean(novaSuggestingByStepId[step.id])}
-                              className={cn(
-                                "h-7 px-2.5 rounded-md border inline-flex items-center gap-1 text-xs font-medium transition-all duration-150 disabled:opacity-60 disabled:transform-none hover:-translate-y-px active:translate-y-0",
-                                isLight
-                                  ? "border-violet-300 bg-violet-100/70 text-violet-700 hover:bg-violet-100 hover:shadow-[0_8px_18px_-12px_rgba(124,58,237,0.45)]"
-                                  : "border-violet-300/35 bg-violet-500/12 text-violet-200 hover:bg-violet-500/20 hover:shadow-[0_10px_22px_-12px_rgba(167,139,250,0.6)]",
-                              )}
-                            >
-                              <Sparkles className="w-3.5 h-3.5" />
-                              {novaSuggestingByStepId[step.id] ? "U.B Agents Suggesting..." : "U.B Agents Suggest"}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {STEP_TYPE_OPTIONS.map((option) => (
-                    <button
-                      key={option.type}
-                      onClick={() => {
-                        playClickSound()
-                        addWorkflowStep(option.type)
-                      }}
-                      className={cn(
-                        "h-8 px-3 rounded-md border text-xs transition-all duration-150 inline-flex items-center gap-1.5 hover:-translate-y-px active:translate-y-0",
-                        isLight ? STEP_THEME[option.type].light : STEP_THEME[option.type].dark,
-                        isLight ? STEP_TEXT_THEME[option.type].light : STEP_TEXT_THEME[option.type].dark,
-                        isLight
-                          ? "hover:shadow-[0_10px_18px_-12px_rgba(15,23,42,0.35)]"
-                          : "hover:shadow-[0_10px_22px_-12px_rgba(148,163,184,0.35)]",
-                      )}
-                    >
-                      {renderStepIcon(option.type, "w-3 h-3")}
-                      <span>{option.label}</span>
-                    </button>
-                  ))}
-                </div>
-                <div className={cn("mt-3 rounded-lg border p-2.5", isLight ? "border-[#d5dce8] bg-white/70" : "border-white/12 bg-black/25")}>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className={cn("text-xs font-semibold uppercase tracking-[0.12em]", isLight ? "text-s-60" : "text-slate-300")}>Workflow Autofix</p>
-                      <p className={cn("text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
-                        Preview confidence-ranked fixes. Low-risk fixes can auto-apply; medium/high require explicit approval.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          playClickSound()
-                          void previewWorkflowFixes()
-                        }}
-                        disabled={workflowAutofixLoading || workflowAutofixApplying}
-                        className={cn(
-                          "h-7 px-2.5 rounded-md border text-xs font-medium",
-                          isLight ? "border-[#d5dce8] bg-white text-s-70" : "border-white/15 bg-black/20 text-slate-200",
-                        )}
-                      >
-                        {workflowAutofixLoading ? "Scanning..." : "Preview Fixes"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          playClickSound()
-                          void applyWorkflowFixes("safe")
-                        }}
-                        disabled={workflowAutofixLoading || workflowAutofixApplying}
-                        className="h-7 px-2.5 rounded-md border border-emerald-300/40 bg-emerald-500/10 text-emerald-300 text-xs font-medium"
-                      >
-                        Apply Safe
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          playClickSound()
-                          void applyWorkflowFixes("selected")
-                        }}
-                        disabled={
-                          workflowAutofixLoading ||
-                          workflowAutofixApplying ||
-                          Object.values(workflowAutofixSelectionById).every((selected) => !selected)
-                        }
-                        className="h-7 px-2.5 rounded-md border border-accent-30 bg-accent-10 text-accent text-xs font-medium disabled:opacity-50"
-                      >
-                        {workflowAutofixApplying ? "Applying..." : "Apply Selected"}
-                      </button>
-                    </div>
-                  </div>
-                  {workflowAutofixPreview && (
-                    <div className="mt-2 space-y-2">
-                      <div className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>
-                        Issues: {workflowAutofixPreview.issueReduction.before} {"->"} {workflowAutofixPreview.issueReduction.after}
-                      </div>
-                      <div className="max-h-44 overflow-y-auto space-y-1.5 pr-1">
-                        {workflowAutofixPreview.candidates.length === 0 && (
-                          <div className={cn("rounded-md border px-2 py-1.5 text-[11px]", isLight ? "border-[#d5dce8] bg-white text-s-60" : "border-white/12 bg-black/20 text-slate-400")}>
-                            No autofix candidates for current workflow.
-                          </div>
-                        )}
-                        {workflowAutofixPreview.candidates.map((candidate) => {
-                          const needsApproval = candidate.disposition === "needs_approval"
-                          const selected = Boolean(workflowAutofixSelectionById[candidate.id])
-                          return (
-                            <label
-                              key={candidate.id}
-                              className={cn(
-                                "flex items-start gap-2 rounded-md border px-2 py-1.5",
-                                isLight ? "border-[#d5dce8] bg-white" : "border-white/12 bg-black/20",
-                              )}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={needsApproval ? selected : true}
-                                disabled={!needsApproval}
-                                onChange={() => {
-                                  if (needsApproval) toggleWorkflowAutofixSelection(candidate.id)
-                                }}
-                              />
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className={cn("text-xs font-medium", isLight ? "text-s-80" : "text-slate-100")}>{candidate.title}</span>
-                                  <span className={cn("text-[10px] uppercase tracking-widest", candidate.risk === "low" ? "text-emerald-400" : candidate.risk === "medium" ? "text-amber-400" : "text-rose-400")}>{candidate.risk}</span>
-                                  <span className={cn("text-[10px]", isLight ? "text-s-50" : "text-slate-400")}>{Math.round(candidate.confidence * 100)}%</span>
-                                </div>
-                                <p className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>{candidate.changePreview}</p>
-                              </div>
-                            </label>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
+              </Field>
+              <Field label="Model">
+                <Select mono value={step.aiModel ?? ""} options={getModelOptionsForProvider(provider, integrationsSettings, step.aiModel)} onValueChange={(next) => updateWorkflowStepAi(step.id, { aiModel: next })} />
+              </Field>
+              <Field label="Detail level">
+                <Select value={step.aiDetailLevel ?? "standard"} options={AI_DETAIL_LEVEL_OPTIONS} onValueChange={(next) => updateWorkflowStepAi(step.id, { aiDetailLevel: normalizeAiDetailLevel(next) })} />
+              </Field>
             </div>
+          </div>
+        )
+      }
+      default:
+        return null
+    }
+  }
 
-            <div ref={builderFooterRef} className={cn("home-spotlight-shell relative z-10 border-t px-5 py-3 flex items-center justify-between", isLight ? "border-[#e2e8f2] bg-[#f9fbff]" : "border-white/10 bg-black/30")}>
-              <div className="flex flex-wrap items-center gap-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    playClickSound()
-                    setMissionActive((prev) => !prev)
+  const noSelectedFixes = Object.values(workflowAutofixSelectionById).every((selected) => !selected)
+
+  return (
+    <Dialog open={builderOpen} onOpenChange={(open) => { if (!open) close() }} size="xl" dismissible={false} className="max-h-[86vh]">
+      <DialogHeader>
+        <DialogTitle>{editingMissionId ? "Edit mission" : "New mission"}</DialogTitle>
+        <DialogDescription>Set a schedule and the steps it runs. Missions with branching graphs are edited on the canvas.</DialogDescription>
+      </DialogHeader>
+
+      <DialogBody className="flex flex-col gap-5 pt-1">
+        <Section title="Details">
+          <Field label="Name" required>
+            <Input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="Daily team sync" data-autofocus />
+          </Field>
+          <Field label="Description" required>
+            <Textarea value={newDescription} onChange={(e) => setNewDescription(e.target.value)} minRows={2} autoGrow maxRows={6} placeholder="What does this mission accomplish?" />
+          </Field>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[12rem_minmax(0,1fr)]">
+            <Field label="Priority">
+              <Select value={newPriority} options={PRIORITY_OPTIONS} onValueChange={setNewPriority} />
+            </Field>
+            <Field label="Tags" hint="Press Enter to add a tag.">
+              <div className="flex gap-2">
+                <Input
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      addTag()
+                    }
                   }}
-                  className="inline-flex items-center gap-2 text-sm"
-                  aria-label="Toggle mission active"
-                >
-                  <span className={cn(isLight ? "text-s-70" : "text-slate-300")}>Mission Active</span>
-                  <NovaSwitch checked={missionActive} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    playClickSound()
-                    setRunImmediatelyOnCreate((prev) => !prev)
-                  }}
-                  className="inline-flex items-center gap-2 text-sm"
-                  aria-label={editingMissionId ? "Run once immediately after saving mission" : "Run once immediately after creating mission"}
-                >
-                  <span className={cn(isLight ? "text-s-70" : "text-slate-300")}>Run Once Now</span>
-                  <NovaSwitch checked={runImmediatelyOnCreate} />
-                </button>
+                  placeholder="research"
+                />
+                <Button variant="secondary" onClick={addTag} disabled={!tagInput.trim()}>Add</Button>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    playClickSound()
-                    setBuilderOpen(false)
-                  }}
-                  className={cn(
-                    "mission-builder-hover-gleam h-8 px-3 rounded-lg transition-colors inline-flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-card--hover",
-                    subPanelClass,
-                    isLight ? "text-s-70" : "text-slate-300",
-                  )}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    playClickSound()
-                    void deployMissionFromBuilder()
-                  }}
-                  disabled={deployingMission}
-                  className="mission-builder-hover-gleam h-8 px-3 rounded-lg border border-accent-30 bg-accent-10 text-accent text-sm font-medium inline-flex items-center justify-center disabled:opacity-50 transition-colors home-spotlight-card home-border-glow home-spotlight-card--hover"
-                >
-                  {deployingMission ? (editingMissionId ? "Saving..." : "Deploying...") : (editingMissionId ? "Save Mission" : "Deploy Mission")}
-                </button>
+            </Field>
+          </div>
+          {missionTags.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5" aria-label="Tags">
+              {missionTags.map((tag) => (
+                <Badge key={tag} variant="outline" className="pr-0.5">
+                  {tag}
+                  <button
+                    type="button"
+                    onClick={() => removeTag(tag)}
+                    aria-label={`Remove tag ${tag}`}
+                    className="inline-flex size-4 items-center justify-center rounded-sm text-faint hover:bg-hover hover:text-fg"
+                  >
+                    <X />
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          ) : null}
+        </Section>
+
+        <Section title="Schedule" description={`Times use ${detectedTimezone}.`}>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[12rem_10rem_minmax(0,1fr)] md:items-end">
+            <Field label="Time" id={timeId}>
+              <TimeField id={timeId} value24={newTime} onChange24={setNewTime} />
+            </Field>
+            <Field label="Repeat">
+              <Select value={newScheduleMode} options={SCHEDULE_MODE_OPTIONS} onValueChange={setNewScheduleMode} />
+            </Field>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-fg">Days</span>
+              <div role="group" aria-label="Days" className="grid grid-cols-7 gap-1">
+                {WEEKDAY_OPTIONS.map((day) => {
+                  const selected = newScheduleDays.includes(day.id)
+                  return (
+                    <button
+                      key={day.id}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => toggleScheduleDay(day.id)}
+                      className={cn(
+                        "h-8 rounded-md border text-xs font-medium transition-colors",
+                        selected ? "border-accent-border bg-accent-muted text-accent-text" : "border-border text-muted hover:bg-hover hover:text-fg",
+                      )}
+                    >
+                      {day.label}
+                    </button>
+                  )
+                })}
               </div>
             </div>
           </div>
+        </Section>
+
+        <Section
+          title="Steps"
+          description="Steps run top to bottom. Drag the handle to reorder."
+          aside={<span className="text-xs text-muted tabular-nums">{workflowSteps.length} {workflowSteps.length === 1 ? "step" : "steps"}</span>}
+        >
+          {workflowSteps.length === 0 ? (
+            <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-sm text-muted">
+              No steps yet. Add a trigger and an output to get started.
+            </p>
+          ) : (
+            <ol className="flex flex-col gap-2">
+              {workflowSteps.map((step, index) => {
+                const collapsed = Boolean(collapsedStepIds[step.id])
+                return (
+                  <li
+                    key={step.id}
+                    onDragOver={(event) => {
+                      if (!draggingStepId || draggingStepId === step.id) return
+                      event.preventDefault()
+                      setDragOverStepId(step.id)
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault()
+                      if (!draggingStepId || draggingStepId === step.id) return
+                      moveWorkflowStepByDrop(draggingStepId, step.id)
+                      setDraggingStepId(null)
+                      setDragOverStepId(null)
+                    }}
+                    onDragLeave={() => {
+                      if (dragOverStepId === step.id) setDragOverStepId(null)
+                    }}
+                    className={cn(
+                      "overflow-hidden rounded-lg border border-border bg-surface-2 border-l-2",
+                      dragOverStepId === step.id && "border-accent-border bg-accent-muted",
+                      draggingStepId === step.id && "opacity-60",
+                    )}
+                    style={{ borderLeftColor: STEP_TONE[step.type] }}
+                  >
+                    <div className="flex items-center gap-2 px-2 py-1.5">
+                      <button
+                        type="button"
+                        draggable
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = "move"
+                          event.dataTransfer.setData("text/plain", step.id)
+                          setDraggingStepId(step.id)
+                        }}
+                        onDragEnd={() => {
+                          setDraggingStepId(null)
+                          setDragOverStepId(null)
+                        }}
+                        className="inline-flex size-6 cursor-grab items-center justify-center rounded-sm text-faint hover:bg-hover active:cursor-grabbing"
+                        aria-label={`Drag step ${index + 1} to reorder`}
+                      >
+                        <GripVertical className="size-3.5" />
+                      </button>
+                      <span className="w-4 text-center font-mono text-2xs text-faint tabular-nums">{index + 1}</span>
+                      <span style={{ color: STEP_TONE[step.type] }} className="inline-flex">{renderStepIcon(step.type, "size-3.5")}</span>
+                      <Input
+                        value={step.title}
+                        onChange={(e) => updateWorkflowStepTitle(step.id, e.target.value)}
+                        aria-label={`Step ${index + 1} name`}
+                        size="sm"
+                        className="border-transparent bg-transparent hover:border-border focus:border-border"
+                      />
+                      <span className="hidden shrink-0 text-xs text-faint sm:inline">
+                        {STEP_TYPE_OPTIONS.find((option) => option.type === step.type)?.label}
+                      </span>
+                      <IconButton
+                        size="sm"
+                        aria-label={collapsed ? "Expand step details" : "Collapse step details"}
+                        aria-expanded={!collapsed}
+                        onClick={() => toggleWorkflowStepCollapsed(step.id)}
+                      >
+                        {collapsed ? <ChevronRight /> : <ChevronDown />}
+                      </IconButton>
+                      <IconButton size="sm" aria-label={`Remove step ${index + 1}`} onClick={() => { playClickSound(); removeWorkflowStep(step.id) }}>
+                        <Trash2 />
+                      </IconButton>
+                    </div>
+                    {!collapsed ? <div className="border-t border-border-subtle bg-surface px-3 py-3">{renderStepFields(step)}</div> : null}
+                  </li>
+                )
+              })}
+            </ol>
+          )}
+          <div className="flex flex-wrap gap-1.5" aria-label="Add a step">
+            {STEP_TYPE_OPTIONS.map((option) => (
+              <Button
+                key={option.type}
+                variant="outline"
+                size="sm"
+                onClick={() => { playClickSound(); addWorkflowStep(option.type) }}
+              >
+                <Plus />
+                <span style={{ color: STEP_TONE[option.type] }} className="inline-flex">{renderStepIcon(option.type, "size-3.5")}</span>
+                {option.label}
+              </Button>
+            ))}
+          </div>
+        </Section>
+
+        <Section
+          title="Workflow check"
+          description="Preview ranked fixes. Low-risk fixes can be applied together; medium and high risk need your approval."
+          aside={(
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Button variant="ghost" size="sm" onClick={() => void previewWorkflowFixes()} loading={workflowAutofixLoading} disabled={workflowAutofixApplying}>
+                Preview fixes
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => void applyWorkflowFixes("safe")} disabled={workflowAutofixLoading || workflowAutofixApplying}>
+                Apply safe
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void applyWorkflowFixes("selected")}
+                loading={workflowAutofixApplying}
+                disabled={workflowAutofixLoading || noSelectedFixes}
+              >
+                Apply selected
+              </Button>
+            </div>
+          )}
+        >
+          {workflowAutofixPreview ? (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-muted tabular-nums">
+                Issues before {workflowAutofixPreview.issueReduction.before}, after {workflowAutofixPreview.issueReduction.after}
+              </p>
+              {workflowAutofixPreview.candidates.length === 0 ? (
+                <p className="text-sm text-muted">No fixes suggested for this workflow.</p>
+              ) : (
+                <ul className="max-h-48 divide-y divide-border-subtle overflow-y-auto rounded-md border border-border">
+                  {workflowAutofixPreview.candidates.map((candidate) => {
+                    const needsApproval = candidate.disposition === "needs_approval"
+                    const selected = Boolean(workflowAutofixSelectionById[candidate.id])
+                    return (
+                      <li key={candidate.id} className="flex items-start gap-2.5 px-3 py-2">
+                        <Checkbox
+                          checked={needsApproval ? selected : true}
+                          disabled={!needsApproval}
+                          onCheckedChange={() => { if (needsApproval) toggleWorkflowAutofixSelection(candidate.id) }}
+                          aria-label={`Select fix ${candidate.title}`}
+                          className="mt-0.5"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm text-fg">{candidate.title}</span>
+                            <Badge tone={candidate.risk === "low" ? "success" : candidate.risk === "medium" ? "warning" : "danger"}>{candidate.risk} risk</Badge>
+                            <span className="font-mono text-2xs text-faint tabular-nums">{Math.round(candidate.confidence * 100)}%</span>
+                          </div>
+                          <p className="text-xs text-muted">{candidate.changePreview}</p>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+          ) : null}
+        </Section>
+      </DialogBody>
+
+      <DialogFooter className="justify-between">
+        <div className="flex flex-wrap items-center gap-5">
+          <label className="flex items-center gap-2 text-sm text-fg">
+            <Switch checked={missionActive} onCheckedChange={() => setMissionActive((prev) => !prev)} aria-label="Mission active" />
+            Active
+          </label>
+          <label className="flex items-center gap-2 text-sm text-fg">
+            <Switch
+              checked={runImmediatelyOnCreate}
+              onCheckedChange={() => setRunImmediatelyOnCreate((prev) => !prev)}
+              aria-label={editingMissionId ? "Run once after saving" : "Run once after creating"}
+            />
+            Run once after saving
+          </label>
         </div>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" onClick={close}>Cancel</Button>
+          <Button onClick={() => { playClickSound(); void deployMissionFromBuilder() }} loading={deployingMission}>
+            {editingMissionId ? "Save mission" : "Create mission"}
+          </Button>
+        </div>
+      </DialogFooter>
+    </Dialog>
   )
 }

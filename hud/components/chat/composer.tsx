@@ -1,19 +1,27 @@
 "use client"
 
 import type React from "react"
-
-import { useState, useRef, useCallback, type KeyboardEvent, useEffect } from "react"
-import { ArrowRight, Mic, MicOff, X } from "lucide-react"
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react"
+import Link from "next/link"
+import { ArrowUp, FileText, Mic, MicOff, Paperclip, Square, X } from "lucide-react"
 import { cn } from "@/lib/shared/utils"
-import { ACCENT_COLORS, loadUserSettings, type AccentColor, USER_SETTINGS_UPDATED_EVENT } from "@/lib/settings/userSettings"
+import { IconButton, Kbd, Textarea, Tooltip } from "@/components/ui"
+import { loadUserSettings } from "@/lib/settings/userSettings"
 
 interface ComposerProps {
   onSend: (content: string, options?: { imageData?: string }) => void | Promise<void>
+  /** A reply is streaming: the send button becomes Stop. */
   isStreaming: boolean
+  onStop?: () => void
   disabled?: boolean
+  /** Placeholder while disabled. */
+  disabledReason?: string
   isMuted: boolean
   onToggleMute: () => void
   muteHydrated?: boolean
+  /** Active provider model ID shown in the toolbar (mono); empty = not set. */
+  modelId?: string
+  autoFocus?: boolean
 }
 
 const IMAGE_ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"])
@@ -74,44 +82,31 @@ async function prepareImageDataForHud(file: File): Promise<string> {
 }
 
 function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute, muteHydrated = true }: ComposerProps) {
+export function Composer({
+  onSend,
+  isStreaming,
+  onStop,
+  disabled = false,
+  disabledReason = "Waiting for the runtime",
+  isMuted,
+  onToggleMute,
+  muteHydrated = true,
+  modelId = "",
+  autoFocus = false,
+}: ComposerProps) {
   const [value, setValue] = useState("")
-  // Keep SSR and initial client render deterministic to avoid hydration mismatch.
-  const [accentColor, setAccentColor] = useState<AccentColor>("white")
-  const [compactMode, setCompactMode] = useState(() => loadUserSettings().app.compactMode)
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    const syncAccent = () => setAccentColor(loadUserSettings().app.accentColor)
-    syncAccent()
-    const syncCompactMode = () => setCompactMode(loadUserSettings().app.compactMode)
-    syncCompactMode()
-    const onSettingsUpdated = () => syncAccent()
-    const onCompactUpdated = () => syncCompactMode()
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === "nova_user_settings") {
-        syncAccent()
-        syncCompactMode()
-      }
-    }
-
-    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, onSettingsUpdated as EventListener)
-    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, onCompactUpdated as EventListener)
-    window.addEventListener("storage", onStorage)
-    return () => {
-      window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, onSettingsUpdated as EventListener)
-      window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, onCompactUpdated as EventListener)
-      window.removeEventListener("storage", onStorage)
-    }
-  }, [])
-
+    if (autoFocus && !disabled) textareaRef.current?.focus()
+  }, [autoFocus, disabled])
 
   const playClickSound = useCallback(() => {
     if (!loadUserSettings().app.soundEnabled) return
@@ -120,13 +115,7 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
     audio.play().catch(() => {})
   }, [])
 
-  const handleInput = useCallback(() => {
-    const textarea = textareaRef.current
-    if (textarea) {
-      textarea.style.height = "auto"
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`
-    }
-  }, [])
+  const canSend = (value.trim().length > 0 || attachedFiles.length > 0) && !isStreaming && !disabled
 
   const handleSend = useCallback(async () => {
     if ((!value.trim() && attachedFiles.length === 0) || isStreaming || disabled) return
@@ -143,26 +132,18 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
     }
     const listedFiles = imageData ? nonImageFiles : [...nonImageFiles, ...imageFiles]
     const filesSuffix =
-      listedFiles.length > 0
-        ? `\n\nAttached files:\n${listedFiles.map((f) => `- ${f.name}`).join("\n")}`
-        : ""
+      listedFiles.length > 0 ? `\n\nAttached files:\n${listedFiles.map((f) => `- ${f.name}`).join("\n")}` : ""
     const normalizedText = value.trim()
-    const finalText = normalizedText.length > 0
-      ? `${normalizedText}${filesSuffix}`
-      : imageData
-        ? "Please analyze this image."
-        : `Please analyze these files:${filesSuffix}`
+    const finalText =
+      normalizedText.length > 0
+        ? `${normalizedText}${filesSuffix}`
+        : imageData
+          ? "Please analyze this image."
+          : `Please analyze these files:${filesSuffix}`
     await onSend(finalText, imageData ? { imageData } : undefined)
     setValue("")
     setAttachedFiles([])
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto"
-    }
   }, [value, attachedFiles, isStreaming, disabled, onSend, playClickSound])
-
-  const handleAttachClick = useCallback(() => {
-    fileInputRef.current?.click()
-  }, [])
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
@@ -173,98 +154,132 @@ export function Composer({ onSend, isStreaming, disabled, isMuted, onToggleMute,
 
   const removeAttachedFile = useCallback((index: number) => {
     setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
+    textareaRef.current?.focus()
   }, [])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
         e.preventDefault()
         void handleSend()
+      } else if (e.key === "Escape" && isStreaming && onStop) {
+        e.preventDefault()
+        onStop()
       }
     },
-    [handleSend],
+    [handleSend, isStreaming, onStop],
   )
 
-  const accent = ACCENT_COLORS[accentColor]
-  const composerStyle = { "--pc-accent": accent.primary } as React.CSSProperties
+  const voiceLabel = !muteHydrated ? "Syncing voice" : isMuted ? "Turn on voice" : "Turn off voice"
 
   return (
-    <div className="pc-composer-dock">
-      <div className={cn("pc-composer-inner", compactMode ? "pc-composer-inner--compact" : "pc-composer-inner--wide")}>
-        <div className="relative w-full">
-          {attachedFiles.length > 0 && (
-            <div className="pc-files">
-              {attachedFiles.map((file, index) => (
-                <div key={`${file.name}-${file.size}-${index}`} className="pc-file">
-                  <span className="truncate text-xs">{file.name}</span>
-                  <span className="pc-file-size">{formatFileSize(file.size)}</span>
-                  <button
-                    onClick={() => removeAttachedFile(index)}
-                    className="pc-file-remove"
-                    aria-label={`Remove ${file.name}`}
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="pixel-frame pc-composer" style={composerStyle} data-disabled={disabled ? "true" : undefined}>
-            <button onClick={handleAttachClick} className="pixel-btn pixel-btn--icon pc-btn pc-composer-attach" aria-label="Attach files">
-              +
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              multiple
-              onChange={handleFileChange}
-            />
+    <div
+      className={cn(
+        "rounded-lg border border-border bg-surface transition-[border-color,box-shadow] duration-150 ease-out",
+        "focus-within:border-accent-border focus-within:ring-3 focus-within:ring-accent-muted",
+        disabled && "bg-surface-2",
+      )}
+    >
+      {attachedFiles.length > 0 ? (
+        <ul aria-label="Attachments" className="flex flex-wrap gap-1.5 px-2.5 pt-2.5">
+          {attachedFiles.map((file, index) => (
+            <li
+              key={`${file.name}-${file.size}-${index}`}
+              className="flex h-7 max-w-[16rem] items-center gap-1.5 rounded-md border border-border bg-surface-2 pl-2 pr-0.5 text-xs text-fg"
+            >
+              <FileText className="size-3.5 shrink-0 text-muted" aria-hidden />
+              <span className="min-w-0 truncate">{file.name}</span>
+              <span className="shrink-0 font-mono text-2xs tabular-nums text-faint">{formatFileSize(file.size)}</span>
+              <IconButton size="sm" className="size-6" aria-label={`Remove ${file.name}`} onClick={() => removeAttachedFile(index)}>
+                <X className="size-3" />
+              </IconButton>
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
-            <textarea
-              ref={textareaRef}
-              value={value}
-              onChange={(e) => {
-                setValue(e.target.value)
-                handleInput()
-              }}
-              onKeyDown={handleKeyDown}
-              placeholder={disabled ? "Waiting for agent..." : "Enter your command..."}
-              disabled={disabled}
-              spellCheck={false}
-              autoCorrect="off"
-              autoCapitalize="off"
-              autoComplete="off"
-              data-gramm="false"
-              data-gramm_editor="false"
-              data-enable-grammarly="false"
-              data-lt-active="false"
-              rows={1}
-              className="pc-composer-input"
-              style={{ maxHeight: 120 }}
-              aria-label="Message input"
-            />
+      <Textarea
+        ref={textareaRef}
+        autoGrow
+        minRows={1}
+        maxRows={10}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={disabled ? disabledReason : "Message Nova"}
+        disabled={disabled}
+        spellCheck={false}
+        autoCorrect="off"
+        autoCapitalize="off"
+        autoComplete="off"
+        data-gramm="false"
+        data-gramm_editor="false"
+        data-enable-grammarly="false"
+        data-lt-active="false"
+        aria-label="Message"
+        className="border-0 bg-transparent px-3 pt-2.5 pb-1 text-sm leading-6 hover:border-0 focus-visible:ring-0 disabled:opacity-70"
+      />
 
-            <div className="pc-composer-actions">
-              <button
-                onClick={() => { void handleSend() }}
-                disabled={(!value.trim() && attachedFiles.length === 0) || disabled || isStreaming}
-                className="pixel-btn pixel-btn--teal pixel-btn--icon pc-btn pc-btn--send"
+      <div className="flex items-center gap-0.5 px-1.5 pb-1.5">
+        <input ref={fileInputRef} type="file" className="hidden" multiple onChange={handleFileChange} tabIndex={-1} />
+        <Tooltip content="Attach files">
+          <IconButton size="sm" aria-label="Attach files" disabled={disabled} onClick={() => fileInputRef.current?.click()}>
+            <Paperclip />
+          </IconButton>
+        </Tooltip>
+        <Tooltip content={voiceLabel}>
+          <IconButton
+            size="sm"
+            aria-label={voiceLabel}
+            aria-pressed={muteHydrated ? !isMuted : undefined}
+            disabled={!muteHydrated}
+            onClick={onToggleMute}
+            className={cn(!isMuted && muteHydrated && "bg-accent-muted text-accent-text hover:bg-accent-muted hover:text-accent-text")}
+          >
+            {isMuted ? <MicOff /> : <Mic />}
+          </IconButton>
+        </Tooltip>
+        <Tooltip content={modelId ? "Active model. Change it in Integrations." : "No model selected. Set one up in Integrations."}>
+          <Link
+            href="/integrations"
+            className="ml-1 inline-flex h-7 min-w-0 items-center rounded-md px-1.5 font-mono text-2xs text-faint transition-colors hover:bg-hover hover:text-muted focus-visible:outline-2 focus-visible:outline-ring"
+          >
+            <span className="truncate">{modelId || "No model set"}</span>
+          </Link>
+        </Tooltip>
+
+        <div className="ml-auto flex items-center gap-2">
+          <span className="hidden items-center gap-1 text-2xs text-faint lg:flex" aria-hidden>
+            {isStreaming && onStop ? (
+              <>
+                <Kbd>Esc</Kbd> to stop
+              </>
+            ) : (
+              <>
+                <Kbd>Enter</Kbd> to send, <Kbd>Shift</Kbd>
+                <Kbd>Enter</Kbd> for a new line
+              </>
+            )}
+          </span>
+          {isStreaming && onStop ? (
+            <Tooltip content="Stop" shortcut="Esc">
+              <IconButton size="sm" variant="secondary" aria-label="Stop response" onClick={onStop}>
+                <Square className="size-3 fill-current" />
+              </IconButton>
+            </Tooltip>
+          ) : (
+            <Tooltip content="Send" shortcut="Enter">
+              <IconButton
+                size="sm"
+                variant="primary"
                 aria-label="Send message"
+                disabled={!canSend}
+                onClick={() => void handleSend()}
               >
-                <ArrowRight className="w-5 h-5" />
-              </button>
-              <button
-                onClick={onToggleMute}
-                disabled={!muteHydrated}
-                className={cn("pixel-btn pixel-btn--icon pc-btn", isMuted && "pc-btn--muted", !muteHydrated && "pc-btn--hidden")}
-                data-muted={isMuted ? "true" : "false"}
-                aria-label={!muteHydrated ? "Syncing mute state" : isMuted ? "Unmute U.B Agents" : "Mute U.B Agents"}
-              >
-                {!muteHydrated ? null : isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-              </button>
-            </div>
-          </div>
+                <ArrowUp />
+              </IconButton>
+            </Tooltip>
+          )}
         </div>
       </div>
     </div>

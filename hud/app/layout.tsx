@@ -1,24 +1,21 @@
 import type React from "react"
 import type { Metadata, Viewport } from "next"
-import { Geist, Geist_Mono, Atkinson_Hyperlegible_Next, Silkscreen } from "next/font/google"
+import { Geist, Geist_Mono } from "next/font/google"
 import Script from "next/script"
 import { ThemeProvider } from "@/lib/context/theme-context"
 import { AccentProvider } from "@/lib/context/accent-context"
-import { AppBackgroundLayer } from "@/components/background/app-background-layer"
 import { PageActiveController } from "@/components/background/page-active-controller"
 import { UiStorageGate } from "@/components/settings/ui-storage-gate"
+import { Toaster } from "@/components/ui/toast"
+import { AppShell } from "@/components/shell/app-shell"
 import "./globals.css"
 
 const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" })
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" })
-// Home city faces: Atkinson Hyperlegible Next (open letterforms, built for legibility) for every sentence and form field,
-// Silkscreen (chunky pixel caps) only for short titles, buttons, numbers and the wordmark.
-const atkinson = Atkinson_Hyperlegible_Next({ subsets: ["latin"], variable: "--font-pixel" })
-const silkscreen = Silkscreen({ subsets: ["latin"], weight: ["400", "700"], variable: "--font-pixel-display" })
 
 export const metadata: Metadata = {
-  title: "U.B Agents",
-  description: "U.B Agents AI Assistant",
+  title: "Nova",
+  description: "Nova: local-first agent platform",
   icons: {
     icon: {
       url: "/images/nova.svg",
@@ -28,12 +25,19 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: "#0a0a0f",
+  // Matches --canvas in app/styles/theme.css.
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0c0d10" },
+    { media: "(prefers-color-scheme: light)", color: "#f7f7f8" },
+  ],
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
 }
+
+// Runs before paint: applies the saved theme and accent so the first frame already has the right tokens.
+const THEME_BOOTSTRAP = `(function(){try{var d=document.documentElement;var uid=localStorage.getItem("nova_active_user_id")||"local-user";var raw=localStorage.getItem("nova_user_settings:"+uid);if(!raw)return;var app=(JSON.parse(raw)||{}).app||{};var setting=app.theme||"dark";var resolved=setting==="system"?((window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"):setting;d.classList.remove("dark","light");d.classList.add(resolved==="light"?"light":"dark");if(typeof app.accentColor==="string")d.dataset.accent=app.accentColor;var fs=app.fontSize==="small"?0.92:app.fontSize==="large"?1.12:1;d.style.setProperty("--font-scale",String(fs))}catch(e){}})()`
 
 export default function RootLayout({
   children,
@@ -41,19 +45,17 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} ${atkinson.variable} ${silkscreen.variable} font-sans antialiased bg-page`}>
+    <html lang="en" className={`dark ${geistSans.variable} ${geistMono.variable}`} suppressHydrationWarning>
+      <body className="bg-canvas font-sans text-fg antialiased">
         <Script id="nova-theme-bootstrap" strategy="beforeInteractive">
-          {`(function(){try{var uid=localStorage.getItem("nova_active_user_id")||"local-user";var raw=localStorage.getItem("nova_user_settings:"+uid);if(!raw)return;var parsed=JSON.parse(raw);var setting=parsed&&parsed.app&&parsed.app.theme?parsed.app.theme:"dark";var resolved=setting==="system"?((window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches)?"dark":"light"):setting;document.documentElement.classList.remove("dark","light");document.documentElement.classList.add(resolved==="light"?"light":"dark")}catch(e){}})()`}
+          {THEME_BOOTSTRAP}
         </Script>
         <UiStorageGate>
           <ThemeProvider>
             <AccentProvider>
               <PageActiveController />
-              <AppBackgroundLayer />
-              <div className="relative z-10">
-                {children}
-              </div>
+              <AppShell>{children}</AppShell>
+              <Toaster />
             </AccentProvider>
           </ThemeProvider>
         </UiStorageGate>

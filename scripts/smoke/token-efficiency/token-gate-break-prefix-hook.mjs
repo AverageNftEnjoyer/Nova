@@ -20,7 +20,9 @@ import { fileURLToPath } from "node:url";
 
 const MODE = String(process.env.NOVA_TOKEN_GATE_MUTATION || "").trim();
 const TARGET_SUFFIX = "/src/runtime/modules/context/system-prompt/index.js";
-const IDENTITY_LINE = "\"You are Nova Operator, the only user-facing assistant identity in the Nova runtime.\",";
+// Must match the identity line of the static prompt in system-prompt/index.js exactly.
+const IDENTITY_TEXT = "You are Nova, the only user-facing assistant identity in this runtime.";
+const IDENTITY_LINE = `${JSON.stringify(IDENTITY_TEXT)},`;
 export const MUTATION_MARKER = "[token-gate-hook] mutation applied:";
 
 const BLOAT_TEXT = Array.from({ length: 40 }, (_, i) =>
@@ -35,7 +37,7 @@ function mutate(source) {
     return source.replace(
       IDENTITY_LINE,
       "`[turn ${(globalThis.__novaTokenGateTurn = (globalThis.__novaTokenGateTurn || 0) + 1)}] "
-        + "You are Nova Operator, the only user-facing assistant identity in the Nova runtime.`,",
+        + `${IDENTITY_TEXT}\`,`,
     );
   }
   if (MODE === "bloat-prompt") {

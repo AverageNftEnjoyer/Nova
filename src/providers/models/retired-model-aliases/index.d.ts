@@ -1,4 +1,4 @@
-/** U.B Agents' provider keys ("anthropic" / "xai" / "google" are accepted as synonyms). */
+/** Nova's provider keys ("anthropic" / "xai" / "google" are accepted as synonyms). */
 export type RetiredModelProvider = "openai" | "claude" | "gemini" | "grok"
 
 export interface RetiredModelAlias {

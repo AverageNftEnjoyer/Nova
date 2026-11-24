@@ -55,8 +55,8 @@ export async function loadGmailCalendarEvents(
   }
 
   return rawEvents
-    // U.B Agents mirrors mission/schedule events into Google Calendar for user parity.
-    // Do not re-ingest those mirrored events as "personal" rows, or the U.B Agents UI
+    // Nova mirrors mission/schedule events into Google Calendar for user parity.
+    // Do not re-ingest those mirrored events as "personal" rows, or the Nova UI
     // shows duplicates (native mission row + mirrored Google row).
     .filter((ev) => ev.status !== "cancelled" && !!ev.id && !isNovaMirroredScheduleEventId(ev.id))
     .map((ev): PersonalCalendarEvent => {

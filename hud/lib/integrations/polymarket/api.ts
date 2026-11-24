@@ -386,8 +386,8 @@ export function normalizePolymarketTokenPrice(raw: unknown): PolymarketTokenPric
 export function normalizePolymarketLeaderboardEntry(raw: unknown, fallbackRank = 0): PolymarketLeaderboardEntry | null {
   if (!raw || typeof raw !== "object") return null
   const source = raw as Record<string, unknown>
-  const walletAddress = normalizePolymarketEvmAddress(source.address ?? source.walletAddress ?? source.user ?? source.trader)
-  const username = toSafeString(source.username ?? source.name ?? source.pseudonym, 128)
+  const walletAddress = normalizePolymarketEvmAddress(source.user_id ?? source.address ?? source.walletAddress ?? source.user ?? source.trader)
+  const username = toSafeString(source.user_name ?? source.username ?? source.name ?? source.pseudonym, 128)
   const rankCandidate = toFiniteNumber(source.rank ?? source.position)
   const normalizedRank = Number.isFinite(rankCandidate) && rankCandidate > 0
     ? Math.trunc(rankCandidate)

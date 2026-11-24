@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 
-import { FluidSelect } from "@/components/ui/fluid-select"
+import { Input, Select } from "@/components/ui"
 import { cn } from "@/lib/shared/utils"
 import { MERIDIEM_OPTIONS } from "../constants"
 import {
@@ -17,11 +17,12 @@ import {
 export interface TimeFieldProps {
   value24: string
   onChange24: (next: string) => void
-  isLight: boolean
+  id?: string
   className?: string
 }
 
-export function TimeField({ value24, onChange24, isLight, className }: TimeFieldProps) {
+/** 12-hour time entry (text + AM/PM) that commits a 24-hour HH:mm value. */
+export function TimeField({ value24, onChange24, id, className }: TimeFieldProps) {
   const parsed = to12HourParts(value24)
   const [text, setText] = useState(parsed.text)
   const [meridiem, setMeridiem] = useState<"AM" | "PM">(parsed.meridiem)
@@ -45,16 +46,15 @@ export function TimeField({ value24, onChange24, isLight, className }: TimeField
   )
 
   return (
-    <div className={cn("grid w-full grid-cols-[minmax(0,1fr)_72px] items-center gap-2", className)}>
-      <input
-        type="text"
+    <div className={cn("grid w-full grid-cols-[minmax(0,1fr)_4.5rem] items-center gap-1.5", className)}>
+      <Input
+        id={id}
+        mono
         value={text}
         onChange={(e) => {
           const normalized = normalizeTypedTime(e.target.value)
           setText(normalized)
-          if (isLiveCommitTypedTime(normalized)) {
-            commit(normalized, meridiem)
-          }
+          if (isLiveCommitTypedTime(normalized)) commit(normalized, meridiem)
         }}
         onBlur={() => {
           if (isCompleteTypedTime(text)) {
@@ -65,27 +65,21 @@ export function TimeField({ value24, onChange24, isLight, className }: TimeField
             setMeridiem(fallback.meridiem)
           }
         }}
-        placeholder="12:45"
+        placeholder="09:00"
         inputMode="numeric"
         maxLength={5}
-        className={cn(
-          "h-9 min-w-0 w-full rounded-md border px-3 text-sm outline-none transition-colors",
-          isLight
-            ? "border-[#d5dce8] bg-[#f4f7fd] text-s-90 placeholder:text-s-40 hover:bg-[#eef3fb]"
-            : "border-white/12 bg-white/6 text-slate-100 placeholder:text-slate-500 backdrop-blur-md hover:bg-white/10",
-        )}
+        aria-label="Time"
+        className="tabular-nums"
       />
-      <FluidSelect
+      <Select
         value={meridiem}
-        onChange={(next) => {
-          const nextMeridiem = (next === "PM" ? "PM" : "AM") as "AM" | "PM"
-          setMeridiem(nextMeridiem)
-          if (isCompleteTypedTime(text)) {
-            commit(text, nextMeridiem)
-          }
-        }}
         options={MERIDIEM_OPTIONS}
-        isLight={isLight}
+        aria-label="AM or PM"
+        onValueChange={(next) => {
+          const nextMeridiem = next === "PM" ? "PM" : "AM"
+          setMeridiem(nextMeridiem)
+          if (isCompleteTypedTime(text)) commit(text, nextMeridiem)
+        }}
       />
     </div>
   )

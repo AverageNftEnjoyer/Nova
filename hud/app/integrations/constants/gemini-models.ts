@@ -1,4 +1,4 @@
-import type { FluidSelectOption } from "@/components/ui/fluid-select"
+import type { SelectOption } from "@/components/ui/select"
 import { formatModelPriceHint } from "./pricing"
 import type { ModelOption } from "./types"
 
@@ -18,7 +18,7 @@ export const GEMINI_MODEL_OPTIONS: ModelOption[] = [
   { value: "gemini-3.1-flash-lite", label: "Gemini 3.1 Flash-Lite", priceHint: formatModelPriceHint("gemini-3.1-flash-lite") },
 ]
 
-export const GEMINI_MODEL_SELECT_OPTIONS: FluidSelectOption[] = GEMINI_MODEL_OPTIONS.map((option) => ({
+export const GEMINI_MODEL_SELECT_OPTIONS: SelectOption[] = GEMINI_MODEL_OPTIONS.map((option) => ({
   value: option.value,
   label: option.label,
 }))

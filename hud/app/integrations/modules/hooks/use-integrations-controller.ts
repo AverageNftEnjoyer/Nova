@@ -1,7 +1,9 @@
 "use client"
 
-import { useEffect, useRef, useState, type MutableRefObject } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+
+import { toast } from "@/components/ui"
 
 import type { IntegrationSetupKey } from "@/lib/integrations/navigation"
 import { getRuntimeTimezone } from "@/lib/shared/timezone"
@@ -52,28 +54,20 @@ import type { IntegrationsMainPanelProps } from "../types"
 import { useIntegrationsActions } from "./use-integrations-actions"
 import { useProviderDefinitions } from "./use-provider-definitions"
 
-/** The props of IntegrationsMainPanel that come from integration state; the caller adds where and how it is drawn. */
-export type IntegrationsPanelStateProps = Omit<
-  IntegrationsMainPanelProps,
-  "activeSetup" | "panelStyle" | "panelClass" | "moduleHeightClass" | "isLight" | "subPanelClass"
->
+/** The props of IntegrationsMainPanel that come from integration state; the page adds the selection and tab. */
+export type IntegrationsPanelStateProps = Omit<IntegrationsMainPanelProps, "activeSetup" | "tab" | "onTabChange">
 
 export interface IntegrationsController {
   settings: IntegrationsSettings
-  /** False until the first config load settles (the page draws neutral status dots until then). */
+  /** False until the first config load settles (the list shows neutral status until then). */
   integrationsHydrated: boolean
-  saveStatus: IntegrationsSaveStatus
-  isSavingTarget: IntegrationsSaveTarget
   activeLlmProvider: LlmProvider
-  saveActiveProvider: (provider: LlmProvider) => void | Promise<void>
-  /** Every setup panel's section ref, in the page's order (the page's spotlight effect follows them). */
-  setupSectionRefs: readonly MutableRefObject<HTMLElement | null>[]
-  /** Everything IntegrationsMainPanel needs for any setup, including each setup's section ref. */
+  /** Everything IntegrationsMainPanel needs for any setup. */
   panelProps: IntegrationsPanelStateProps
 }
 
 /**
- * The integrations connect / settings state the /integrations page and the Home building rooms share: loads the
+ * The integrations connect / settings state of the /integrations page: loads the
  * masked config from /api/integrations/config, owns every setup form's state and wires the existing setup hooks and
  * actions (which do the saving, testing and disconnecting through the API; secrets never come back unmasked).
  * `activeSetup` is the setup on screen (some setups load extra data only while shown).
@@ -81,7 +75,7 @@ export interface IntegrationsController {
 export function useIntegrationsController(activeSetup: IntegrationSetupKey): IntegrationsController {
   const router = useRouter()
   const [settings, setSettings] = useState<IntegrationsSettings>(() => loadIntegrationsSettings())
-  const [integrationsHydrated] = useState(true)
+  const [integrationsHydrated, setIntegrationsHydrated] = useState(false)
   const [botToken, setBotToken] = useState("")
   const [botTokenConfigured, setBotTokenConfigured] = useState(false)
   const [botTokenMasked, setBotTokenMasked] = useState("")
@@ -116,22 +110,7 @@ export function useIntegrationsController(activeSetup: IntegrationSetupKey): Int
   const [coinbasePrivacySaving, setCoinbasePrivacySaving] = useState(false)
   const [coinbasePrivacyError, setCoinbasePrivacyError] = useState("")
   const [saveStatus, setSaveStatus] = useState<IntegrationsSaveStatus>(null)
-  const telegramSetupSectionRef = useRef<HTMLElement | null>(null)
-  const discordSetupSectionRef = useRef<HTMLElement | null>(null)
-  const slackSetupSectionRef = useRef<HTMLElement | null>(null)
-  const braveSetupSectionRef = useRef<HTMLElement | null>(null)
-  const newsSetupSectionRef = useRef<HTMLElement | null>(null)
-  const coinbaseSetupSectionRef = useRef<HTMLElement | null>(null)
-  const phantomSetupSectionRef = useRef<HTMLElement | null>(null)
-  const polymarketSetupSectionRef = useRef<HTMLElement | null>(null)
-  const openaiSetupSectionRef = useRef<HTMLElement | null>(null)
-  const claudeSetupSectionRef = useRef<HTMLElement | null>(null)
-  const grokSetupSectionRef = useRef<HTMLElement | null>(null)
-  const geminiSetupSectionRef = useRef<HTMLElement | null>(null)
-  const spotifySetupSectionRef = useRef<HTMLElement | null>(null)
-  const youtubeSetupSectionRef = useRef<HTMLElement | null>(null)
-  const gmailSetupSectionRef = useRef<HTMLElement | null>(null)
-  const gmailCalendarSetupSectionRef = useRef<HTMLElement | null>(null)
+  const [lastError, setLastError] = useState<{ setup: IntegrationSetupKey; message: string } | null>(null)
 
   const openAISetup = useOpenAISetup({ settings, setSettings, setIsSavingTarget, setSaveStatus })
   const claudeSetup = useClaudeSetup({ settings, setSettings, setIsSavingTarget, setSaveStatus })
@@ -267,6 +246,7 @@ export function useIntegrationsController(activeSetup: IntegrationSetupKey): Int
         if (!config) {
           const fallback = loadIntegrationsSettings()
           setSettings(fallback)
+          setIntegrationsHydrated(true)
           setBotToken(fallback.telegram.botToken)
           setBotTokenConfigured(Boolean(fallback.telegram.botTokenConfigured))
           setBotTokenMasked(fallback.telegram.botTokenMasked || "")
@@ -522,6 +502,7 @@ export function useIntegrationsController(activeSetup: IntegrationSetupKey): Int
           updatedAt: config.updatedAt || new Date().toISOString(),
         }
         setSettings(normalized)
+        setIntegrationsHydrated(true)
         setBotToken(normalized.telegram.botToken)
         setBotTokenConfigured(Boolean(normalized.telegram.botTokenConfigured))
         setBotTokenMasked(normalized.telegram.botTokenMasked || "")
@@ -560,6 +541,7 @@ export function useIntegrationsController(activeSetup: IntegrationSetupKey): Int
         if (cancelled) return
         const fallback = loadIntegrationsSettings()
         setSettings(fallback)
+        setIntegrationsHydrated(true)
         setBotToken(fallback.telegram.botToken)
         setBotTokenConfigured(Boolean(fallback.telegram.botTokenConfigured))
         setBotTokenMasked(fallback.telegram.botTokenMasked || "")
@@ -599,12 +581,20 @@ export function useIntegrationsController(activeSetup: IntegrationSetupKey): Int
     }
   }, [hydrateClaudeSetup, hydrateGeminiSetup, hydrateGmailSetup, hydrateGrokSetup, hydrateOpenAISetup, hydratePhantomSetup, hydrateSpotifySetup, hydrateYouTubeSetup])
 
-  // Auto-dismiss save status
+  // Every save / test / connect result goes to a toast; a failure also stays inline in the integration's header.
   useEffect(() => {
     if (!saveStatus) return
-    const timeout = window.setTimeout(() => setSaveStatus(null), 3000)
-    return () => window.clearTimeout(timeout)
-  }, [saveStatus])
+    if (saveStatus.type === "error") {
+      toast.error({ title: saveStatus.message })
+      setLastError({ setup: activeSetup, message: saveStatus.message })
+    } else {
+      if (saveStatus.type === "success") toast.success({ title: saveStatus.message })
+      else toast.info({ title: saveStatus.message })
+      setLastError((current) => (current?.setup === activeSetup ? null : current))
+    }
+    setSaveStatus(null)
+  }, [activeSetup, saveStatus])
+  const dismissError = useCallback(() => setLastError(null), [])
 
   const telegramNeedsKeyWarning = !(
     settings.telegram.botTokenConfigured ||
@@ -620,16 +610,10 @@ export function useIntegrationsController(activeSetup: IntegrationSetupKey): Int
   )
   const coinbaseSyncLabel =
     settings.coinbase.lastSyncStatus === "success"
-      ? "Sync Healthy"
+      ? "Sync healthy"
       : settings.coinbase.lastSyncStatus === "error"
-        ? "Sync Error"
-        : "Not Synced"
-  const coinbaseSyncBadgeClass =
-    settings.coinbase.lastSyncStatus === "success"
-      ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-200"
-      : settings.coinbase.lastSyncStatus === "error"
-        ? "border-rose-300/40 bg-rose-500/15 text-rose-200"
-        : "border-amber-300/40 bg-amber-500/15 text-amber-200"
+        ? "Sync failed"
+        : "Not synced yet"
   const coinbaseLastSyncText = formatIsoTimestamp(settings.coinbase.lastSyncAt)
   const coinbaseFreshnessText = formatFreshnessMs(settings.coinbase.lastFreshnessMs)
   const coinbaseErrorText =
@@ -641,10 +625,6 @@ export function useIntegrationsController(activeSetup: IntegrationSetupKey): Int
     settings,
     isSavingTarget,
     activeSetup,
-    openaiSetupSectionRef: openaiSetupSectionRef,
-    claudeSetupSectionRef,
-    grokSetupSectionRef,
-    geminiSetupSectionRef,
     openAISetup,
     claudeSetup,
     grokSetup,
@@ -731,6 +711,10 @@ export function useIntegrationsController(activeSetup: IntegrationSetupKey): Int
 
   const panelProps: IntegrationsPanelStateProps = {
     settings,
+    activeLlmProvider,
+    saveActiveProvider,
+    lastError: lastError?.setup === activeSetup ? lastError.message : null,
+    dismissError,
     isSavingTarget,
     telegramNeedsKeyWarning,
     braveNeedsKeyWarning,
@@ -747,7 +731,6 @@ export function useIntegrationsController(activeSetup: IntegrationSetupKey): Int
     setNewsPreferredSources,
     coinbaseNeedsKeyWarning,
     coinbasePendingAction,
-    coinbaseSyncBadgeClass,
     coinbaseSyncLabel,
     coinbaseLastSyncText,
     coinbaseFreshnessText,
@@ -802,18 +785,6 @@ export function useIntegrationsController(activeSetup: IntegrationSetupKey): Int
     },
     spotifySetup,
     youtubeSetup,
-    phantomSetupSectionRef,
-    polymarketSetupSectionRef,
-    spotifySetupSectionRef,
-    youtubeSetupSectionRef,
-    gmailCalendarSetupSectionRef,
-    telegramSetupSectionRef,
-    discordSetupSectionRef,
-    slackSetupSectionRef,
-    braveSetupSectionRef,
-    newsSetupSectionRef,
-    coinbaseSetupSectionRef,
-    gmailSetupSectionRef,
     setBotToken,
     botToken,
     botTokenConfigured,
@@ -848,28 +819,7 @@ export function useIntegrationsController(activeSetup: IntegrationSetupKey): Int
   return {
     settings,
     integrationsHydrated,
-    saveStatus,
-    isSavingTarget,
     activeLlmProvider,
-    saveActiveProvider,
-    setupSectionRefs: [
-      telegramSetupSectionRef,
-      discordSetupSectionRef,
-      slackSetupSectionRef,
-      braveSetupSectionRef,
-      newsSetupSectionRef,
-      coinbaseSetupSectionRef,
-      phantomSetupSectionRef,
-      polymarketSetupSectionRef,
-      openaiSetupSectionRef,
-      claudeSetupSectionRef,
-      grokSetupSectionRef,
-      geminiSetupSectionRef,
-      spotifySetupSectionRef,
-      youtubeSetupSectionRef,
-      gmailSetupSectionRef,
-      gmailCalendarSetupSectionRef,
-    ],
     panelProps,
   }
 }
