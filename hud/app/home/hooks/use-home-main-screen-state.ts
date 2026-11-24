@@ -1,0 +1,252 @@
+"use client"
+/* eslint-disable react-hooks/set-state-in-effect */
+
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
+import { getActiveUserId } from "@/lib/auth/active-user"
+import { useTheme } from "@/lib/context/theme-context"
+import { loadUserSettings } from "@/lib/settings/userSettings"
+import { useNovaState } from "@/lib/chat/hooks/useNovaState"
+import { readVoiceMuted, writeVoiceMuted } from "@/lib/chat/voice-mode"
+import { useHomeConversations } from "./use-home-conversations"
+import { useHomeIntegrations } from "./use-home-integrations"
+import { useHomeCryptoMarket } from "./use-home-crypto-market"
+import { useHomeVisuals } from "./use-home-visuals"
+import { useHomeWeather } from "./use-home-weather"
+
+const HOME_COMMAND_CONVERSATION_ID = "home-command-surface"
+
+function buildHomeCommandSessionKey(userId: string): string {
+  const normalizedUserId = String(userId || "").trim()
+  if (!normalizedUserId) return ""
+  return `agent:nova:hud:user:${normalizedUserId}:dm:${HOME_COMMAND_CONVERSATION_ID}`
+}
+
+export function useHomeMainScreenState() {
+  const router = useRouter()
+  const { theme } = useTheme()
+  const isLight = theme === "light"
+
+  const nova = useNovaState()
+  const {
+    state: novaState,
+    thinkingStatus,
+    connected,
+    sendToAgent,
+    sendGreeting,
+    setVoicePreference,
+    setMuted,
+    agentMessages,
+    latestUsage,
+    clearAgentMessages,
+  } = nova
+
+  const visuals = useHomeVisuals({ isLight })
+
+  const speakTts = useCallback((text: string) => {
+    // Voice mode is opt-in: never speak while muted.
+    if (readVoiceMuted()) return
+    const settings = loadUserSettings()
+    if (!settings.app.voiceEnabled) return
+    // `sendGreeting` is useNovaState's legacy name: it is the generic spoken-TTS announcement sender.
+    sendGreeting(text, settings.app.ttsVoice, settings.app.voiceEnabled, settings.personalization.assistantName)
+  }, [sendGreeting])
+
+  const integrations = useHomeIntegrations({ latestUsage, speakTts })
+  const cryptoMarket = useHomeCryptoMarket()
+  const weather = useHomeWeather()
+  const conversationState = useHomeConversations({ connected, agentMessages, clearAgentMessages })
+
+  const latestHomeCommandReply = (() => {
+    for (let idx = agentMessages.length - 1; idx >= 0; idx -= 1) {
+      const message = agentMessages[idx]
+      if (message.role !== "assistant") continue
+      if (String(message.conversationId || "").trim() !== HOME_COMMAND_CONVERSATION_ID) continue
+      const content = String(message.content || "").trim()
+      if (!content) continue
+      return {
+        content,
+        ts: Number.isFinite(Number(message.ts)) ? Number(message.ts) : 0,
+      }
+    }
+    return null
+  })()
+
+  const handleSendHomeCommand = useCallback((finalText: string) => {
+    const text = finalText.trim()
+    if (!text || !connected) return
+
+    const userId = String(getActiveUserId() || "").trim()
+    if (!userId) return
+
+    const settings = loadUserSettings()
+    const sessionKey = buildHomeCommandSessionKey(userId)
+
+    sendToAgent(text, settings.app.voiceEnabled, settings.app.ttsVoice, {
+      conversationId: HOME_COMMAND_CONVERSATION_ID,
+      sender: "hud-user",
+      ...(sessionKey ? { sessionKey } : {}),
+      userId,
+      assistantName: settings.personalization.assistantName,
+      communicationStyle: settings.personalization.communicationStyle,
+      tone: settings.personalization.tone,
+      customInstructions: settings.personalization.customInstructions,
+      proactivity: settings.personalization.proactivity,
+      humor_level: settings.personalization.humor_level,
+      risk_tolerance: settings.personalization.risk_tolerance,
+      structure_preference: settings.personalization.structure_preference,
+      challenge_level: settings.personalization.challenge_level,
+    })
+  }, [connected, sendToAgent])
+
+  const [isMuted, setIsMuted] = useState(true)
+  const [muteHydrated, setMuteHydrated] = useState(false)
+  const voicePreferenceSyncedRef = useRef(false)
+
+  useLayoutEffect(() => {
+    setIsMuted(readVoiceMuted())
+    setMuteHydrated(true)
+  }, [])
+
+  useEffect(() => {
+    if (novaState === "muted") {
+      setIsMuted(true)
+    }
+  }, [novaState])
+
+  const handleMuteToggle = useCallback(() => {
+    const nextMuted = !isMuted
+    setIsMuted(nextMuted)
+    writeVoiceMuted(nextMuted)
+    setMuted(nextMuted, !nextMuted ? visuals.assistantName : undefined)
+  }, [isMuted, setMuted, visuals.assistantName])
+
+  useEffect(() => {
+    if (connected && muteHydrated) {
+      setMuted(isMuted, !isMuted ? visuals.assistantName : undefined)
+    }
+  }, [connected, isMuted, muteHydrated, setMuted, visuals.assistantName])
+
+  // Sync the saved voice preference once per connection. The home screen never speaks on its own:
+  // there is no auto-greeting, and spoken replies only happen in voice mode (see speakTts).
+  useEffect(() => {
+    if (!connected || voicePreferenceSyncedRef.current) return
+
+    voicePreferenceSyncedRef.current = true
+    const settings = loadUserSettings()
+    setVoicePreference(
+      settings.app.ttsVoice,
+      settings.app.voiceEnabled,
+      settings.personalization.assistantName,
+    )
+  }, [connected, setVoicePreference])
+
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const handleSidebarToggle = useCallback(() => setSidebarOpen((prev) => !prev), [])
+
+  const openMissions = useCallback(() => router.push("/deployments"), [router])
+  // "New deployment" is a popup over Home, not a page change; it shares Home's Nova connection.
+  const [newDeploymentOpen, setNewDeploymentOpen] = useState(false)
+  const openTaskDeployment = useCallback(() => setNewDeploymentOpen(true), [])
+  const closeNewDeployment = useCallback(() => setNewDeploymentOpen(false), [])
+  const openCalendar = useCallback(() => router.push("/missions/calendar"), [router])
+  const openIntegrations = useCallback(() => router.push("/integrations"), [router])
+  const openDevLogs = useCallback(() => router.push("/dev-logs"), [router])
+  const openChat = useCallback(() => router.push("/chat"), [router])
+  const openAnalytics = useCallback(() => router.push("/analytics"), [router])
+
+  const liveActivity = [
+    { id: "evt-openai", service: "OpenAI", action: "Reasoning turn completed", timeAgo: "14s", status: "success" as const },
+    { id: "evt-spotify", service: "Spotify", action: "Playback sync refreshed", timeAgo: "49s", status: "success" as const },
+    { id: "evt-discord", service: "Discord", action: "Webhook retry succeeded", timeAgo: "2m", status: "warning" as const },
+    { id: "evt-nova", service: "Nova Runtime", action: "Background task queued", timeAgo: "3m", status: "success" as const },
+  ]
+
+  return {
+    isLight,
+    conversations: conversationState.conversations,
+    sidebarOpen,
+    toggleSidebar: handleSidebarToggle,
+    runningLabel: integrations.runningLabel,
+    handleSelectConvo: conversationState.handleSelectConvo,
+    handleNewChat: conversationState.handleNewChat,
+    handleDeleteConvo: conversationState.handleDeleteConvo,
+    handleRenameConvo: conversationState.handleRenameConvo,
+    handleArchiveConvo: conversationState.handleArchiveConvo,
+    handlePinConvo: conversationState.handlePinConvo,
+    novaState,
+    connected,
+    assistantName: visuals.assistantName,
+    orbPalette: visuals.orbPalette,
+    handleSend: conversationState.handleSend,
+    handleSendToChat: conversationState.handleSendToChat,
+    handleSendHomeCommand,
+    isMuted,
+    handleMuteToggle,
+    muteHydrated,
+    thinkingStatus,
+    latestHomeCommandReply: latestHomeCommandReply?.content || "",
+    latestHomeCommandReplyTs: latestHomeCommandReply?.ts || 0,
+    homeShellRef: visuals.homeShellRef,
+    pipelineSectionRef: visuals.pipelineSectionRef,
+    scheduleSectionRef: visuals.scheduleSectionRef,
+    analyticsSectionRef: visuals.analyticsSectionRef,
+    integrationsSectionRef: visuals.integrationsSectionRef,
+    spotifyModuleSectionRef: visuals.spotifyModuleSectionRef,
+    panelStyle: visuals.panelStyle,
+    panelClass: visuals.panelClass,
+    subPanelClass: visuals.subPanelClass,
+    missionHover: visuals.missionHover,
+    cryptoAssets: cryptoMarket.cryptoAssets,
+    cryptoRange: cryptoMarket.cryptoRange,
+    setCryptoRange: cryptoMarket.setCryptoRange,
+    cryptoLoading: cryptoMarket.cryptoLoading,
+    cryptoError: cryptoMarket.cryptoError,
+    refreshCryptoMarket: cryptoMarket.refreshCryptoMarket,
+    openMissions,
+    openTaskDeployment,
+    newDeploymentOpen,
+    closeNewDeployment,
+    nova,
+    openCalendar,
+    openIntegrations,
+    openDevLogs,
+    openChat,
+    openAnalytics,
+    liveActivity,
+    integrationBadgeClass: integrations.integrationBadgeClass,
+    goToIntegrations: integrations.goToIntegrations,
+    telegramConnected: integrations.telegramConnected,
+    discordConnected: integrations.discordConnected,
+    slackConnected: integrations.slackConnected,
+    braveConnected: integrations.braveConnected,
+    coinbaseConnected: integrations.coinbaseConnected,
+    phantomConnected: integrations.phantomConnected,
+    polymarketConnected: integrations.polymarketConnected,
+    openaiConnected: integrations.openaiConnected,
+    claudeConnected: integrations.claudeConnected,
+    grokConnected: integrations.grokConnected,
+    geminiConnected: integrations.geminiConnected,
+    spotifyConnected: integrations.spotifyConnected,
+    youtubeConnected: integrations.youtubeConnected,
+    spotifyNowPlaying: integrations.spotifyNowPlaying,
+    spotifyLoading: integrations.spotifyLoading,
+    spotifyConnecting: integrations.spotifyConnecting,
+    spotifyError: integrations.spotifyError,
+    spotifyBusyAction: integrations.spotifyBusyAction,
+    connectSpotify: integrations.connectSpotify,
+    refreshSpotifyNowPlaying: integrations.refreshSpotifyNowPlaying,
+    toggleSpotifyPlayback: integrations.toggleSpotifyPlayback,
+    spotifyNextTrack: integrations.spotifyNextTrack,
+    spotifyPreviousTrack: integrations.spotifyPreviousTrack,
+    spotifyPlaySmart: integrations.spotifyPlaySmart,
+    seekSpotify: integrations.seekSpotify,
+    gmailConnected: integrations.gmailConnected,
+    gcalendarConnected: integrations.gcalendarConnected,
+    preferredWeatherCity: weather.preferredCity,
+    homeWeather: weather.weather,
+    homeWeatherLoading: weather.weatherLoading,
+    homeWeatherError: weather.weatherError,
+    refreshHomeWeather: weather.refreshWeather,
+  }
+}

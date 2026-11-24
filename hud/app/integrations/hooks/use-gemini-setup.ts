@@ -11,7 +11,7 @@ import {
 } from "./use-llm-provider-setup"
 import type { IntegrationsSettings } from "@/lib/integrations/store/client-store"
 import type { Dispatch, SetStateAction } from "react"
-import type { SelectOption } from "@/components/ui/select"
+import type { FluidSelectOption } from "@/components/ui/fluid-select"
 
 interface UseGeminiSetupParams {
   settings: IntegrationsSettings
@@ -20,7 +20,7 @@ interface UseGeminiSetupParams {
   setSaveStatus: Dispatch<SetStateAction<IntegrationsSaveStatus>>
 }
 
-function sortGeminiOptions(options: SelectOption[]) {
+function sortGeminiOptions(options: FluidSelectOption[]) {
   const curatedOrder = new Map(GEMINI_MODEL_OPTIONS.map((option, index) => [option.value, index]))
   const parseGeminiVersion = (value: string): number => {
     const match = value.toLowerCase().match(/gemini-(\d+(?:\.\d+)?)/)

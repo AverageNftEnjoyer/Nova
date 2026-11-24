@@ -1,10 +1,32 @@
 import { Activity, Database, GitBranch, Mail, MessageCircle, Send, SlidersHorizontal, Sparkles, WandSparkles, Zap } from "lucide-react"
 
-import type { SelectOption } from "@/components/ui"
+import type { FluidSelectOption } from "@/components/ui/fluid-select"
 import type { IntegrationsSettings } from "@/lib/integrations/store/client-store"
+import { isBackgroundAssetImage } from "@/lib/media/backgroundVideoStorage"
+import { loadUserSettings, type ThemeBackgroundType } from "@/lib/settings/userSettings"
+import { resolveTimezone } from "@/lib/shared/timezone"
 import { resolveCurrentModelId } from "../../../src/providers/models/retired-model-aliases/index.js"
-import { AI_MODEL_OPTIONS } from "./constants"
-import type { AiIntegrationType, WorkflowStep, WorkflowStepType } from "./types"
+import { AI_MODEL_OPTIONS, STEP_TYPE_OPTIONS } from "./constants"
+import type { AiIntegrationType, MissionListItem, WorkflowStep, WorkflowStepType } from "./types"
+
+interface BuildBuilderWorkflowStepsInput {
+  mission: MissionListItem
+  rawSteps?: Array<Partial<WorkflowStep>>
+  idPrefix: string
+  detectedTimezone: string
+  integrationsSettings: IntegrationsSettings
+  resolveDefaultAiIntegration: () => AiIntegrationType
+}
+
+export function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace("#", "")
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean
+  const num = Number.parseInt(full, 16)
+  const r = (num >> 16) & 255
+  const g = (num >> 8) & 255
+  const b = num & 255
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
 
 export function formatIntegrationLabel(integration: string): string {
   const value = integration.trim().toLowerCase()
@@ -31,9 +53,9 @@ export function getModelOptionsForProvider(
   provider: AiIntegrationType,
   settings: IntegrationsSettings,
   selectedModel?: string,
-): SelectOption[] {
+): FluidSelectOption[] {
   const base = AI_MODEL_OPTIONS[provider]
-  const extras: SelectOption[] = []
+  const extras: FluidSelectOption[] = []
   for (const candidate of [getDefaultModelForProvider(provider, settings), resolveCurrentModelId(provider, selectedModel, { log: false })]) {
     if (!candidate) continue
     if (base.some((option) => option.value === candidate) || extras.some((option) => option.value === candidate)) continue
@@ -73,6 +95,19 @@ export function normalizePriority(value: string | undefined): "low" | "medium" |
   return "medium"
 }
 
+export function resolveThemeBackground(isLight: boolean): ThemeBackgroundType {
+  const settings = loadUserSettings()
+  if (isLight) return settings.app.lightModeBackground ?? "none"
+  const fallbackDark = settings.app.background === "none" ? "none" : "black"
+  return settings.app.darkModeBackground ?? fallbackDark
+}
+
+
+export function resolveCustomBackgroundIsImage() {
+  const app = loadUserSettings().app
+  return isBackgroundAssetImage(app.customBackgroundVideoMimeType, app.customBackgroundVideoFileName)
+}
+
 export function isTemplateSecret(value: string): boolean {
   const text = String(value || "").trim()
   return /^\{\{\s*[^}]+\s*\}\}$/.test(text)
@@ -107,3 +142,109 @@ export function normalizeFetchIncludeSources(value: unknown): boolean {
   if (normalized === "true" || normalized === "1" || normalized === "on" || normalized === "yes") return true
   return false
 }
+
+export function buildBuilderWorkflowStepsFromMeta(input: BuildBuilderWorkflowStepsInput): WorkflowStep[] {
+  const { mission, rawSteps, idPrefix, detectedTimezone, integrationsSettings, resolveDefaultAiIntegration } = input
+  if (!Array.isArray(rawSteps) || rawSteps.length === 0) return []
+
+  return rawSteps.map((step, index) => {
+    const stepType = String(step.type || "")
+    const resolvedType: WorkflowStepType = isWorkflowStepType(stepType) ? stepType : "output"
+    const aiIntegration = (step.aiIntegration === "openai" || step.aiIntegration === "claude" || step.aiIntegration === "grok" || step.aiIntegration === "gemini")
+      ? step.aiIntegration
+      : resolveDefaultAiIntegration()
+
+    return {
+      id: `${idPrefix}-${mission.id}-${index}-${Date.now()}`,
+      type: resolvedType,
+      title: step.title || STEP_TYPE_OPTIONS.find((option) => option.type === resolvedType)?.label || "Step",
+      aiPrompt: resolvedType === "ai" ? (typeof step.aiPrompt === "string" ? step.aiPrompt : "") : undefined,
+      aiModel: resolvedType === "ai"
+        ? (typeof step.aiModel === "string" && step.aiModel.trim().length > 0
+          ? resolveCurrentModelId(aiIntegration, step.aiModel, { log: false })
+          : getDefaultModelForProvider(aiIntegration, integrationsSettings))
+        : undefined,
+      aiIntegration: resolvedType === "ai" ? aiIntegration : undefined,
+      aiDetailLevel: resolvedType === "ai" ? normalizeAiDetailLevel(step.aiDetailLevel) : undefined,
+      triggerMode: resolvedType === "trigger" ? (step.triggerMode === "once" || step.triggerMode === "daily" || step.triggerMode === "weekly" || step.triggerMode === "interval" ? step.triggerMode : "daily") : undefined,
+      triggerTime: resolvedType === "trigger" ? (typeof step.triggerTime === "string" && step.triggerTime ? step.triggerTime : mission.time || "09:00") : undefined,
+      triggerTimezone: resolvedType === "trigger"
+        ? (typeof step.triggerTimezone === "string" && step.triggerTimezone
+          ? step.triggerTimezone
+          : resolveTimezone(mission.timezone, detectedTimezone))
+        : undefined,
+      triggerDays: resolvedType === "trigger" ? (Array.isArray(step.triggerDays) ? step.triggerDays.map((day) => String(day)) : ["mon", "tue", "wed", "thu", "fri"]) : undefined,
+      triggerIntervalMinutes: resolvedType === "trigger" ? (typeof step.triggerIntervalMinutes === "string" && step.triggerIntervalMinutes ? step.triggerIntervalMinutes : "30") : undefined,
+      fetchSource: resolvedType === "fetch" ? (step.fetchSource === "api" || step.fetchSource === "web" || step.fetchSource === "calendar" || step.fetchSource === "crypto" || step.fetchSource === "coinbase" || step.fetchSource === "rss" || step.fetchSource === "database" ? step.fetchSource : "web") : undefined,
+      fetchMethod: resolvedType === "fetch" ? (step.fetchMethod === "POST" ? "POST" : "GET") : undefined,
+      fetchApiIntegrationId: resolvedType === "fetch" ? (typeof step.fetchApiIntegrationId === "string" ? step.fetchApiIntegrationId : "") : undefined,
+      fetchUrl: resolvedType === "fetch" ? (typeof step.fetchUrl === "string" ? step.fetchUrl : "") : undefined,
+      fetchQuery: resolvedType === "fetch" ? (typeof step.fetchQuery === "string" ? step.fetchQuery : "") : undefined,
+      fetchHeaders: resolvedType === "fetch" ? (typeof step.fetchHeaders === "string" ? step.fetchHeaders : "") : undefined,
+      fetchSelector: resolvedType === "fetch" ? (typeof step.fetchSelector === "string" && step.fetchSelector.trim() ? step.fetchSelector : "a[href]") : undefined,
+      fetchRefreshMinutes: resolvedType === "fetch" ? (typeof step.fetchRefreshMinutes === "string" && step.fetchRefreshMinutes ? step.fetchRefreshMinutes : "15") : undefined,
+      fetchIncludeSources: resolvedType === "fetch" ? normalizeFetchIncludeSources(step.fetchIncludeSources) : undefined,
+      coinbaseIntent: resolvedType === "coinbase"
+        ? (step.coinbaseIntent === "status" || step.coinbaseIntent === "price" || step.coinbaseIntent === "portfolio" || step.coinbaseIntent === "transactions" || step.coinbaseIntent === "report"
+          ? step.coinbaseIntent
+          : "report")
+        : undefined,
+      coinbaseParams: resolvedType === "coinbase"
+        ? {
+          assets: Array.isArray(step.coinbaseParams?.assets)
+            ? step.coinbaseParams.assets.map((item) => String(item).trim()).filter(Boolean).slice(0, 8)
+            : ["BTC", "ETH", "SOL"],
+          quoteCurrency: typeof step.coinbaseParams?.quoteCurrency === "string" && step.coinbaseParams.quoteCurrency.trim()
+            ? step.coinbaseParams.quoteCurrency.trim().toUpperCase()
+            : "USD",
+          thresholdPct: Number.isFinite(Number(step.coinbaseParams?.thresholdPct)) ? Number(step.coinbaseParams?.thresholdPct) : undefined,
+          cadence: typeof step.coinbaseParams?.cadence === "string" && step.coinbaseParams.cadence.trim()
+            ? step.coinbaseParams.cadence
+            : "daily",
+          transactionLimit: Number.isFinite(Number(step.coinbaseParams?.transactionLimit)) ? Number(step.coinbaseParams?.transactionLimit) : undefined,
+          includePreviousArtifactContext: typeof step.coinbaseParams?.includePreviousArtifactContext === "boolean"
+            ? step.coinbaseParams.includePreviousArtifactContext
+            : true,
+        }
+        : undefined,
+      coinbaseFormat: resolvedType === "coinbase"
+        ? {
+          style: step.coinbaseFormat?.style === "concise" || step.coinbaseFormat?.style === "detailed" || step.coinbaseFormat?.style === "standard"
+            ? step.coinbaseFormat.style
+            : "standard",
+          includeRawMetadata: typeof step.coinbaseFormat?.includeRawMetadata === "boolean"
+            ? step.coinbaseFormat.includeRawMetadata
+            : true,
+        }
+        : undefined,
+      transformAction: resolvedType === "transform" ? (step.transformAction === "normalize" || step.transformAction === "dedupe" || step.transformAction === "aggregate" || step.transformAction === "format" || step.transformAction === "enrich" ? step.transformAction : "normalize") : undefined,
+      transformFormat: resolvedType === "transform" ? (step.transformFormat === "text" || step.transformFormat === "json" || step.transformFormat === "markdown" || step.transformFormat === "table" ? step.transformFormat : "markdown") : undefined,
+      transformInstruction: resolvedType === "transform" ? (typeof step.transformInstruction === "string" ? step.transformInstruction : "") : undefined,
+      conditionField: resolvedType === "condition" ? (typeof step.conditionField === "string" ? step.conditionField : "priority") : undefined,
+      conditionOperator: resolvedType === "condition"
+        ? (step.conditionOperator === "contains" || step.conditionOperator === "equals" || step.conditionOperator === "not_equals" || step.conditionOperator === "greater_than" || step.conditionOperator === "less_than" || step.conditionOperator === "regex" || step.conditionOperator === "exists"
+          ? step.conditionOperator
+          : "contains")
+        : undefined,
+      conditionValue: resolvedType === "condition" ? (typeof step.conditionValue === "string" ? step.conditionValue : "") : undefined,
+      conditionLogic: resolvedType === "condition" ? (step.conditionLogic === "any" ? "any" : "all") : undefined,
+      conditionFailureAction: resolvedType === "condition" ? (step.conditionFailureAction === "notify" || step.conditionFailureAction === "stop" ? step.conditionFailureAction : "skip") : undefined,
+      outputChannel: resolvedType === "output" ? (step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "slack" || step.outputChannel === "push" || step.outputChannel === "webhook" ? step.outputChannel : "telegram") : undefined,
+      outputTiming: resolvedType === "output" ? (step.outputTiming === "scheduled" || step.outputTiming === "digest" ? step.outputTiming : "immediate") : undefined,
+      outputTime: resolvedType === "output" ? (typeof step.outputTime === "string" && step.outputTime ? step.outputTime : mission.time || "09:00") : undefined,
+      outputFrequency: resolvedType === "output" ? (step.outputFrequency === "multiple" ? "multiple" : "once") : undefined,
+      outputRepeatCount: resolvedType === "output" ? (typeof step.outputRepeatCount === "string" && step.outputRepeatCount ? step.outputRepeatCount : "3") : undefined,
+      outputRecipients: resolvedType === "output"
+        ? sanitizeOutputRecipients(
+          step.outputChannel === "telegram" || step.outputChannel === "discord" || step.outputChannel === "email" || step.outputChannel === "push" || step.outputChannel === "webhook"
+            || step.outputChannel === "slack"
+            ? step.outputChannel
+            : "telegram",
+          typeof step.outputRecipients === "string" ? step.outputRecipients : "",
+        )
+        : undefined,
+      outputTemplate: resolvedType === "output" ? (typeof step.outputTemplate === "string" ? step.outputTemplate : "") : undefined,
+    }
+  })
+}
+

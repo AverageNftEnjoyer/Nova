@@ -1,4 +1,4 @@
-import type { SelectOption } from "@/components/ui/select"
+import type { FluidSelectOption } from "@/components/ui/fluid-select"
 import { formatModelPriceHint } from "./pricing"
 import type { ModelOption } from "./types"
 
@@ -14,7 +14,7 @@ export const OPENAI_MODEL_OPTIONS: ModelOption[] = [
   { value: "gpt-5.6-luna", label: "GPT-5.6 Luna", priceHint: formatModelPriceHint("gpt-5.6-luna") },
 ]
 
-export const OPENAI_MODEL_SELECT_OPTIONS: SelectOption[] = OPENAI_MODEL_OPTIONS.map((option) => ({
+export const OPENAI_MODEL_SELECT_OPTIONS: FluidSelectOption[] = OPENAI_MODEL_OPTIONS.map((option) => ({
   value: option.value,
   label: option.label,
 }))

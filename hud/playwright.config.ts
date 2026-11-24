@@ -13,10 +13,6 @@ import { defineConfig, devices } from '@playwright/test'
  *
  * The server always starts fresh on a dedicated port (never reuses a dev server the user already runs on :3000,
  * which would be pointed at real data).
- *
- * NOVA_PLAYWRIGHT_SERVER=start runs the specs against the last production build (`npm run build` first) instead of a
- * dev server. Use it while `npm run dev` is running: Next 16 locks `.next/dev`, so a second dev server in this
- * project exits at startup, while `next start` reads `.next` and takes no lock.
  */
 const DATA_DIR_ENV = 'NOVA_PLAYWRIGHT_DATA_DIR'
 if (!process.env[DATA_DIR_ENV]) {
@@ -33,7 +29,6 @@ if (!process.env[DATA_DIR_ENV]) {
 const dataDir = process.env[DATA_DIR_ENV] as string
 const port = Number(process.env.NOVA_PLAYWRIGHT_PORT || 3100)
 const baseURL = `http://127.0.0.1:${port}`
-const serverMode = process.env.NOVA_PLAYWRIGHT_SERVER === 'start' ? 'start' : 'dev'
 
 export default defineConfig({
   testDir: './tests/smoke',
@@ -58,15 +53,13 @@ export default defineConfig({
   webServer: {
     // Bind to the same host as baseURL: Next's dev server refuses dev assets to a different origin (localhost vs
     // 127.0.0.1), and the page would then never hydrate.
-    command: `npm run ${serverMode} -- --port ${port} --hostname 127.0.0.1`,
+    command: `npm run dev -- --port ${port} --hostname 127.0.0.1`,
     url: baseURL,
     reuseExistingServer: false,
     timeout: 120 * 1000,
     env: {
       NOVA_DATA_DIR: dataDir,
       NOVA_PACKAGED: '',
-      // Every parallel worker is the same 127.0.0.1 client: lift the per-IP request cap (240/min) for this server only.
-      NOVA_HTTP_IP_RATE_LIMIT_MAX: '10000',
     },
   },
 })

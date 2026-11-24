@@ -10,61 +10,6 @@
  *
  * Version History:
  *
- * - V.88 Alpha (2026-11-23): Nova again, with a real app shell, a design system and a command-center Home
- *     - The product is called Nova again: a local-first LLM agentic framework platform. Window titles, page titles, the default assistant name and the docs say Nova; the data folder (`%APPDATA%\Nova`) and the encryption key are unchanged.
- *     - Design system: one token sheet (`hud/app/styles/theme.css`: canvas / surface / border / text / accent / status / chart tokens for dark and light, `data-accent` hues, root scale steps for 1440p-4K) and the primitives in `hud/components/ui/` (Button, IconButton, Input, Textarea, SearchInput, Select, Field, Switch, Checkbox, Tabs, Dialog, Sheet, DropdownMenu, Tooltip, Badge, StatusDot, Panel, Card, Table, EmptyState, Skeleton, Spinner, toast, PageHeader, SectionHeader, Stat, Separator, Kbd), imported from `@/components/ui`. Geist Sans / Geist Mono. Every primitive renders at `/dev/design` (internal, not in navigation); rules in `docs/frontend/design-system.md`.
- *     - App shell (`hud/components/shell/`): every page lives in one frame with a collapsible sidebar (Home, Chat, Runs, Deployments, Missions, Integrations; Insights: Analytics, History, Polymarket when connected; Developer: Dev logs), a top bar with breadcrumbs and runtime connection status, and a Ctrl+K command palette (recent chats, pages, actions, Settings sections). Shortcuts: Ctrl+K palette, Ctrl+B or [ sidebar, Ctrl+, Settings. `openSettings(section)` / `openCommandPalette()` drive it from anywhere. Root `loading`, `error`, `global-error` and `not-found` pages.
- *     - Home (`/home`) is a command center: a composer to ask or deploy, live work (running and waiting runs), deployments with the next scheduled run, and an overview column with today's usage, integrations, schedule, notes and recent chats. Everything comes from the real hooks; nothing is invented.
- *     - New pages: `/runs` (every agent task and deployment run, a Waiting for you strip with Approve / Deny, row actions, budget state and a detail sheet), `/deployments` (every deployment with schedule, state and latest run; detail sheet) and `/deployments/new` (the shared New deployment flow, `?tab=describe|task|automation`). Rebuilt on the design system: `/chat`, `/missions` and `/missions/calendar`, `/integrations` (master-detail list with `?setup=<key>&tab=setup|settings|live|instructions`), `/analytics`, `/history`, `/polymarket` and `/dev-logs`.
- *     - Settings is one dialog with sections profile, personalization, appearance (theme, accent colour, text size, startup), audio, notifications, agent-budgets, model-routing, skills and local-data.
- *     - Old links redirect in `hud/next.config.js`: `/home?room=<id>[&section=][&tab=]` goes to the page that now holds that room's feature (Depot -> `/runs` / `/deployments` / `/deployments/new`, Power Plant -> `/analytics`, Fountain Park -> `/chat`, Post Office / Clock Tower -> `/missions/calendar`, integration buildings -> `/integrations?setup=<key>`), and `/deployments?mode=...` goes to `/deployments/new?tab=...`.
- *     - Removed: the U.B Agents City (PixiJS world, pixi.js and pixi-viewport, building rooms, boot screen, walkers, `hud/public/pixel-city/`), the town progression (`hud/lib/town/`, `/api/town`, `/api/town/ack`, `/api/town/residents`, `npm run smoke:town`) and the old city docs (`docs/frontend/nova-city-day-ui.md`, `docs/frontend/nova-city-rooms.md`).
- *
- * - V.87 Alpha (2026-10-02): The product is named U.B Agents
- *     - Retired the legacy /deployments page: the Depot room on Home already does all of it (Runs with Approve / Deny / Cancel, Deployments, New). `/deployments` now redirects to `/home?room=depot` (the old `?mode=` / `&kind=` deep links to the Depot's New section on the matching tab); Home reads `?room=` / `&section=` / `&tab=` once and cleans the URL. No navigation from Home leads to /deployments any more; the page chrome, overview and New deployment popup were deleted.
- *     - Every user-facing name, window title, default assistant name and system identity now says U.B Agents. Saved installs keep their files: the data folder is still `%APPDATA%\Nova`, and the encryption key is unchanged.
- *
- * - V.86 Alpha (2026-10-02): Nova City boot screen
- *     - Home covers the city with a boot screen while the Pixi world loads (`hud/app/home/components/game/city-boot.tsx`). The bar and Nova the cat follow the real load: charting the harbour (the engine chunk), starting the city (WebGL), painting the island (the map), then opening the gates. It fades once the first frame is drawn. Reduced motion keeps the cat still and the fade short. Window controls stay usable, and the city underneath stays inert until the screen is gone.
- *
- * - V.85 Alpha (2026-10-02): Building rooms and a game camera on the high-res map
- *     - Building rooms (`hud/app/home/components/rooms/`): every clickable building opens its own room instead of the shared popup or the /integrations page. One `BuildingRoom` shell; the typed registry `room-registry.ts` lists each room's place, integration, tabs, accent and background picture (`hud/public/pixel-city/rooms/<room id>.webp` or `.png`, 1600x900; a themed checker pattern until one is uploaded; file list in `docs/frontend/nova-city-rooms.md`). Data tabs reuse the Home modules; integration rooms add a Connect & settings tab with the real setup panel, and the AI rooms can make their provider Nova's live model. Quest / tutorial Go buttons, Town Hall's building list and resident cards open the matching room. The Depot opens a deployments room with a New deployment button.
- *     - Integrations: the connect / settings state moved out of `/integrations/page.tsx` into `useIntegrationsController` (`hud/app/integrations/modules/hooks/`), shared by the page and every room, so saving, testing, OAuth and secret masking exist once.
- *     - Map: Home draws the high-resolution map (`map.webp`, from `raw/map-5000x3760.png`), which holds the old painting at 3.02x with mountains and sea around it (`DISTRICT_MAP` in `image-plan.ts`); every hotspot, walk route and occluder keeps its plan coordinates. The map is drawn nearest-neighbour once a map pixel covers a device pixel, smoothly below that.
- *     - Camera: the default view is the closest zoom (the city just covers the window, 1.12x); wheel / pinch / +- zoom out until the map just covers the window. Panning never goes past the map's edges.
- *     - PixiJS world: Home's map is now a PixiJS v8 (WebGL) world with a pixi-viewport camera (`hud/components/pixel-city/world/`): cover-fit map that can never show past its edges, drag / pinch / wheel with inertia, a camera glide to a building before its room opens, a hover outline in the building's footprint, animated water glints, waterfall spray and mist, drifting cloud shadows (no boats anywhere: the V.84 deployment-run boats and the decorative boats were removed), and a day / night cycle from the system clock with glowing windows (`?tod=night` forces the hour). Reduced motion draws it still; without WebGL the static map is shown under the same buttons. The Canvas2D renderer is removed.
- *     - Removed: the crypto ticker strip above the Bank (prices stay in the Bank room). The tutorial bubble stays bottom-left instead of jumping sides, and the target highlight is four gold corner brackets instead of a dashed box.
- *     - Docs: old frontend concept docs and round screenshots removed from `docs/frontend/` (the day UI spec and the rooms doc remain).
- *
- * - V.84 Alpha (2026-10-01): Nova City Day, real residents and the game HUD
- *     - Residents: walkers are exactly one per agent task plus one worker per connected integration (the anonymous townsfolk crowd is gone). Clicking one opens a resident card: an agent's task, or a worker's integration status and building level, with rename (`GET/POST /api/town/residents`, `kv_state` namespace `town-residents`). The agent card keeps its buttons in place and calls Cancel "Stop".
- *     - Day map: Home is a bright daytime island (`background.webp`, 1536x1024) with hotspots, walk routes, building lamps and boats in the bay for active deployment runs rebuilt for it; night-only effects removed.
- *     - Game HUD: portrait, name, level and XP top-left, round Quests and Music buttons down the left edge, XP and weather chips top-right, Settings bottom-right. The Spotify footer is replaced by a Music popup and the version label is hidden on Home. Quests open Settings on Skills.
- *     - Day theme (`pixel-ui.css`, `docs/frontend/nova-city-day-ui.md`): riveted slate frames, purple cards, outlined caps, round close button, teal primary buttons; PixelWindow rebuilt on it. The Integrations page (building cards) and Chat page (Nova the cat, parchment and purple bubbles) use the same theme with unchanged behaviour.
- *
- * - V.83 Alpha (2026-10-01): Nova City becomes a game
- *     - Progression: `GET /api/town` / `POST /api/town/ack` (`hud/lib/town/`) turn real Nova activity into XP, levels (Hamlet -> Village -> Town -> City -> Metropolis -> Megacity -> Skyline Capital), building levels 0-3 per integration, population, and quests: an 8-step tutorial, milestone series, per-integration quests and daily quests in the viewer's time zone. Counts never go down; what was already celebrated, quest completion times and tutorial state live in `kv_state` namespace `town-progress`. `npm run smoke:town` covers the XP math, events, tutorial and daily rollover.
- *     - Game UI (`hud/app/home/components/game/`): level badge and XP bar beside the wordmark, a Quests chip and quest log (Tutorial / Daily / Milestones / Buildings, each quest with a Go button), a first-run tutorial where Nova points at the building to use and follows the camera, one-time level-up banners and quest toasts, and a Progress tab in the Town Hall. Quests that teach skills open Settings on Skills.
- *     - Camera: drag or touch to pan, wheel / pinch / +- to zoom, 0 to recenter, zoom and recenter buttons above the player bar. Every building is reachable at any window size (1024x768 to 4K and ultrawide); tabbing to an off-screen building pans to it.
- *     - People: new PixelLab townsfolk (6), role-dressed Nova agents (6) and Nova the cat, drawn at the painting's pixel density with 8 directions and a 6-frame walk. Walk routes stay on visible paving; foreground structures (arcade, arch, clock tower, viaduct, shelter, lamps...) now hide walkers behind them. Building hit areas, signs and anchors re-checked against the painting.
- *
- * - V.82 Alpha (2026-09-28): Nova City people match the painting
- *     - Walkers are drawn on the night painting's own 2px grid (`district/people.ts`) instead of the separate character sheets. Townsfolk wear the city's coat colours. Each agent task is the same figure in a Nova suit with a cyan visor (a white coat at the Lab, a dark suit at the Bank and Odds Parlour). The floating "N" chip and white work bubble are gone; a paused, failed or queued agent keeps a small mark. Nova the cat on the park bench is drawn the same way.
- *     - The park path no longer crosses the clock tower: it comes down off the lantern deck onto the dirt path. The bus-shelter ticker is a glass strip instead of a black plate, and the painting's own signs are left as painted.
- *
- * - V.81 Alpha (2026-09-27): Home is the painted Nova City
- *     - Home is one night painting (`hud/public/pixel-city/town/background.png`, mapped in `district/image-plan.ts`). The canvas covers the screen and draws live signs, walkers, buses and weather on top. The Harbour / District chip is gone.
- *     - Removed the code-drawn Harbour (`renderer.ts`, `layout.ts`, `palette.ts`, `sprites.ts`, `font.ts`) and the generated plates it no longer uses (`district-night.png`, `town-day-clean.png`, `town-night-clean.png`). Saved `app.homeScene` is dropped on load.
- *     - Every place is a painted building that opens its Home module: Nova HQ (Agent tasks), Depot (New deployment), Post Office (Schedule), Bank (Crypto), Odds Parlour (Polymarket), Cinema (YouTube), Power Plant (Analytics), Noticeboard (Notes), Town Hall (Integrations), Fountain Park (Chat). Each of the 15 integrations also has its own building (Records, Arcade, Cowork, Lab, Studio, Observatory, Gemini Tower, Telegraph, Clock Tower, Library, Vault); its sign is steady when connected and flickers like a faulty neon tube when not. Misspelled painted signs are relettered in the painting's own colours.
- *     - Live layer: PixelLab-made townsfolk walk the plaza, boardwalks, stairs and park; each agent task is a Nova agent dressed for its job (lab coat, courier, trader, media crew, researcher) with a glow ring, an "N" chip and a data trail, walking from Nova HQ to the building matching its last tools, with a work bubble. The canvas draws at screen resolution; Home is always night. Smoke tests open Agent tasks through Nova HQ and New deployment through the Depot.
- *
- * - V.80 Alpha (2026-09-26): The District, a second Home view
- *     - Home has two pixel-city views, switched with the Harbour / District chip in the HUD bar and saved to `app.homeScene` (SQLite-mirrored user settings; default Harbour). Both share the `CitySceneRenderer` interface and the same popups (`hud/components/pixel-city/`).
- *     - The District is a walkable 2:1 isometric Hi-Bit city on a 14x14 tile island (`district/`): glass towers with living walls and rooftop gardens, pastel shophouses, a Supertree grove in the park, an offshore elevated MRT with a running train and station, Marina-Bay-style waterfront promenade, and the Nova Hub tower at the centre. Night and day palettes follow the app theme; the map, the buildings, the props and the ground are baked to sprites once and only what moves is drawn each frame (20 fps, paused while hidden).
- *     - Every Home place is a building that opens its existing popup: Nova Hub (Agent tasks), Bus Depot (New deployment), Post Office with a working clock (Schedule), Bank with a live crypto ticker, Odds Parlour (Polymarket), Cinema (YouTube), Power Plant with a live cost meter (Analytics), Library with a notice board of notes, Signal Tower with one LED per integration, and the Park where Nova the cat sits (Chat). A Model Lab stands for the LLM providers. Places whose integration is not connected are dark with a CLOSED sign. Hotspot markers sit on the roofs and hit rects are each building's inscribed core, so a front building no longer steals clicks from the one behind it.
- *     - Agents: each agent task is a character that leaves the Hub and pathfinds along the road grid to the workplace matching its last tool calls (Gmail/Calendar -> Post Office, Telegram/Discord/Slack -> Signal Tower, Coinbase/Phantom -> Bank, Polymarket -> Odds Parlour, Spotify/YouTube -> Cinema, web search/fetch -> Library, else Model Lab). Queued agents wait at the Hub, paused ones show "!", failed ones walk home under a red X, completed ones walk home and leave; glowing data trails run from the Hub to busy workplaces and the Hub's task floors light per task. Hover shows the task name and status; click opens Agent tasks. Townsfolk wander per active chat, each active deployment run is a bus on the loop, and nothing is shown that is not real data.
- *     - Fits 1024x768 to 4K with an integer pixel scale, no page scrollbar, and nothing clickable under the HUD bar or the player bar. Home smoke tests scope their selectors to the popup (the city's hover tags also say "Agent tasks" / "today") and allow the dev server's lazy-chunk compile when opening New deployment.
- *
  * - V.79 Alpha (2026-09-26): Deployment popup and Home polish
  *     - New deployment is a popup, not a page: Home's Agent Tasks "+" (and the /deployments buttons and `?mode=` / `&kind=` deep links) opens a Settings-style dialog over the current page with Describe it (Simple manager), One-off task and Automation (builder/canvas). It loads on demand, preloads on hover, reuses the page's Nova connection, and the ReactFlow canvas is its own chunk.
  *     - Fixed the light bar that flashed down the right edge when opening Deployments: /deployments was the only route whose document scrolled, so the native scrollbar appeared. The page is now a fixed full-height shell like Home, and `color-scheme` follows the theme so native scrollbars and select popups are dark in dark mode.
@@ -208,11 +153,11 @@
  *     - Local-first SQLite migration and unified secrets encryption (DPAPI-wrapped master key) are DESIGNED but NOT implemented yet; see `docs/handoff/2026-09-20-v63/HANDOFF.md`.
  *
  * - V.62 Alpha (2026-09-20): Supabase Removal + Local-Only Architecture
- *     - Removed all Supabase dependencies (database, auth, realtime) to make Nova fully open-source and local.
+ *     - Removed all Supabase dependencies (database, auth, realtime) to make NovaAIO fully open-source and local.
  *     - Converted integration configs to filesystem storage (`.nova-data/integrations-{userId}.json`) with encryption for secrets.
  *     - Converted job ledger and scheduler to in-memory storage with full JobLedgerStore interface.
  *     - Removed live news feed feature entirely (deleted API routes, hooks, and UI components).
- *     - Rebranded application from NovaOS to Nova across all UI surfaces and documentation.
+ *     - Rebranded application from NovaOS to NovaAIO across all UI surfaces and documentation.
  *     - User settings now persist in localStorage (`nova_user_settings:local-user`) for desktop exe deployment.
  *
  * - V.61 Alpha (2026-03-22): Home Notes module rollout + backend hardening
@@ -391,7 +336,7 @@
  *
  * - V.30 Alpha (2026-02-25): Calendar + Home overhaul with Google Calendar integration
  *     - Overhauled the Missions Calendar page UX and layout (week/day/month alignment, header behavior, mini-calendar interactions, and sidebar profile/settings module).
- *     - Overhauled Home page visual/system modules for a cleaner Nova presentation and improved workflow accessibility.
+ *     - Overhauled Home page visual/system modules for a cleaner NovaAIO presentation and improved workflow accessibility.
  *     - Added and hardened Google Calendar integration flow across integrations and calendar surfaces, including synced event rendering.
  *
  * - V.29 Alpha (2026-02-24): Mission workflow reliability + builder/runtime alignment
@@ -577,7 +522,7 @@
  * - V.01 Alpha (2026-02-16): Reset baseline versioning to Alpha track
  */
 
-export const NOVA_VERSION = "V.88 Alpha"
+export const NOVA_VERSION = "V.79 Alpha"
 
 
 

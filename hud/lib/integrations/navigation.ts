@@ -31,27 +31,3 @@ export function buildIntegrationsHref(setup?: IntegrationSetupKey | null): strin
   if (!setup) return "/integrations"
   return `/integrations?setup=${encodeURIComponent(setup)}`
 }
-
-const INTEGRATION_SETUP_LABELS: Readonly<Record<IntegrationSetupKey, string>> = {
-  telegram: "Telegram",
-  discord: "Discord",
-  slack: "Slack",
-  brave: "Brave",
-  news: "News",
-  coinbase: "Coinbase",
-  phantom: "Phantom",
-  polymarket: "Polymarket",
-  openai: "OpenAI",
-  claude: "Claude",
-  grok: "Grok",
-  gemini: "Gemini",
-  spotify: "Spotify",
-  youtube: "YouTube",
-  gmail: "Gmail",
-  "gmail-calendar": "Google Calendar",
-}
-
-/** The integration's display name ("Google Calendar" for `gmail-calendar`). */
-export function integrationSetupLabel(setup: IntegrationSetupKey): string {
-  return INTEGRATION_SETUP_LABELS[setup]
-}

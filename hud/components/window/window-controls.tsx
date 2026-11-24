@@ -1,56 +1,73 @@
-"use client"
+'use client'
 
-import { useEffect, useState } from "react"
-import { Copy, Minus, Square, X } from "lucide-react"
-import { cn } from "@/lib/shared/utils"
+import { useState, useEffect } from 'react'
+import { Minus, Square, X } from 'lucide-react'
+import { cn } from '@/lib/shared/utils'
 
-const CONTROL =
-  "flex h-full w-11 items-center justify-center text-muted transition-colors duration-150 ease-out " +
-  "hover:bg-hover hover:text-fg focus-visible:outline-offset-[-2px] [&_svg]:size-3.5"
-
-/**
- * Minimize / maximize / close for the frameless Electron window (hud/electron/main.js sets `frame: false`).
- * Renders nothing in a plain browser. Fills the height of its parent (the 44px top bar) and opts out of the
- * drag region so the buttons stay clickable.
- */
-export function WindowControls({ className }: { className?: string }) {
-  const [isElectron, setIsElectron] = useState(false)
+export function WindowControls() {
   const [isMaximized, setIsMaximized] = useState(false)
 
   useEffect(() => {
-    const api = window.electronAPI
-    if (!api?.isElectron) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- electronAPI only exists after hydration
-    setIsElectron(true)
-    void api.windowIsMaximized().then(setIsMaximized)
-    // Snapping or double-clicking the drag region also maximizes; re-read on every resize.
-    const onResize = () => void api.windowIsMaximized().then(setIsMaximized)
-    window.addEventListener("resize", onResize)
-    return () => window.removeEventListener("resize", onResize)
+    // Check initial maximized state
+    if (window.electronAPI?.windowIsMaximized) {
+      window.electronAPI.windowIsMaximized().then(setIsMaximized)
+    }
   }, [])
 
-  if (!isElectron) return null
+  const handleMinimize = () => {
+    window.electronAPI?.windowMinimize()
+  }
+
+  const handleMaximize = () => {
+    window.electronAPI?.windowMaximize().then(() => {
+      // Update state after maximize/restore
+      window.electronAPI?.windowIsMaximized().then(setIsMaximized)
+    })
+  }
+
+  const handleClose = () => {
+    window.electronAPI?.windowClose()
+  }
+
+  // Only show in Electron
+  if (!window.electronAPI?.isElectron) {
+    return null
+  }
 
   return (
-    <div data-window-controls className={cn("flex h-full items-stretch select-none [-webkit-app-region:no-drag]", className)}>
-      <button type="button" className={CONTROL} aria-label="Minimize window" onClick={() => void window.electronAPI?.windowMinimize()}>
-        <Minus />
+    <div className="flex items-center h-8 select-none" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+      <button
+        onClick={handleMinimize}
+        className={cn(
+          'h-8 w-12 flex items-center justify-center',
+          'hover:bg-white/10 transition-colors',
+          'text-gray-400 hover:text-white'
+        )}
+        aria-label="Minimize"
+      >
+        <Minus className="w-4 h-4" />
       </button>
       <button
-        type="button"
-        className={CONTROL}
-        aria-label={isMaximized ? "Restore window" : "Maximize window"}
-        onClick={() => void window.electronAPI?.windowMaximize()}
+        onClick={handleMaximize}
+        className={cn(
+          'h-8 w-12 flex items-center justify-center',
+          'hover:bg-white/10 transition-colors',
+          'text-gray-400 hover:text-white'
+        )}
+        aria-label={isMaximized ? 'Restore' : 'Maximize'}
       >
-        {isMaximized ? <Copy className="-scale-x-100" /> : <Square className="size-3!" />}
+        <Square className="w-3.5 h-3.5" />
       </button>
       <button
-        type="button"
-        className={cn(CONTROL, "hover:bg-danger-solid hover:text-danger-fg")}
-        aria-label="Close window"
-        onClick={() => void window.electronAPI?.windowClose()}
+        onClick={handleClose}
+        className={cn(
+          'h-8 w-12 flex items-center justify-center',
+          'hover:bg-red-600 transition-colors',
+          'text-gray-400 hover:text-white'
+        )}
+        aria-label="Close"
       >
-        <X />
+        <X className="w-4 h-4" />
       </button>
     </div>
   )

@@ -1,7 +1,7 @@
 "use client"
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react"
-import { loadUserSettings, updateAppSettings, type AccentColor } from "@/lib/settings/userSettings"
+import { loadUserSettings, updateAppSettings, ACCENT_COLORS, type AccentColor } from "@/lib/settings/userSettings"
 
 interface AccentContextValue {
   accentColor: AccentColor
@@ -13,23 +13,35 @@ const AccentContext = createContext<AccentContextValue>({
   setAccentColor: () => {},
 })
 
-/**
- * Mirrors the accent setting onto <html data-accent="...">. The colours themselves live in
- * app/styles/theme.css, tuned per theme, so --accent / --accent-fg / --accent-text / --ring stay readable in
- * light and dark. Read the resolved colour in JS with getComputedStyle(document.documentElement).getPropertyValue("--accent").
- */
 export function AccentProvider({ children }: { children: ReactNode }) {
   const [accentColor, setAccentColorState] = useState<AccentColor>(() => loadUserSettings().app.accentColor)
 
+  // Apply accent color CSS variables to document
   const applyAccentColor = useCallback((color: AccentColor) => {
     if (typeof document === "undefined") return
-    document.documentElement.dataset.accent = color
+
+    const { primary, secondary } = ACCENT_COLORS[color]
+    const root = document.documentElement
+
+    // Parse hex to RGB for rgba() usage
+    const hexToRgb = (hex: string) => {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+      return result
+        ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}`
+        : "203, 213, 225"
+    }
+
+    root.style.setProperty("--accent-primary", primary)
+    root.style.setProperty("--accent-secondary", secondary)
+    root.style.setProperty("--accent-rgb", hexToRgb(primary))
   }, [])
 
+  // Keep document CSS vars synced with current accent color.
   useEffect(() => {
     applyAccentColor(accentColor)
   }, [accentColor, applyAccentColor])
 
+  // Update accent color
   const setAccentColor = (color: AccentColor) => {
     setAccentColorState(color)
     applyAccentColor(color)

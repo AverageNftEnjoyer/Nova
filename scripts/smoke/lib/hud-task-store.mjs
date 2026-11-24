@@ -1,120 +1,76 @@
 /**
  * Loads the HUD agent-task store (hud/lib/agents/task-store.ts) in plain Node for smoke tests.
  *
- * The store and every HUD module it imports (followed from its import graph, so a new dependency needs no edit
- * here) are transpiled to CommonJS inside `outDir`. Requires are then rewritten:
- *   - HUD modules (relative or `@/...`) point at their transpiled copies in `outDir`;
- *   - runtime modules under src/ point at their absolute repo paths, so the store shares the SAME src/db (and
- *     settings) module instances as any runtime module the smoke imports;
- *   - npm packages resolve from hud/ (outDir has no node_modules); `server-only` (a Next build-time guard that
- *     throws outside the react-server condition) is dropped.
- * NOVA_DATA_DIR must already point at a temp dir.
- *
- * By default `validateConfiguredLlmSelection` (does the user have this provider connected, and is the model one of
- * its models?) passes every selection through, so a store smoke can create tasks for any user with any model id
- * without seeding encrypted API keys. That check is covered by agent-task-provider-contract-smoke and the Playwright
- * agent-task API tests; pass `{ validateProviders: true }` to keep the real module.
+ * The TypeScript sources the store needs are transpiled to CommonJS inside `outDir`, and their relative imports of
+ * runtime modules under src/ are rewritten to absolute paths, so the store shares the SAME src/db (and settings)
+ * module instances as any runtime module the smoke imports. NOVA_DATA_DIR must already point at a temp dir.
  *
  *   const { store, taskAttachments } = loadHudTaskStore(tempDir)
  */
 import fs from "node:fs"
-import { builtinModules, createRequire } from "node:module"
+import { createRequire } from "node:module"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import ts from "typescript"
 
 export const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..")
 
-const hudRoot = path.join(repoRoot, "hud")
-const hudRequire = createRequire(path.join(hudRoot, "package.json"))
 const toPosix = (value) => value.replace(/\\/g, "/")
-const BUILTINS = new Set(builtinModules)
-const ENTRY_POINTS = ["hud/lib/agents/task-store.ts", "hud/lib/agents/task-attachments.ts"]
-const SOURCE_EXTENSIONS = [".ts", ".tsx", "/index.ts", "/index.tsx"]
 
-const PROVIDER_SELECTION = path.join(hudRoot, "lib", "integrations", "llm", "provider-selection.ts")
-const PASSTHROUGH_PROVIDER_SELECTION = `"use strict"
-// Smoke stub (scripts/smoke/lib/hud-task-store.mjs): every provider/model selection is accepted as given.
-exports.validateConfiguredLlmSelection = (_config, provider, model) => ({ provider, model })
-`
+/** Absolute paths of the src/ modules the HUD store imports, keyed by the relative specifier used in the TS source. */
+export const HUD_TASK_STORE_SRC_REWRITES = Object.freeze({
+  "../../../src/db/index.js": toPosix(path.join(repoRoot, "src", "db", "index.js")),
+  "../../../src/db/agent-task-budget-events.js": toPosix(path.join(repoRoot, "src", "db", "agent-task-budget-events.js")),
+  "../../../src/db/paths.js": toPosix(path.join(repoRoot, "src", "db", "paths.js")),
+  "../../../../src/providers/pricing/index.js": toPosix(path.join(repoRoot, "src", "providers", "pricing", "index.js")),
+  "../../../src/runtime/modules/agent-tasks/budget-settings/index.js": toPosix(
+    path.join(repoRoot, "src", "runtime", "modules", "agent-tasks", "budget-settings", "index.js"),
+  ),
+})
 
-const insideHud = (absolute) => absolute === hudRoot || absolute.startsWith(hudRoot + path.sep)
+const HUD_TASK_STORE_SOURCES = [
+  "hud/lib/agents/types.ts",
+  "hud/lib/agents/task-events.ts",
+  "hud/lib/agents/task-stats.ts",
+  "hud/lib/agents/task-attachments.ts",
+  "hud/lib/git/worktree-manager.ts",
+  "hud/lib/agents/task-store.ts",
+  "hud/app/integrations/constants/types.ts",
+  "hud/app/integrations/constants/pricing.ts",
+  "hud/app/integrations/constants/openai-models.ts",
+  "hud/app/integrations/constants/claude-models.ts",
+  "hud/app/integrations/constants/grok-models.ts",
+  "hud/app/integrations/constants/gemini-models.ts",
+]
 
-/** Absolute path of a HUD source file for an import specifier, or null when it is not a HUD module. */
-function resolveHudSource(specifier, fromFile) {
-  let base
-  if (specifier.startsWith("@/")) base = path.join(hudRoot, specifier.slice(2))
-  else if (specifier.startsWith(".")) base = path.resolve(path.dirname(fromFile), specifier)
-  else return null
-  if (!insideHud(base)) return null
-  for (const extension of ["", ...SOURCE_EXTENSIONS]) {
-    const candidate = base + extension
-    if (/\.tsx?$/.test(candidate) && fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate
-  }
-  throw new Error(`hud-task-store: cannot resolve "${specifier}" imported by ${path.relative(repoRoot, fromFile)}`)
-}
+const hudRoot = path.join(repoRoot, "hud")
 
-/** Runtime (non type-only) import specifiers of a TS source. Type-only imports are erased by the transpile. */
-function runtimeSpecifiers(source) {
-  const specifiers = []
-  const statement = /^\s*(import|export)\s+(type\s+)?(?:[^"';]*?\s+from\s+)?["']([^"']+)["']/gm
-  for (const match of source.matchAll(statement)) if (!match[2]) specifiers.push(match[3])
-  for (const match of source.matchAll(/\bimport\(\s*["']([^"']+)["']\s*\)/g)) specifiers.push(match[1])
-  return specifiers
-}
-
-/** Every HUD source the entry points load at runtime, entry points first. */
-function collectSources() {
-  const queue = ENTRY_POINTS.map((relative) => path.join(repoRoot, relative))
-  const seen = new Set()
-  while (queue.length > 0) {
-    const file = queue.shift()
-    if (seen.has(file)) continue
-    seen.add(file)
-    for (const specifier of runtimeSpecifiers(fs.readFileSync(file, "utf8"))) {
-      const resolved = resolveHudSource(specifier, file)
-      if (resolved && !seen.has(resolved)) queue.push(resolved)
-    }
-  }
-  return [...seen]
-}
-
-const outputPathFor = (outDir, sourceFile) =>
-  path.join(outDir, path.relative(repoRoot, sourceFile)).replace(/\.tsx?$/, ".js")
-
-function rewriteRequires(code, sourceFile, outDir) {
-  return code
-    .replace(/^\s*require\((["'])server-only\1\);?\s*$/gm, "")
-    .replace(/require\((["'])([^"']+)\1\)/g, (match, quote, specifier) => {
-      if (specifier.startsWith("node:") || BUILTINS.has(specifier)) return match
-      const hudSource = resolveHudSource(specifier, sourceFile)
-      if (hudSource) return `require(${quote}${toPosix(outputPathFor(outDir, hudSource))}${quote})`
-      if (specifier.startsWith(".")) return `require(${quote}${toPosix(path.resolve(path.dirname(sourceFile), specifier))}${quote})`
-      return `require(${quote}${toPosix(hudRequire.resolve(specifier))}${quote})`
-    })
+/**
+ * Point every relative require that leaves hud/ (the runtime modules under src/) at its absolute path in the repo,
+ * so the transpiled copies share the SAME src/db (and settings) as the smoke. Requires that stay inside hud/ keep
+ * resolving between the transpiled copies in outDir. Generic on purpose: a new src/ import in the store needs no
+ * edit here. HUD_TASK_STORE_SRC_REWRITES lists the src/ modules the store imports today, for reference.
+ */
+function rewriteRepoImports(code, relativePath) {
+  const sourceDir = path.dirname(path.join(repoRoot, relativePath))
+  return code.replace(/require\((["'])(\.{1,2}\/[^"']+)\1\)/g, (match, quote, specifier) => {
+    const resolved = path.resolve(sourceDir, specifier)
+    const insideHud = resolved === hudRoot || resolved.startsWith(hudRoot + path.sep)
+    return insideHud ? match : `require(${quote}${toPosix(resolved)}${quote})`
+  })
 }
 
 /** Transpile the store and its HUD dependencies into `outDir`; returns the loaded CommonJS modules. */
-export function loadHudTaskStore(outDir, { validateProviders = false } = {}) {
-  for (const sourceFile of collectSources()) {
-    if (!validateProviders && sourceFile === PROVIDER_SELECTION) {
-      const target = outputPathFor(outDir, sourceFile)
-      fs.mkdirSync(path.dirname(target), { recursive: true })
-      fs.writeFileSync(target, PASSTHROUGH_PROVIDER_SELECTION, "utf8")
-      continue
-    }
-    const output = ts.transpileModule(fs.readFileSync(sourceFile, "utf8"), {
-      fileName: sourceFile,
-      compilerOptions: {
-        module: ts.ModuleKind.CommonJS,
-        target: ts.ScriptTarget.ES2022,
-        esModuleInterop: true,
-        jsx: ts.JsxEmit.ReactJSX,
-      },
+export function loadHudTaskStore(outDir) {
+  for (const relativePath of HUD_TASK_STORE_SOURCES) {
+    const source = fs.readFileSync(path.join(repoRoot, relativePath), "utf8")
+    const output = ts.transpileModule(source, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
     })
-    const target = outputPathFor(outDir, sourceFile)
+    const rewritten = rewriteRepoImports(output.outputText, relativePath)
+    const target = path.join(outDir, relativePath.replace(/\.ts$/, ".js"))
     fs.mkdirSync(path.dirname(target), { recursive: true })
-    fs.writeFileSync(target, rewriteRequires(output.outputText, sourceFile, outDir), "utf8")
+    fs.writeFileSync(target, rewritten, "utf8")
   }
   const require = createRequire(path.join(outDir, "loader.cjs"))
   return {

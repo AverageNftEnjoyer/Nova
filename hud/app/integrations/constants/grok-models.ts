@@ -1,4 +1,4 @@
-import type { SelectOption } from "@/components/ui/select"
+import type { FluidSelectOption } from "@/components/ui/fluid-select"
 import { formatModelPriceHint } from "./pricing"
 import type { ModelOption } from "./types"
 
@@ -13,7 +13,7 @@ export const GROK_MODEL_OPTIONS: ModelOption[] = [
   { value: "grok-build-0.1", label: "Grok Build 0.1", priceHint: formatModelPriceHint("grok-build-0.1") },
 ]
 
-export const GROK_MODEL_SELECT_OPTIONS: SelectOption[] = GROK_MODEL_OPTIONS.map((option) => ({
+export const GROK_MODEL_SELECT_OPTIONS: FluidSelectOption[] = GROK_MODEL_OPTIONS.map((option) => ({
   value: option.value,
   label: option.label,
 }))

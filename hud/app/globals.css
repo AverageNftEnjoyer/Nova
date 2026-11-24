@@ -1,5 +1,12 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./styles/tailwind-directives.css";
 @import "./styles/theme.css";
+@import "./styles/utilities.css";
+@import "./styles/orb-animations.css";
+@import "./styles/spotlight.css";
+@import "./styles/motion-misc.css";
 @import "./styles/scrollbars.css";
+@import "./styles/thinking-indicator.css";
 @import "./styles/forms.css";
+@import "./styles/mission-canvas.css";

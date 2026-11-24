@@ -50,6 +50,12 @@ export type MissionRuntimeStatus =
   | { kind: "completed"; at: number }
   | { kind: "failed"; at: number }
 
+export interface MissionActionMenuState {
+  mission: MissionListItem
+  left: number
+  top: number
+}
+
 export type WorkflowStepType = "trigger" | "fetch" | "coinbase" | "ai" | "transform" | "condition" | "output"
 export type AiIntegrationType = "openai" | "claude" | "grok" | "gemini"
 

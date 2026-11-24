@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 
 import type { NovaState, useNovaState } from "@/lib/chat/hooks/useNovaState"
 import type { Deployment, DeploymentPlan, DeploymentRun } from "@/lib/deployments/types"
-import type { DeploymentFlowCallbacks } from "./use-deployment-actions"
 
 /** How long the manager waits for Nova's streamed proposal before asking the server to plan on its own. */
 const PROPOSAL_TIMEOUT_MS = 60_000
@@ -19,7 +18,7 @@ function buildPlanningPrompt(outcome: string): string {
   ].join("\n")
 }
 
-/** The slice of the page's existing Nova runtime connection the manager needs; it never opens a socket of its own. */
+/** The slice of the page's existing Nova connection the manager needs; it never opens a socket of its own. */
 export type DeploymentNovaConnection = Pick<
   ReturnType<typeof useNovaState>,
   "agentMessages" | "connected" | "sendToAgent" | "state" | "streamingAssistantId" | "thinkingStatus"
@@ -47,10 +46,9 @@ export interface DeploymentManager {
  */
 export function useDeploymentManager(
   nova: DeploymentNovaConnection,
-  { onLaunched }: Pick<DeploymentFlowCallbacks, "onLaunched">,
-  initialInput = "",
+  onStatus: (message: string) => void,
 ): DeploymentManager {
-  const [input, setInput] = useState(initialInput)
+  const [input, setInput] = useState("")
   const [requests, setRequests] = useState<string[]>([])
   const [plannedDeployment, setPlannedDeployment] = useState<Deployment | null>(null)
   const [plan, setPlan] = useState<DeploymentPlan | null>(null)
@@ -152,10 +150,7 @@ export function useDeploymentManager(
       })
       const data = (await response.json()) as { ok?: boolean; run?: DeploymentRun; outcome?: string; error?: string }
       if (!response.ok || !data.ok || !data.run) throw new Error(data.error || "Deployment launch failed.")
-      onLaunched(data.outcome === "automation_deployed" ? "Automation deployed" : "Task queued", {
-        deploymentId: plannedDeployment.id,
-        runId: data.run.id,
-      })
+      onStatus(data.outcome === "automation_deployed" ? "Automation deployed." : "Task queued.")
     } catch (launchError) {
       setError(launchError instanceof Error ? launchError.message : "Deployment launch failed.")
     } finally {

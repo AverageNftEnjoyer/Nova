@@ -1,329 +1,450 @@
 "use client"
 
-import { useState } from "react"
-import { Network, Plus, Sparkles } from "lucide-react"
+import type { CSSProperties, RefObject } from "react"
+import { LayoutGrid, List, MoreVertical, Network, Pin, Search, Sparkles, Trash2, WandSparkles } from "lucide-react"
 
-import {
-  Badge,
-  Button,
-  EmptyState,
-  Panel,
-  SearchInput,
-  SkeletonRows,
-  Stat,
-  StatGroup,
-  StatusDot,
-  Switch,
-  Table,
-  TBody,
-  Td,
-  Th,
-  THead,
-  Tr,
-  Tabs,
-  TabsList,
-  TabsTrigger,
-  Textarea,
-  type StatusTone,
-} from "@/components/ui"
+import { FluidSelect } from "@/components/ui/fluid-select"
 import type { IntegrationsSettings } from "@/lib/integrations/store/client-store"
 import type { MissionTemplate } from "@/lib/missions/templates"
+import { cn } from "@/lib/shared/utils"
 import type { MissionQueueMetrics } from "../api"
-import { AI_PROVIDER_LABELS } from "../constants"
-import { formatIntegrationLabel } from "../helpers"
-import { describeNextRun, describeTrigger, formatRelativeTime } from "../schedule-display"
-import type { MissionListItem, MissionRunProgress, MissionRuntimeStatus } from "../types"
-import { MissionActionMenu } from "./mission-action-menu"
-
-export interface MissionRowActions {
-  onRunNow: (mission: MissionListItem) => void
-  onEdit: (mission: MissionListItem) => void
-  onOpenCanvas: (missionId: string) => void
-  onDuplicate: (mission: MissionListItem) => void
-  onToggleEnabled: (mission: MissionListItem) => void
-  onDelete: (mission: MissionListItem) => void
-}
+import {
+  AI_PROVIDER_LABELS,
+  MISSION_FILTER_STATUS_OPTIONS,
+} from "../constants"
+import {
+  formatIntegrationLabel,
+  getMissionIntegrationIcon,
+  normalizePriority,
+} from "../helpers"
+import type {
+  MissionRunProgress,
+  MissionRuntimeStatus,
+  MissionListItem,
+} from "../types"
 
 interface MissionsMainPanelsProps {
+  isLight: boolean
+  panelStyle?: CSSProperties
+  panelClass: string
+  moduleHeightClass: string
+  subPanelClass: string
+  createSectionRef: RefObject<HTMLElement | null>
+  listSectionRef: RefObject<HTMLElement | null>
   templates: MissionTemplate[]
   integrationsSettings: IntegrationsSettings
   novaMissionPrompt: string
   novaGeneratingMission: boolean
   searchQuery: string
   statusFilter: string
+  missionBoardView: "grid" | "list"
   loading: boolean
-  totalCount: number
-  stats: { total: number; enabled: number; totalRuns: number; successRate: number }
   filteredSchedules: MissionListItem[]
   busyById: Record<string, boolean>
   runProgress: MissionRunProgress | null
   missionRuntimeStatusById: Record<string, MissionRuntimeStatus>
   missionQueueMetrics: MissionQueueMetrics | null
-  formatStatusTime: (value: number) => string
-  actions: MissionRowActions
   onNovaMissionPromptChange: (value: string) => void
   onSearchQueryChange: (value: string) => void
   onStatusFilterChange: (value: string) => void
+  onMissionBoardViewChange: (view: "grid" | "list") => void
   onApplyTemplate: (templateId: string) => void
   onGenerateMissionDraft: () => void
-  onCreateMission: () => void
-}
-
-interface LastRunView {
-  tone: StatusTone
-  label: string
-}
-
-function lastRunView(
-  mission: MissionListItem,
-  runState: MissionRunProgress | null,
-  runtimeStatus: MissionRuntimeStatus | undefined,
-  formatStatusTime: (value: number) => string,
-): LastRunView {
-  if (runState?.running) {
-    const total = Math.max(runState.steps.length, 1)
-    const runningIndex = runState.steps.findIndex((step) => step.status === "running")
-    const done = runState.steps.filter((step) => step.status === "completed" || step.status === "skipped").length
-    const step = runningIndex >= 0 ? runningIndex + 1 : Math.min(done + 1, total)
-    return { tone: "running", label: `Running ${step}/${total}` }
-  }
-  if (runtimeStatus?.kind === "running") return { tone: "running", label: `Running ${runtimeStatus.step}/${runtimeStatus.total}` }
-  if (runtimeStatus?.kind === "queued") return { tone: "info", label: `Queued ${formatStatusTime(runtimeStatus.at)}` }
-  if (runtimeStatus?.kind === "completed") return { tone: "success", label: `Succeeded ${formatStatusTime(runtimeStatus.at)}` }
-  if (runtimeStatus?.kind === "failed") return { tone: "danger", label: `Failed ${formatStatusTime(runtimeStatus.at)}` }
-  if (mission.lastRunAt) {
-    const relative = formatRelativeTime(mission.lastRunAt)
-    return { tone: "idle", label: relative ? `Ran ${relative}` : "Ran before" }
-  }
-  return { tone: "idle", label: "Never run" }
+  onPlayClickSound: () => void
+  formatStatusTime: (value: number) => string
+  onMissionActionMenu: (mission: MissionListItem, left: number, top: number) => void
+  onToggleMissionEnabled: (mission: MissionListItem) => void
+  onRequestDeleteMission: (mission: MissionListItem) => void
+  onViewInCanvas?: (missionId: string) => void
 }
 
 export function MissionsMainPanels({
+  isLight,
+  panelStyle,
+  panelClass,
+  moduleHeightClass,
+  subPanelClass,
+  createSectionRef,
+  listSectionRef,
   templates,
   integrationsSettings,
   novaMissionPrompt,
   novaGeneratingMission,
   searchQuery,
   statusFilter,
+  missionBoardView,
   loading,
-  totalCount,
-  stats,
   filteredSchedules,
   busyById,
   runProgress,
   missionRuntimeStatusById,
   missionQueueMetrics,
-  formatStatusTime,
-  actions,
   onNovaMissionPromptChange,
   onSearchQueryChange,
   onStatusFilterChange,
+  onMissionBoardViewChange,
   onApplyTemplate,
   onGenerateMissionDraft,
-  onCreateMission,
+  onPlayClickSound,
+  formatStatusTime,
+  onMissionActionMenu,
+  onToggleMissionEnabled,
+  onRequestDeleteMission,
+  onViewInCanvas,
 }: MissionsMainPanelsProps) {
-  const filtersActive = searchQuery.trim().length > 0 || statusFilter !== "all"
-  const providerLabel = AI_PROVIDER_LABELS[integrationsSettings.activeLlmProvider]
-  const [nowMs] = useState(() => Date.now())
-
   return (
-    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
-      <div className="flex min-w-0 flex-col gap-4">
-        <StatGroup>
-          <Stat size="sm" label="Missions" value={<span className="tabular-nums">{stats.total}</span>} />
-          <Stat size="sm" label="Active" value={<span className="tabular-nums">{stats.enabled}</span>} />
-          <Stat size="sm" label="Runs" value={<span className="tabular-nums">{stats.totalRuns}</span>} />
-          <Stat
-            size="sm"
-            label="Success rate"
-            value={<span className="tabular-nums">{stats.totalRuns > 0 ? `${stats.successRate}%` : "None yet"}</span>}
+    <div className="grid w-full grid-cols-1 gap-5 xl:grid-cols-[minmax(360px,28vw)_minmax(0,1fr)]">
+      <section
+        ref={createSectionRef}
+        style={panelStyle}
+        className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} min-h-0 flex flex-col`}
+      >
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-accent" />
+          <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Quick Start Templates</h2>
+        </div>
+        <p className={cn("mt-0.5 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+          Launch production-ready mission blueprints and fine-tune in Mission Builder.
+        </p>
+        <div className="mt-2.5 min-h-0 flex-1 overflow-y-auto space-y-2 pr-1">
+          {templates.map((template) => (
+            <div key={template.id} className={cn("rounded-lg border p-2.5 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
+              <div>
+                <h3 className={cn("text-[13px] font-semibold leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{template.label}</h3>
+                <p className={cn("mt-0.5 line-clamp-2 text-[11px] leading-snug", isLight ? "text-s-60" : "text-slate-400")}>{template.description}</p>
+              </div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                {template.tags.map((tag, tagIndex) => (
+                  <span key={`${template.id}-${tag}-${tagIndex}`} className={cn("rounded-md px-1.5 py-0.5 text-[9px]", isLight ? "bg-[#e8eef9] text-s-70" : "bg-white/8 text-slate-300")}>
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+              <button
+                onClick={() => onApplyTemplate(template.id)}
+                className="mt-2 h-7 w-full rounded-md border border-accent-30 bg-accent-10 text-accent transition-all duration-150 text-[11px] home-spotlight-card home-border-glow"
+              >
+                Use Template
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className={cn("mt-3 rounded-xl border p-3.5 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
+          <div className="flex items-center gap-2">
+            <WandSparkles className="w-3.5 h-3.5 text-accent" />
+            <h3 className={cn("text-xs uppercase tracking-[0.18em] font-semibold", isLight ? "text-s-80" : "text-slate-200")}>Nova Mission Generator</h3>
+          </div>
+          <p className={cn("mt-1 text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+            Uses your connected {AI_PROVIDER_LABELS[integrationsSettings.activeLlmProvider]} model to build a ready-to-review mission draft.
+          </p>
+          <textarea
+            value={novaMissionPrompt}
+            onChange={(e) => onNovaMissionPromptChange(e.target.value)}
+            placeholder="Example: Monitor BTC moves above 3% in 1h, summarize drivers, and send alerts to Telegram."
+            className={cn(
+              "mt-2.5 min-h-22 w-full resize-y rounded-md border px-3 py-2 text-xs outline-none",
+              isLight ? "border-[#d5dce8] bg-white text-s-90 placeholder:text-s-40" : "border-white/14 bg-black/25 text-slate-100 placeholder:text-slate-500",
+            )}
           />
-        </StatGroup>
+          <button
+            onClick={() => {
+              onPlayClickSound()
+              onGenerateMissionDraft()
+            }}
+            disabled={novaGeneratingMission}
+            className="mt-2.5 h-8 w-full rounded-md border border-accent-30 bg-accent-10 text-accent transition-colors text-xs disabled:opacity-60 home-spotlight-card home-border-glow"
+          >
+            {novaGeneratingMission ? "Generating Draft..." : "Generate Mission Draft"}
+          </button>
+        </div>
+      </section>
 
-        <Panel flush>
-          <div className="flex flex-wrap items-center gap-3 border-b border-border px-3 py-2.5">
-            <SearchInput
+      <section
+        ref={listSectionRef}
+        style={panelStyle}
+        className={`${panelClass} home-spotlight-shell p-5 ${moduleHeightClass} min-h-0 flex flex-col w-full`}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Pin className="w-4 h-4 text-accent" />
+            <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Mission Pipeline Settings</h2>
+          </div>
+          <div className="text-right">
+            <p className={cn("text-xs", isLight ? "text-s-50" : "text-slate-400")}>{filteredSchedules.length} missions</p>
+            {missionQueueMetrics && (
+              <p className={cn("text-[10px]", isLight ? "text-s-50" : "text-slate-500")}>
+                Queue {missionQueueMetrics.queueDepth} ({missionQueueMetrics.dueDepth} due) · Lag {missionQueueMetrics.lagSeconds}s · Fail {Math.round(missionQueueMetrics.failureRate * 100)}%
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="mt-3 grid grid-cols-[minmax(0,1fr)_190px_auto] gap-2">
+          <div className={cn("flex items-center gap-2 rounded-lg border px-2.5 home-spotlight-card home-border-glow", subPanelClass)}>
+            <Search className={cn("w-3.5 h-3.5 shrink-0", isLight ? "text-s-50" : "text-slate-500")} />
+            <input
               value={searchQuery}
-              onValueChange={onSearchQueryChange}
-              placeholder="Search missions"
-              size="sm"
-              containerClassName="w-full max-w-72"
+              onChange={(e) => onSearchQueryChange(e.target.value)}
+              placeholder="Search missions..."
+              className={cn("h-8 w-full bg-transparent text-sm outline-none", isLight ? "text-s-90 placeholder:text-s-40" : "text-slate-100 placeholder:text-slate-500")}
             />
-            <Tabs value={statusFilter} onValueChange={onStatusFilterChange} variant="segmented">
-              <TabsList aria-label="Filter by status">
-                <TabsTrigger value="all">All</TabsTrigger>
-                <TabsTrigger value="enabled">Active</TabsTrigger>
-                <TabsTrigger value="disabled">Paused</TabsTrigger>
-              </TabsList>
-            </Tabs>
-            {missionQueueMetrics ? (
-              <dl className="ml-auto flex items-center gap-4 text-xs text-muted" aria-label="Run queue">
-                <div className="flex gap-1.5"><dt>Queued</dt><dd className="font-mono text-fg tabular-nums">{missionQueueMetrics.queueDepth}</dd></div>
-                <div className="flex gap-1.5"><dt>Due</dt><dd className="font-mono text-fg tabular-nums">{missionQueueMetrics.dueDepth}</dd></div>
-                <div className="flex gap-1.5"><dt>Lag</dt><dd className="font-mono text-fg tabular-nums">{missionQueueMetrics.lagSeconds}s</dd></div>
-                <div className="flex gap-1.5"><dt>Failures</dt><dd className="font-mono text-fg tabular-nums">{Math.round(missionQueueMetrics.failureRate * 100)}%</dd></div>
-              </dl>
-            ) : null}
           </div>
-
-          {loading ? (
-            <SkeletonRows rows={5} />
-          ) : totalCount === 0 ? (
-            <EmptyState
-              icon={<Network />}
-              title="No missions yet"
-              description="Start from a template, generate a draft from a description, or build one step by step."
-              action={<Button onClick={onCreateMission}><Plus />New mission</Button>}
-            />
-          ) : filteredSchedules.length === 0 ? (
-            <EmptyState
-              size="compact"
-              title="No missions match"
-              description={filtersActive ? "Change the search or status filter." : undefined}
-              action={filtersActive ? (
-                <Button variant="secondary" size="sm" onClick={() => { onSearchQueryChange(""); onStatusFilterChange("all") }}>
-                  Clear filters
-                </Button>
-              ) : undefined}
-            />
-          ) : (
-            <Table>
-              <THead>
-                <tr>
-                  <Th>Mission</Th>
-                  <Th>Trigger</Th>
-                  <Th numeric>Steps</Th>
-                  <Th>Enabled</Th>
-                  <Th>Last run</Th>
-                  <Th>Next run</Th>
-                  <Th numeric>Runs</Th>
-                  <Th className="w-10"><span className="sr-only">Actions</span></Th>
-                </tr>
-              </THead>
-              <TBody>
-                {filteredSchedules.map((mission) => {
-                  const busy = Boolean(busyById[mission.id])
-                  const runState = runProgress && runProgress.missionId === mission.id ? runProgress : null
-                  const last = lastRunView(mission, runState, missionRuntimeStatusById[mission.id], formatStatusTime)
-                  const runs = Number.isFinite(mission.runCount) ? Number(mission.runCount) : 0
-                  const successes = Number.isFinite(mission.successCount) ? Number(mission.successCount) : 0
-                  const stepCount = Array.isArray(mission.workflowSteps) ? mission.workflowSteps.length : 0
-                  const description = String(mission.description || mission.message || "").trim()
-                  return (
-                    <Tr key={mission.id}>
-                      <Td className="max-w-0 w-[34%]">
-                        <button
-                          type="button"
-                          onClick={() => actions.onOpenCanvas(mission.id)}
-                          className="block max-w-full truncate text-left font-medium text-fg hover:underline focus-visible:underline"
-                        >
-                          {mission.label || "Untitled mission"}
-                        </button>
-                        <p className="truncate text-xs text-muted">
-                          {description || `Delivers to ${formatIntegrationLabel(mission.integration)}`}
-                        </p>
-                      </Td>
-                      <Td>
-                        <span className="text-fg">{describeTrigger(mission)}</span>
-                        <span className="block font-mono text-2xs text-faint">{mission.timezone}</span>
-                      </Td>
-                      <Td numeric mono>{stepCount}</Td>
-                      <Td>
-                        <Switch
-                          size="sm"
-                          checked={mission.enabled}
-                          disabled={busy}
-                          onCheckedChange={() => actions.onToggleEnabled(mission)}
-                          aria-label={mission.enabled ? `Pause ${mission.label}` : `Activate ${mission.label}`}
-                        />
-                      </Td>
-                      <Td>
-                        <span className="inline-flex items-center gap-2 whitespace-nowrap">
-                          <StatusDot tone={last.tone} />
-                          <span className={last.tone === "idle" ? "text-muted" : "text-fg"}>{last.label}</span>
-                        </span>
-                      </Td>
-                      <Td muted className="whitespace-nowrap tabular-nums">{describeNextRun(mission, nowMs)}</Td>
-                      <Td numeric mono>
-                        {runs}
-                        {runs > 0 ? <span className="ml-1.5 text-faint">{Math.round((successes / runs) * 100)}%</span> : null}
-                      </Td>
-                      <Td className="pr-2 text-right">
-                        <MissionActionMenu
-                          mission={mission}
-                          busy={busy}
-                          onRunNow={() => actions.onRunNow(mission)}
-                          onEdit={() => actions.onEdit(mission)}
-                          onOpenCanvas={() => actions.onOpenCanvas(mission.id)}
-                          onDuplicate={() => actions.onDuplicate(mission)}
-                          onToggleEnabled={() => actions.onToggleEnabled(mission)}
-                          onDelete={() => actions.onDelete(mission)}
-                        />
-                      </Td>
-                    </Tr>
-                  )
-                })}
-              </TBody>
-            </Table>
-          )}
-        </Panel>
-      </div>
-
-      <aside className="flex min-w-0 flex-col gap-4">
-        <Panel
-          title="Generate a draft"
-          description={`Drafted by your ${providerLabel} model, saved only after review.`}
-          icon={<Sparkles />}
-        >
-          <div className="flex flex-col gap-2">
-            <Textarea
-              value={novaMissionPrompt}
-              onChange={(e) => onNovaMissionPromptChange(e.target.value)}
-              placeholder="Every weekday at 8am, summarize overnight BTC moves and send them to Telegram."
-              aria-label="Describe the mission"
-              autoGrow
-              minRows={3}
-              maxRows={8}
-            />
-            <Button
-              variant="secondary"
-              onClick={onGenerateMissionDraft}
-              loading={novaGeneratingMission}
-              disabled={!novaMissionPrompt.trim()}
-              className="self-start"
+          <FluidSelect
+            value={statusFilter}
+            onChange={onStatusFilterChange}
+            options={MISSION_FILTER_STATUS_OPTIONS}
+            isLight={isLight}
+            className={cn(subPanelClass, "home-spotlight-card home-border-glow")}
+          />
+          <div className={cn("h-9 rounded-lg border px-1 flex items-center gap-1", subPanelClass)}>
+            <button
+              onClick={() => onMissionBoardViewChange("grid")}
+              className={cn(
+                "h-7 w-7 rounded-md inline-flex items-center justify-center transition-colors home-spotlight-card home-border-glow",
+                missionBoardView === "grid"
+                  ? "bg-accent-20 text-accent border border-accent-30"
+                  : isLight
+                    ? "text-s-60 border border-[#d5dce8] bg-white"
+                    : "text-slate-400 border border-white/12 bg-black/20",
+              )}
+              aria-label="Grid view"
             >
-              Generate draft
-            </Button>
+              <LayoutGrid className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => onMissionBoardViewChange("list")}
+              className={cn(
+                "h-7 w-7 rounded-md inline-flex items-center justify-center transition-colors home-spotlight-card home-border-glow",
+                missionBoardView === "list"
+                  ? "bg-accent-20 text-accent border border-accent-30"
+                  : isLight
+                    ? "text-s-60 border border-[#d5dce8] bg-white"
+                    : "text-slate-400 border border-white/12 bg-black/20",
+              )}
+              aria-label="List view"
+            >
+              <List className="w-3.5 h-3.5" />
+            </button>
           </div>
-        </Panel>
+        </div>
 
-        <Panel title="Templates" description="Start from a blueprint, then edit it." flush>
-          {templates.length === 0 ? (
-            <EmptyState size="compact" title="No templates available" />
-          ) : (
-            <ul className="divide-y divide-border-subtle">
-              {templates.map((template) => (
-                <li key={template.id} className="flex items-start gap-3 px-4 py-2.5">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-fg">{template.label}</p>
-                    <p className="line-clamp-2 text-xs text-muted">{template.description}</p>
-                    {template.tags.length > 0 ? (
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {template.tags.slice(0, 3).map((tag, index) => (
-                          <Badge key={`${template.id}-${tag}-${index}`}>{tag}</Badge>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={() => onApplyTemplate(template.id)} aria-label={`Use template ${template.label}`}>
-                    Use
-                  </Button>
-                </li>
-              ))}
-            </ul>
+        <div className={cn("mt-2.5 min-h-0 flex-1 overflow-y-auto pr-1", missionBoardView === "grid" ? "" : "")}>
+          {loading && <p className={cn("text-xs", isLight ? "text-s-50" : "text-slate-400")}>Loading missions...</p>}
+          {!loading && filteredSchedules.length === 0 && (
+            <p className={cn("text-xs", isLight ? "text-s-50" : "text-slate-400")}>No missions match the current filters.</p>
           )}
-        </Panel>
-      </aside>
+
+          <div className={cn(missionBoardView === "grid" ? "grid grid-cols-1 gap-3 xl:grid-cols-3" : "space-y-3")}>
+            {filteredSchedules.map((mission) => {
+              const busy = Boolean(busyById[mission.id])
+              const workflowStepTypes = Array.isArray(mission.workflowSteps)
+                ? mission.workflowSteps.map((step) => String(step?.type || "").trim().toLowerCase()).filter(Boolean)
+                : []
+              const priority = normalizePriority(mission.priority)
+              const runs = Number.isFinite(mission.runCount) ? Number(mission.runCount) : 0
+              const successes = Number.isFinite(mission.successCount) ? Number(mission.successCount) : 0
+              const successRate = runs > 0 ? Math.round((successes / runs) * 100) : 100
+              const processChips = (workflowStepTypes.length > 0 ? workflowStepTypes : ["trigger", "output"]).slice(0, 4)
+              const missionDescription = String(mission.description || mission.message || "").trim()
+              const missionMode = String(mission.mode || "daily").trim().toLowerCase() || "daily"
+              const runState = runProgress && runProgress.missionId === mission.id ? runProgress : null
+              const runtimeStatus = missionRuntimeStatusById[mission.id]
+              const dynamicRunningTotal = runState?.running ? Math.max(runState.steps.length, 1) : null
+              const dynamicRunningStep = runState?.running
+                ? (() => {
+                    const runningIndex = runState.steps.findIndex((step) => step.status === "running")
+                    if (runningIndex >= 0) return runningIndex + 1
+                    const completedCount = runState.steps.filter((step) => step.status === "completed" || step.status === "skipped").length
+                    return Math.min(completedCount + 1, Math.max(runState.steps.length, 1))
+                  })()
+                : null
+              const completedFromServer = mission.lastRunAt ? new Date(mission.lastRunAt).getTime() : null
+              const missionStatusText = dynamicRunningStep && dynamicRunningTotal
+                ? `Running ${dynamicRunningStep}/${dynamicRunningTotal}`
+                : runtimeStatus?.kind === "running"
+                  ? `Running ${runtimeStatus.step}/${runtimeStatus.total}`
+                  : runtimeStatus?.kind === "queued"
+                    ? `Queued at ${formatStatusTime(runtimeStatus.at)}`
+                  : runtimeStatus?.kind === "completed"
+                    ? `Completed at ${formatStatusTime(runtimeStatus.at)}`
+                    : runtimeStatus?.kind === "failed"
+                      ? `Failed at ${formatStatusTime(runtimeStatus.at)}`
+                      : completedFromServer && Number.isFinite(completedFromServer)
+                        ? `Completed at ${formatStatusTime(completedFromServer)}`
+                        : mission.enabled
+                          ? "Scheduled"
+                          : "Paused and not running"
+              const missionStatusToneClass = dynamicRunningStep && dynamicRunningTotal
+                ? "text-sky-300"
+                : runtimeStatus?.kind === "running"
+                  ? "text-sky-300"
+                  : runtimeStatus?.kind === "queued"
+                    ? "text-amber-300"
+                  : runtimeStatus?.kind === "completed"
+                    ? "text-emerald-300"
+                    : runtimeStatus?.kind === "failed"
+                      ? "text-rose-300"
+                      : completedFromServer && Number.isFinite(completedFromServer)
+                        ? "text-emerald-300"
+                        : mission.enabled
+                          ? "text-slate-300"
+                          : "text-rose-300"
+              const missionStatusDotClass = dynamicRunningStep && dynamicRunningTotal
+                ? "bg-sky-400"
+                : runtimeStatus?.kind === "running"
+                  ? "bg-sky-400"
+                  : runtimeStatus?.kind === "queued"
+                    ? "bg-amber-400"
+                  : runtimeStatus?.kind === "completed"
+                    ? "bg-emerald-400"
+                    : runtimeStatus?.kind === "failed"
+                      ? "bg-rose-400"
+                      : completedFromServer && Number.isFinite(completedFromServer)
+                        ? "bg-emerald-400"
+                        : mission.enabled
+                          ? "bg-slate-400"
+                          : "bg-rose-400"
+              return (
+                <div key={mission.id} className={cn("rounded-xl border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20")}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex items-start gap-2.5">
+                      <div className={cn("h-10 w-10 rounded-lg border inline-flex items-center justify-center shrink-0", isLight ? "border-[#d5dce8] bg-white" : "border-white/12 bg-black/30")}>
+                        {getMissionIntegrationIcon(mission.integration, "w-4 h-4 text-accent")}
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className={cn("text-xl font-semibold truncate", isLight ? "text-s-90" : "text-slate-100")}>{mission.label || "Untitled mission"}</h3>
+                        <div className="mt-1 flex items-center gap-2">
+                          <span className={cn("text-xs", isLight ? "text-s-60" : "text-slate-400")}>{formatIntegrationLabel(mission.integration)}</span>
+                          <span
+                            className={cn(
+                              "rounded-md px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em]",
+                              priority === "low" && (isLight ? "border border-emerald-300 bg-emerald-100 text-emerald-700" : "border border-emerald-300/40 bg-emerald-500/15 text-emerald-300"),
+                              priority === "medium" && (isLight ? "border border-amber-300 bg-amber-100 text-amber-700" : "border border-amber-300/40 bg-amber-500/15 text-amber-300"),
+                              priority === "high" && (isLight ? "border border-orange-300 bg-orange-100 text-orange-700" : "border border-orange-300/40 bg-orange-500/15 text-orange-300"),
+                              priority === "critical" && (isLight ? "border border-rose-300 bg-rose-100 text-rose-700" : "border border-rose-300/40 bg-rose-500/15 text-rose-300"),
+                            )}
+                          >
+                            {priority}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em]",
+                          mission.enabled
+                            ? (isLight
+                                ? "border border-emerald-300 bg-emerald-100 text-emerald-700"
+                                : "border border-emerald-300/40 bg-emerald-500/15 text-emerald-300")
+                            : (isLight
+                                ? "border border-rose-300 bg-rose-100 text-rose-700"
+                                : "border border-rose-300/40 bg-rose-500/15 text-rose-300"),
+                        )}
+                      >
+                        <span className={cn("h-1.5 w-1.5 rounded-full", mission.enabled ? "bg-emerald-400" : "bg-rose-400")} />
+                        {mission.enabled ? "Active" : "Paused"}
+                      </span>
+                      <button
+                        onClick={(event) => {
+                          const rect = (event.currentTarget as HTMLButtonElement).getBoundingClientRect()
+                          const menuWidth = 180
+                          const viewportPadding = 8
+                          const left = Math.max(
+                            viewportPadding,
+                            Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - viewportPadding),
+                          )
+                          const top = rect.bottom + 6
+                          onMissionActionMenu(mission, left, top)
+                        }}
+                        className={cn(
+                          "h-8 w-8 rounded-md inline-flex items-center justify-center transition-all duration-150",
+                          "home-spotlight-card home-border-glow",
+                          isLight ? "text-s-50" : "text-slate-500",
+                        )}
+                        aria-label="Mission actions"
+                      >
+                        <MoreVertical className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <p className={cn("mt-3 text-sm line-clamp-2", isLight ? "text-s-70" : "text-slate-300")}>
+                    {missionDescription || "Mission automation flow"}
+                  </p>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                    {processChips.map((stepType, index) => (
+                      <span key={`${mission.id}-${stepType}-${index}`} className={cn("rounded-md px-2 py-0.5 text-[10px] uppercase tracking-[0.08em]", isLight ? "border border-[#d5dce8] bg-white text-s-70" : "border border-white/12 bg-white/6 text-slate-300")}>
+                        {stepType}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-3 gap-3">
+                    <div>
+                      <p className={cn("text-xs", isLight ? "text-s-50" : "text-slate-500")}>Schedule</p>
+                      <p className={cn("text-2xl font-semibold leading-none mt-1", isLight ? "text-s-90" : "text-slate-100")}>{mission.time}</p>
+                      <p className={cn("text-[11px] mt-1", isLight ? "text-s-50" : "text-slate-500")}>{missionMode}</p>
+                    </div>
+                    <div>
+                      <p className={cn("text-xs", isLight ? "text-s-50" : "text-slate-500")}>Runs</p>
+                      <p className={cn("text-2xl font-semibold leading-none mt-1", isLight ? "text-s-90" : "text-slate-100")}>{runs}</p>
+                      <p className={cn("text-[11px] mt-1", isLight ? "text-s-50" : "text-slate-500")}>total</p>
+                    </div>
+                    <div>
+                      <p className={cn("text-xs", isLight ? "text-s-50" : "text-slate-500")}>Success</p>
+                      <p className="text-2xl font-semibold leading-none mt-1 text-emerald-300">{successRate}%</p>
+                      <div className={cn("mt-2 h-1 rounded-full", isLight ? "bg-[#dfe6f2]" : "bg-white/10")}>
+                        <div className="h-1 rounded-full bg-emerald-400" style={{ width: `${Math.max(4, Math.min(100, successRate))}%` }} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={cn("mt-4 pt-3 border-t", isLight ? "border-[#dde4ef]" : "border-white/10")}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <span className={cn("inline-flex items-start gap-1 text-sm font-medium min-w-0", missionStatusToneClass)}>
+                          <span className={cn("h-2 w-2 rounded-full", missionStatusDotClass)} />
+                          <span className="min-w-0 whitespace-normal wrap-break-word leading-snug">{missionStatusText}</span>
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {onViewInCanvas && (
+                          <button
+                            onClick={() => onViewInCanvas(mission.id)}
+                            className="h-7 w-7 rounded-md border border-violet-400/40 bg-violet-500/15 text-violet-300 transition-colors inline-flex items-center justify-center home-spotlight-card home-border-glow"
+                            title="View in Canvas"
+                          >
+                            <Network className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => onToggleMissionEnabled(mission)}
+                          disabled={busy}
+                          className={cn(
+                            "h-7 px-2 rounded-md border text-xs transition-colors disabled:opacity-50 home-spotlight-card home-border-glow",
+                            mission.enabled ? "border-rose-300/40 bg-rose-500/15 text-rose-200" : "border-emerald-300/40 bg-emerald-500/15 text-emerald-200",
+                          )}
+                        >
+                          {mission.enabled ? "Pause" : "Activate"}
+                        </button>
+                        <button
+                          onClick={() => onRequestDeleteMission(mission)}
+                          disabled={busy}
+                          className="h-7 w-7 rounded-md border border-rose-300/40 bg-rose-500/15 text-rose-200 transition-colors disabled:opacity-50 inline-flex items-center justify-center home-spotlight-card home-border-glow"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </section>
     </div>
   )
 }
+

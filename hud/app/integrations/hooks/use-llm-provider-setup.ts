@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react"
 import { saveIntegrationsSettings, type IntegrationsSettings, type LlmProvider } from "@/lib/integrations/store/client-store"
-import type { SelectOption } from "@/components/ui/select"
+import type { FluidSelectOption } from "@/components/ui/fluid-select"
 import { isRetiredModelId, resolveCurrentModelId } from "../../../../src/providers/models/retired-model-aliases/index.js"
 
 export type IntegrationsSaveTarget =
@@ -49,11 +49,11 @@ interface UseLlmProviderSetupParams {
   setSaveStatus: Dispatch<SetStateAction<IntegrationsSaveStatus>>
   defaultBaseUrl: string
   defaultModel: string
-  defaultModelOptions: SelectOption[]
+  defaultModelOptions: FluidSelectOption[]
   testModelEndpoint: string
   listModelsEndpoint?: string
   unavailableErrorMessage: string
-  sortModelOptions?: (options: SelectOption[]) => SelectOption[]
+  sortModelOptions?: (options: FluidSelectOption[]) => FluidSelectOption[]
 }
 
 interface RefreshOverride {
@@ -81,7 +81,7 @@ export function useLlmProviderSetup({
   const [model, setModel] = useState(defaultModel)
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false)
   const [apiKeyMasked, setApiKeyMasked] = useState("")
-  const [modelOptions, setModelOptions] = useState<SelectOption[]>(defaultModelOptions)
+  const [modelOptions, setModelOptions] = useState<FluidSelectOption[]>(defaultModelOptions)
 
   const hydrate = useCallback((nextSettings: IntegrationsSettings) => {
     const source = nextSettings[provider]
@@ -115,11 +115,11 @@ export function useLlmProviderSetup({
       if (!res.ok || !data?.ok || !Array.isArray(data?.models)) return
       const dynamicOptions = data.models
         .map((item: { id?: string; label?: string }) => ({ value: String(item.id || ""), label: String(item.label || item.id || "") }))
-        .filter((item: SelectOption) => item.value.length > 0 && !isRetiredModelId(provider, item.value))
+        .filter((item: FluidSelectOption) => item.value.length > 0 && !isRetiredModelId(provider, item.value))
 
-      const merged = new Map<string, SelectOption>()
+      const merged = new Map<string, FluidSelectOption>()
       defaultModelOptions.forEach((option) => merged.set(option.value, option))
-      dynamicOptions.forEach((option: SelectOption) => merged.set(option.value, option))
+      dynamicOptions.forEach((option: FluidSelectOption) => merged.set(option.value, option))
       const selected = model.trim()
       if (selected && !merged.has(selected)) {
         merged.set(selected, { value: selected, label: selected })

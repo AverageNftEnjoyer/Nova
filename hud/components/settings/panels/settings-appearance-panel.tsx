@@ -1,199 +1,362 @@
 "use client"
 
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react"
-import { Check, Monitor, Moon, Sun } from "lucide-react"
-import { Switch, Tooltip } from "@/components/ui"
-import { SegmentedControl, SettingRow, SettingsGroup, playClickSound } from "@/components/settings/settings-primitives"
-import { ACCENT_COLORS, type AccentColor, type UserSettings } from "@/lib/settings/userSettings"
+import { useRef, useState, useEffect } from "react"
+import { Check } from "lucide-react"
+import { FluidSelect } from "@/components/ui/fluid-select"
+import { cn } from "@/lib/shared/utils"
+import {
+  SettingSelect,
+  SettingToggle,
+  getSettingsCardClass,
+  playClickSound,
+} from "@/components/settings/settings-primitives"
+import {
+  type UserSettings,
+  type AccentColor,
+  type OrbColor,
+  type DarkBackgroundType,
+  ACCENT_COLORS,
+  ORB_COLORS,
+  DARK_BACKGROUNDS,
+} from "@/lib/settings/userSettings"
+import { isBackgroundAssetImage, type BackgroundVideoAssetMeta } from "@/lib/media/backgroundVideoStorage"
 import { useTheme } from "@/lib/context/theme-context"
 import { useAccent } from "@/lib/context/accent-context"
-import { cn } from "@/lib/shared/utils"
 
 interface Props {
+  isLight: boolean
   settings: UserSettings
-  setSettings: Dispatch<SetStateAction<UserSettings | null>>
+  setSettings: React.Dispatch<React.SetStateAction<UserSettings | null>>
   updateApp: (key: string, value: boolean | string | null) => void
+  backgroundVideoAssets: BackgroundVideoAssetMeta[]
+  activeBackgroundVideoAssetId: string | null
+  backgroundVideoError: string | null
+  setBackgroundVideoError: (e: string | null) => void
+  handleBackgroundVideoUpload: (file: File) => Promise<void>
+  removeBackgroundVideo: () => Promise<void>
+  selectBackgroundVideoAsset: (id: string | null) => void
 }
 
-type ThemeSetting = UserSettings["app"]["theme"]
-type FontSize = UserSettings["app"]["fontSize"]
+const NONE_OPTION = "__none__"
 
-const THEME_OPTIONS = [
-  { value: "dark", label: "Dark", icon: <Moon aria-hidden /> },
-  { value: "light", label: "Light", icon: <Sun aria-hidden /> },
-  { value: "system", label: "System", icon: <Monitor aria-hidden /> },
-] as const satisfies ReadonlyArray<{ value: ThemeSetting; label: string; icon: React.ReactNode }>
+export function SettingsAppearancePanel({
+  isLight,
+  settings,
+  setSettings,
+  updateApp,
+  backgroundVideoAssets,
+  activeBackgroundVideoAssetId,
+  backgroundVideoError,
+  setBackgroundVideoError,
+  handleBackgroundVideoUpload,
+  removeBackgroundVideo,
+  selectBackgroundVideoAsset,
+}: Props) {
+  const backgroundVideoInputRef = useRef<HTMLInputElement | null>(null)
+  const { setThemeSetting } = useTheme()
+  const { setAccentColor } = useAccent()
+  const [autoLaunch, setAutoLaunch] = useState(false)
+  const [autoLaunchLoading, setAutoLaunchLoading] = useState(true)
 
-const FONT_SIZE_OPTIONS = [
-  { value: "small", label: "Small" },
-  { value: "medium", label: "Default" },
-  { value: "large", label: "Large" },
-] as const satisfies ReadonlyArray<{ value: FontSize; label: string }>
-
-/** Accent order in the picker: neutral first, then the hues around the wheel. */
-const ACCENT_ORDER: AccentColor[] = ["white", "black", "violet", "blue", "cyan", "emerald", "amber", "orange", "rose", "pastelPink"]
-const ACCENT_LABELS: Record<AccentColor, string> = {
-  white: "Neutral",
-  black: "Graphite",
-  violet: "Violet",
-  blue: "Blue",
-  cyan: "Cyan",
-  emerald: "Emerald",
-  amber: "Amber",
-  orange: "Orange",
-  rose: "Rose",
-  pastelPink: "Pink",
-}
-
-/**
- * The --accent value theme.css defines for each option in the current theme, read from the loaded stylesheet so
- * the swatches match what the app will actually show. Falls back to the stored base colour if a sheet is unreadable.
- */
-function readAccentSwatches(theme: "dark" | "light"): Record<AccentColor, string> {
-  const found: Partial<Record<AccentColor, string>> = {}
-  const base = theme === "dark" ? ".dark" : ":root, .light"
-  const prefix = theme === "dark" ? ".dark[data-accent=" : ":root[data-accent="
-  for (const sheet of Array.from(document.styleSheets)) {
-    let rules: CSSRuleList
-    try {
-      rules = sheet.cssRules
-    } catch {
-      continue
+  // Load auto-launch setting on mount (Electron only)
+  useEffect(() => {
+    const loadAutoLaunch = async () => {
+      const api = typeof window !== 'undefined' ? window.electronAPI : undefined
+      if (api?.getAutoLaunch) {
+        try {
+          const result = await api.getAutoLaunch()
+          if (result.success) {
+            setAutoLaunch(result.enabled ?? false)
+          }
+        } catch (err) {
+          console.error('Failed to load auto-launch setting:', err)
+        } finally {
+          setAutoLaunchLoading(false)
+        }
+      } else {
+        setAutoLaunchLoading(false)
+      }
     }
-    for (const rule of Array.from(rules)) {
-      if (!(rule instanceof CSSStyleRule)) continue
-      const value = rule.style.getPropertyValue("--accent").trim()
-      if (!value) continue
-      const selector = rule.selectorText.replace(/\s+/g, " ").trim()
-      if (selector === base) found.white = value
-      else if (selector.startsWith(prefix)) {
-        const key = selector.slice(prefix.length).replace(/["\]]/g, "") as AccentColor
-        if (key in ACCENT_COLORS) found[key] = value
+    void loadAutoLaunch()
+  }, [])
+
+  const handleAutoLaunchToggle = async (enabled: boolean) => {
+    const api = typeof window !== 'undefined' ? window.electronAPI : undefined
+    if (api?.setAutoLaunch) {
+      try {
+        const result = await api.setAutoLaunch(enabled)
+        if (result.success) {
+          setAutoLaunch(enabled)
+          playClickSound()
+        }
+      } catch (err) {
+        console.error('Failed to set auto-launch:', err)
       }
     }
   }
-  const result = {} as Record<AccentColor, string>
-  for (const color of ACCENT_ORDER) result[color] = found[color] ?? ACCENT_COLORS[color].primary
-  return result
-}
 
-export function SettingsAppearancePanel({ settings, setSettings, updateApp }: Props) {
-  const { setThemeSetting } = useTheme()
-  const { setAccentColor } = useAccent()
-  const [swatches, setSwatches] = useState<Record<AccentColor, string> | null>(null)
-  const [autoLaunch, setAutoLaunch] = useState<boolean | null>(null)
+  const activeBackgroundVideo =
+    backgroundVideoAssets.find((a) => a.id === (activeBackgroundVideoAssetId || settings.app.customBackgroundVideoAssetId)) ?? null
 
-  useEffect(() => {
-    // Re-read after the theme class flips so the swatches show this theme's tuned hues.
-    const read = () => setSwatches(readAccentSwatches(document.documentElement.classList.contains("dark") ? "dark" : "light"))
-    const frame = window.requestAnimationFrame(read)
-    const observer = new MutationObserver(read)
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] })
-    return () => {
-      window.cancelAnimationFrame(frame)
-      observer.disconnect()
-    }
-  }, [])
+  const darkBackgroundOptions = (Object.entries(DARK_BACKGROUNDS) as [DarkBackgroundType, { name: string; description: string }][])
+    .filter(([value]) => value !== "none")
+    .map(([value, info]) => ({
+      value,
+      label: info.name,
+    }))
+  const darkBackgroundValue: DarkBackgroundType = settings.app.darkModeBackground === "none" ? "black" : settings.app.darkModeBackground
 
-  useEffect(() => {
-    const api = window.electronAPI
-    if (!api?.getAutoLaunch) return
-    let cancelled = false
-    api
-      .getAutoLaunch()
-      .then((result) => {
-        if (!cancelled && result.success) setAutoLaunch(result.enabled ?? false)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const changeAutoLaunch = async (enabled: boolean) => {
-    const result = await window.electronAPI?.setAutoLaunch(enabled).catch(() => null)
-    if (result?.success) {
-      setAutoLaunch(enabled)
-      playClickSound()
-    }
-  }
-
-  const changeTheme = (value: ThemeSetting) => {
-    playClickSound()
-    setThemeSetting(value)
-    setSettings((prev) => (prev ? { ...prev, app: { ...prev.app, theme: value } } : prev))
-  }
-
-  const changeAccent = (color: AccentColor) => {
-    playClickSound()
-    setAccentColor(color)
-    setSettings((prev) => (prev ? { ...prev, app: { ...prev.app, accentColor: color } } : prev))
-  }
+  const backgroundVideoOptions = [
+    { value: NONE_OPTION, label: "None" },
+    ...backgroundVideoAssets.map((a) => ({ value: a.id, label: a.fileName })),
+  ]
 
   return (
-    <div className="flex flex-col gap-8">
-      <SettingsGroup title="Look">
-        <SettingRow label="Theme" hint="System follows your Windows setting.">
-          <SegmentedControl aria-label="Theme" value={settings.app.theme} options={THEME_OPTIONS} onValueChange={changeTheme} />
-        </SettingRow>
-        <SettingRow label="Accent colour" hint="Used for primary buttons, focus and selection.">
-          <div role="radiogroup" aria-label="Accent colour" className="grid grid-cols-5 gap-1.5">
-            {ACCENT_ORDER.map((color) => {
-              const selected = settings.app.accentColor === color
-              return (
-                <Tooltip key={color} content={ACCENT_LABELS[color]}>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    aria-label={ACCENT_LABELS[color]}
-                    onClick={() => changeAccent(color)}
-                    className={cn(
-                      "flex size-7 items-center justify-center rounded-md border transition-[border-color,box-shadow] duration-150 ease-out",
-                      selected ? "border-fg shadow-[inset_0_0_0_2px_var(--surface)]" : "border-border hover:border-border-strong",
-                    )}
-                    style={swatches ? { backgroundColor: swatches[color] } : undefined}
-                  >
-                    {selected ? (
-                      <span className="flex size-4 items-center justify-center rounded-full bg-surface text-fg">
-                        <Check aria-hidden className="size-3" />
-                      </span>
-                    ) : null}
-                  </button>
-                </Tooltip>
-              )
-            })}
-          </div>
-        </SettingRow>
-        <SettingRow label="Text size" hint="Scales all text and spacing in the app.">
-          <SegmentedControl
-            aria-label="Text size"
-            value={settings.app.fontSize}
-            options={FONT_SIZE_OPTIONS}
-            onValueChange={(value) => {
-              playClickSound()
-              updateApp("fontSize", value)
-            }}
-          />
-        </SettingRow>
-        <SettingRow label="Compact chat" hint="Tighter spacing between chat messages.">
-          <Switch
-            checked={settings.app.compactMode}
-            onCheckedChange={(value) => {
-              playClickSound()
-              updateApp("compactMode", value)
-            }}
-          />
-        </SettingRow>
-      </SettingsGroup>
+    <div className="space-y-5">
+      {/* Theme */}
+      <SettingSelect
+        label="Theme"
+        description="Choose your color scheme"
+        isLight={isLight}
+        value={settings.app.theme}
+        options={[
+          { value: "dark", label: "Dark" },
+          { value: "light", label: "Light" },
+          { value: "system", label: "System" },
+        ]}
+        onChange={(v) => {
+          setThemeSetting(v as "dark" | "light" | "system")
+          setSettings((prev) => prev ? { ...prev, app: { ...prev.app, theme: v as "dark" | "light" | "system" } } : prev)
+        }}
+      />
 
-      {autoLaunch !== null ? (
-        <SettingsGroup title="Startup">
-          <SettingRow label="Open Nova when Windows starts" hint="Starts Nova each time you sign in to Windows.">
-            <Switch checked={autoLaunch} onCheckedChange={(value) => void changeAutoLaunch(value)} />
-          </SettingRow>
-        </SettingsGroup>
+      {/* Accent Color */}
+      <div className={cn(
+        "fx-spotlight-card fx-border-glow p-4 rounded-xl border transition-colors duration-150",
+        isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20"
+      )}>
+        <p className={cn("text-sm mb-1", isLight ? "text-s-70" : "text-slate-200")}>Accent Color</p>
+        <p className={cn("text-xs mb-4", isLight ? "text-s-30" : "text-slate-500")}>Choose your UI accent color</p>
+        <div className="flex gap-3 flex-wrap">
+          {(Object.keys(ACCENT_COLORS) as AccentColor[]).map((color) => {
+            const isSelected = settings.app.accentColor === color
+            return (
+              <button
+                key={color}
+                onClick={() => {
+                  playClickSound()
+                  setAccentColor(color)
+                  setSettings((prev) => prev ? { ...prev, app: { ...prev.app, accentColor: color } } : prev)
+                }}
+                className={cn(
+                  "fx-spotlight-card fx-border-glow w-10 h-10 rounded-xl border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
+                  isSelected ? "border-accent-30" : isLight ? "border-[#d5dce8] hover:border-white/30" : "border-white/10 hover:border-white/20"
+                )}
+                style={{ backgroundColor: ACCENT_COLORS[color].primary }}
+                title={ACCENT_COLORS[color].name}
+              >
+                {isSelected && (
+                  <span className="mx-auto inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent/20">
+                    <Check className="w-3.5 h-3.5 text-accent" />
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Orb Color */}
+      <div className={cn(
+        "fx-spotlight-card fx-border-glow p-4 rounded-xl border transition-colors duration-150",
+        isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20"
+      )}>
+        <p className={cn("text-sm mb-1", isLight ? "text-s-70" : "text-slate-200")}>Nova Orb Color</p>
+        <p className={cn("text-xs mb-4", isLight ? "text-s-30" : "text-slate-500")}>Choose the orb color on the home screen</p>
+        <div className="flex gap-3 flex-wrap">
+          {(Object.keys(ORB_COLORS) as OrbColor[]).map((color) => {
+            const pal = ORB_COLORS[color]
+            const isSelected = settings.app.orbColor === color
+            return (
+              <button
+                key={color}
+                onClick={() => { playClickSound(); updateApp("orbColor", color) }}
+                className={cn(
+                  "fx-spotlight-card fx-border-glow w-10 h-10 rounded-xl border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
+                  isSelected ? "border-accent-30" : isLight ? "border-[#d5dce8] hover:border-white/30" : "border-white/10 hover:border-white/20"
+                )}
+                style={{ background: `linear-gradient(135deg, ${pal.circle1}, ${pal.circle2})` }}
+                title={pal.name}
+              >
+                {isSelected && (
+                  <span className="mx-auto inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent/20">
+                    <Check className="w-3.5 h-3.5 text-accent" />
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Background preset */}
+      <SettingSelect
+        label="Background"
+        description="Choose the app background"
+        isLight={isLight}
+        value={darkBackgroundValue}
+        options={darkBackgroundOptions}
+        onChange={(v) => updateApp("darkModeBackground", v)}
+      />
+
+      {/* Custom background upload */}
+      <div className={cn(getSettingsCardClass(isLight), "p-4")}>
+        <p className={cn("text-sm mb-1", isLight ? "text-s-70" : "text-slate-200")}>Custom Background</p>
+        <p className={cn("text-xs mb-3", isLight ? "text-s-30" : "text-slate-500")}>Upload an MP4 or image (JPG, PNG, WEBP, SVG)</p>
+        <input
+          ref={backgroundVideoInputRef}
+          type="file"
+          accept=".mp4,video/mp4,.jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif"
+          className="hidden"
+          onChange={async (e) => {
+            const inputEl = e.currentTarget
+            const file = e.target.files?.[0]
+            if (!file) return
+            try {
+              await handleBackgroundVideoUpload(file)
+            } catch (err) {
+              setBackgroundVideoError(err instanceof Error ? err.message : "Failed to upload background media.")
+            } finally {
+              inputEl.value = ""
+            }
+          }}
+        />
+        <div className={cn(
+          "flex items-center gap-2 rounded-lg border p-1.5",
+          isLight ? "bg-white border-[#d5dce8]" : "bg-black/25 border-white/10"
+        )}>
+          <div className="min-w-55 flex-[1.2]">
+            <FluidSelect
+              value={activeBackgroundVideo?.id ?? NONE_OPTION}
+              isLight={isLight}
+              options={backgroundVideoOptions}
+              onChange={(v) => {
+                playClickSound()
+                selectBackgroundVideoAsset(v === NONE_OPTION ? null : v)
+              }}
+            />
+          </div>
+          <div className={cn(
+            "flex-1 px-3 py-2 rounded-md text-sm border whitespace-nowrap overflow-hidden text-ellipsis",
+            isLight ? "bg-white text-s-50 border-[#d5dce8]" : "bg-black/20 text-slate-400 border-white/10"
+          )}>
+            {activeBackgroundVideo
+              ? `${activeBackgroundVideo.fileName}${isBackgroundAssetImage(activeBackgroundVideo.mimeType, activeBackgroundVideo.fileName) ? " (Image)" : " (Video)"}`
+              : "No background selected"}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { playClickSound(); backgroundVideoInputRef.current?.click() }}
+              className={cn(
+                "fx-spotlight-card fx-border-glow group relative h-8 w-8 flex items-center justify-center text-2xl leading-none transition-all duration-150 hover:rotate-12",
+                isLight ? "text-s-50" : "text-s-40",
+              )}
+              aria-label={activeBackgroundVideo ? "Add background" : "Upload background"}
+              title={activeBackgroundVideo ? "Add background" : "Upload background"}
+            >
+              <span className={cn(
+                "pointer-events-none absolute left-1/2 -translate-x-1/2 -top-9 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs opacity-0 transition-opacity duration-150 group-hover:opacity-100",
+                isLight ? "border border-[#d9e0ea] bg-white text-s-60" : "border border-white/10 bg-[#0e1320] text-slate-300",
+              )}>
+                Upload Background
+              </span>
+              +
+            </button>
+            {activeBackgroundVideo && (
+              <button
+                onClick={() => { playClickSound(); void removeBackgroundVideo() }}
+                className={cn(
+                  "fx-spotlight-card fx-border-glow h-8 px-3 rounded-md border text-xs font-medium transition-all duration-150 hover:-translate-y-px active:translate-y-0",
+                  isLight
+                    ? "border-red-300/70 bg-red-100 text-red-700 hover:bg-red-200 hover:border-red-400"
+                    : "border-red-400/50 bg-red-500/15 text-red-300 hover:bg-red-500/25 hover:border-red-300/70",
+                )}
+              >
+                Remove Selected
+              </button>
+            )}
+          </div>
+        </div>
+        {backgroundVideoError && <p className="text-xs text-red-400 mt-2">{backgroundVideoError}</p>}
+      </div>
+
+      {/* Spotlight Color */}
+      <div className={cn(
+        "fx-spotlight-card fx-border-glow p-4 rounded-xl border transition-colors duration-150",
+        isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "border-white/10 bg-black/20"
+      )}>
+        <p className={cn("text-sm mb-1", isLight ? "text-s-70" : "text-slate-200")}>Spotlight Color</p>
+        <p className={cn("text-xs mb-4", isLight ? "text-s-30" : "text-slate-500")}>Choose the cursor spotlight color</p>
+        <div className="flex gap-3 flex-wrap">
+          {(Object.keys(ORB_COLORS) as OrbColor[]).map((color) => {
+            const pal = ORB_COLORS[color]
+            const isSelected = settings.app.spotlightColor === color
+            return (
+              <button
+                key={`spotlight-${color}`}
+                onClick={() => { playClickSound(); updateApp("spotlightColor", color) }}
+                className={cn(
+                  "fx-spotlight-card fx-border-glow w-10 h-10 rounded-xl border transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
+                  isSelected ? "border-accent-30" : isLight ? "border-[#d5dce8] hover:border-white/30" : "border-white/10 hover:border-white/20"
+                )}
+                style={{ background: `linear-gradient(135deg, ${pal.circle1}, ${pal.circle2})` }}
+                title={pal.name}
+              >
+                {isSelected && (
+                  <span className="mx-auto inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent/20">
+                    <Check className="w-3.5 h-3.5 text-accent" />
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Compact Mode */}
+      <SettingToggle
+        label="Compact Mode"
+        description="Reduce spacing for denser layout"
+        checked={settings.app.compactMode}
+        onChange={(v) => updateApp("compactMode", v)}
+        isLight={isLight}
+      />
+
+      {/* Font Size */}
+      <SettingSelect
+        label="Font Size"
+        description="Adjust text size"
+        isLight={isLight}
+        value={settings.app.fontSize}
+        options={[
+          { value: "small", label: "Small" },
+          { value: "medium", label: "Medium" },
+          { value: "large", label: "Large" },
+        ]}
+        onChange={(v) => updateApp("fontSize", v)}
+      />
+
+      {/* Launch on Startup (Electron only) */}
+      {typeof window !== 'undefined' && window.electronAPI && !autoLaunchLoading ? (
+        <SettingToggle
+          label="Launch on Startup"
+          description="Automatically start Nova when you log in to Windows"
+          checked={autoLaunch}
+          onChange={handleAutoLaunchToggle}
+          isLight={isLight}
+        />
       ) : null}
     </div>
   )
 }
+

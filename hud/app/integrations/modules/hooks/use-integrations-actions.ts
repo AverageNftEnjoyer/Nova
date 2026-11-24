@@ -1009,7 +1009,7 @@ export function useIntegrationsActions(params: UseIntegrationsActionsParams) {
       applyCoinbaseServerConfig(savedData?.config?.coinbase)
       setSaveStatus({
         type: "success",
-        message: "Coinbase saved. Click Test connection to run a live sync.",
+        message: "Coinbase saved. Use Sync to run a live sync probe.",
       })
     } catch (error) {
       setSaveStatus({

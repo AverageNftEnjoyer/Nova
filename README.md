@@ -1,16 +1,16 @@
 <p align="center">
-  <img src="hud/public/images/nova.svg" alt="Nova" width="120" height="120">
+  <img src="hud/public/images/nova.svg" alt="NovaAIO" width="120" height="120">
 </p>
 
-<h1 align="center">Nova</h1>
+<h1 align="center">NovaAIO</h1>
 
 <p align="center">
-  <strong>A local-first LLM agentic framework platform: chat, agent runs, deployments, automations and integrations in one desktop app.</strong>
+  <strong>A local-first AI agent desktop app: chat, voice, automations, and agent tasks in one place.</strong>
 </p>
 
 <p align="center">
   <!-- TODO: swap in a real hero screenshot or a short GIF of the home screen -->
-  <img src="docs/screenshots/hero.png" alt="Nova home screen" width="900">
+  <img src="docs/screenshots/hero.png" alt="NovaAIO home screen" width="900">
 </p>
 
 <p align="center">
@@ -21,11 +21,11 @@
 
 ## Overview
 
-Nova is a local-first LLM agentic framework platform that runs on your own machine. You talk to it by text or voice, and it can do real work: read your email, check your calendar, search the web, run scheduled automations, track crypto and prediction markets, and run long agent tasks in the background.
+NovaAIO is a personal AI assistant that runs on your own machine. You talk to it by text or voice, and it can do real work: read your email, check your calendar, search the web, run scheduled automations, track crypto and prediction markets, and run long agent tasks in the background.
 
 I built it to answer a simple question: what does an AI assistant look like when it isn't a chat box in a browser tab, but a proper desktop application with tools, memory, a scheduler, and guardrails? Everything is stored locally. API keys are encrypted at rest, and no account or hosted backend is required.
 
-**Status:** Alpha (V.88). Actively developed and used daily by the author.
+**Status:** Alpha (V.79). Actively developed and used daily by the author.
 
 ---
 
@@ -35,13 +35,13 @@ I built it to answer a simple question: what does an AI assistant look like when
 
 | Home | Chat |
 | :---: | :---: |
-| <img src="docs/screenshots/home.png" alt="Home command center" width="440"> | <img src="docs/screenshots/chat.png" alt="Chat with tool use" width="440"> |
-| The command center: ask or deploy, live runs, deployments, and today's usage, integrations, schedule, notes and chats | Streaming chat with tool calls and approvals |
+| <img src="docs/screenshots/home.png" alt="Home dashboard" width="440"> | <img src="docs/screenshots/chat.png" alt="Chat with tool use" width="440"> |
+| Configurable dashboard with weather, schedule, notes, agent tasks, and live modules | Streaming chat with tool calls and approvals |
 
-| Runs | Deployments |
+| Deployments | Deployment Activity |
 | :---: | :---: |
-| <img src="docs/screenshots/agent-tasks.png" alt="Runs page" width="440"> | <img src="docs/screenshots/missions-canvas.png" alt="Deployments and the automation canvas" width="440"> |
-| Every agent task and deployment run, with approvals, budgets and a detail sheet | Describe an outcome or build a task or automation; one lifecycle for both |
+| <img src="docs/screenshots/missions-canvas.png" alt="Deployment automation canvas" width="440"> | <img src="docs/screenshots/agent-tasks.png" alt="Deployment task activity" width="440"> |
+| Simple Nova manager plus Advanced task and automation editors | One lifecycle for background tasks and scheduled automations |
 
 | Integrations | Voice |
 | :---: | :---: |
@@ -62,9 +62,9 @@ I built it to answer a simple question: what does an AI assistant look like when
 - Text-to-speech through Fish Audio with switchable voices.
 
 ### Deployments
-- **Describe it** (`/deployments/new`) is a live Nova manager conversation: describe an outcome, review a validated task-or-automation plan, then launch it.
-- **One-off task** and **Automation** tabs expose connected provider/model selection, permissions, context/files, worktrees, budgets, and the guided Mission builder or graph canvas.
-- `/deployments` lists every deployment with its schedule, state and latest run; `/runs` shows every run with Approve / Deny / Cancel. Every launch has a canonical DeploymentRun, immutable definition revision, replayable event history, idempotency key, and cancellation/review controls.
+- **Simple** is a live Nova manager conversation: describe an outcome, review a validated task-or-automation plan, then launch it.
+- **Advanced** exposes connected provider/model selection, permissions, context/files, worktrees, budgets, and the guided Mission builder or graph canvas.
+- Every launch has a canonical DeploymentRun, immutable definition revision, replayable event history, idempotency key, and cancellation/review controls.
 
 ### Automation workflows
 - A visual canvas built on React Flow with 30+ node types across triggers, data, AI, logic, transforms, and outputs.
@@ -74,14 +74,14 @@ I built it to answer a simple question: what does an AI assistant look like when
 
 ### Background task execution
 - Queue background tasks against Claude, OpenAI, Gemini, or Grok.
-- Play, pause, stop, and delete controls on the **Runs** page. Up to 5 tasks run at once.
+- Play, pause, stop, and delete controls. Up to 5 tasks run at once.
 - Priority levels, permission modes (default, accept-edits, plan-mode, don't-ask, bypass), and live token and cost tracking per task.
-- Per-task budgets, on cost by default ($2.00 per task; a token budget is optional). Defaults and a cheaper same-provider "economy model" per provider are set in **Settings → Agent budgets**. At 80% the run shows a warning; at 100% the task first trims older tool results and switches to the economy model, then pauses before a call that would go over, with **Resume / Raise budget / Abort** on the run.
+- Per-task budgets, on cost by default ($2.00 per task; a token budget is optional). Defaults and a cheaper same-provider "economy model" per provider are set in **Settings → Agent budgets**. At 80% the task card warns; at 100% the task first trims older tool results and switches to the economy model, then pauses before a call that would go over, with **Resume / Raise budget / Abort** on the card.
 
 ### Usage analytics
 - Every LLM call (chat, agent tasks, missions, utility calls, embeddings) is recorded in a local per-call ledger: provider, model, routing tier, input / output / cached tokens and cost.
 - **Settings → Model routing**: small internal calls (format corrections, empty-reply recovery, Spotify parsing, mission classify / extract steps) can use the same provider's economy model when that is estimated to be cheaper (default: "Trivial calls only"). An opt-in cost-saving mode also routes ordinary chat; agent tasks and multi-step reasoning always keep your selected model.
-- The **Analytics** page shows cost and tokens over time by source, provider, model and routing tier, cached vs uncached input with the estimated savings from caching, and per-task budget use. The Home **Usage** panel shows today's and the last 7 days' spend and tokens with the cached share, a daily cost strip, and a link to tasks at their budget limit.
+- The **Analytics** page shows cost and tokens over time by source, provider, model and routing tier, cached vs uncached input with the estimated savings from caching, and per-task budget use. The Home **Analytics** panel shows today's spend, tokens with the cached share, tasks at their budget limit, and a link to runtime traces and errors.
 
 ### Memory
 - Hybrid retrieval that combines keyword and embedding search.
@@ -104,37 +104,20 @@ Skills are plain `SKILL.md` files the assistant discovers at startup. Included: 
 
 ## Architecture
 
-In development Nova runs as two cooperating processes, started together by a single launcher (`nova.js`). In the packaged desktop app, Electron's main process hosts both halves in-process: the Next.js production server (API routes included) on a loopback port and the agent runtime (`hud/electron/production-server.js`).
+In development NovaAIO runs as two cooperating processes, started together by a single launcher (`nova.js`). In the packaged desktop app, Electron's main process hosts both halves in-process: the Next.js production server (API routes included) on a loopback port and the agent runtime (`hud/electron/production-server.js`).
 
 ```
 ┌──────────────────────────┐        WebSocket         ┌──────────────────────────┐
 │  HUD  (Next.js / React)  │ ◄──────────────────────► │  Agent Runtime (Node.js) │
 │  localhost:3000          │      localhost:8765      │                          │
 │                          │                          │  chat handler + routing  │
-│  app shell · home · chat │                          │  tool loop + policies    │
-│  runs · deployments      │                          │  memory · skills         │
-│  missions · integrations │                          │  voice loop · scheduler  │
-│  analytics · Electron    │                          │                          │
+│  chat · home · deployments│                         │  tool loop + policies    │
+│  analytics · integrations│                          │  memory · skills         │
+│  Electron shell          │                          │  voice loop · scheduler  │
 └──────────────────────────┘                          └──────────────────────────┘
              │                                                       │
-             └──────────────► local storage (nova.db, SQLite) ◄──────┘
+             └──────────────► local storage (nova.db, SQLite) ◄───┘
 ```
-
-### The HUD
-
-Every page lives in one app shell (`hud/components/shell/`): a collapsible sidebar, a top bar with breadcrumbs and the runtime connection status, and a **Ctrl+K** command palette for recent chats, pages, actions and Settings sections (Ctrl+B or `[` toggles the sidebar, Ctrl+, opens Settings). The UI is built from one design system: tokens in `hud/app/styles/theme.css` and primitives in `hud/components/ui/` (see [docs/frontend/design-system.md](docs/frontend/design-system.md); every primitive renders at `/dev/design`).
-
-| Page | What it does |
-| --- | --- |
-| `/home` | Command center: ask or deploy, live work, deployments and the next scheduled run, plus today's usage, integrations, schedule, notes and recent chats. All of it is real data. |
-| `/chat` | Streaming chat with tool calls, approvals and conversation history |
-| `/runs` | Every agent task and deployment run: what waits for your approval, budget state, row actions, a detail sheet |
-| `/deployments`, `/deployments/new` | Deployment list with schedules and latest runs; the New deployment flow (`?tab=describe\|task\|automation`) |
-| `/missions`, `/missions/calendar` | Automation definitions, the graph builder and canvas, and a calendar of scheduled runs and Google Calendar events |
-| `/integrations` | Master-detail setup for every integration (`?setup=<key>&tab=setup\|settings\|live\|instructions`) |
-| `/analytics`, `/history`, `/polymarket`, `/dev-logs` | Cost and token ledger, past chats, prediction markets (when Polymarket is connected), runtime traces and errors |
-
-Settings is one dialog with Profile, Personalization, Appearance, Audio & voice, Notifications, Agent budgets, Model routing, Skills and Local data. Old links (`/home?room=...`, `/deployments?mode=...`) redirect to these pages (`hud/next.config.js`).
 
 | Path | What lives there |
 | --- | --- |
@@ -165,7 +148,7 @@ Settings is one dialog with Profile, Personalization, Appearance, Audio & voice,
 
 | Layer | Tools |
 | --- | --- |
-| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, Nova design system (`hud/components/ui`), Radix UI, React Flow, Recharts, Lucide icons, Geist |
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS, Radix UI, React Flow, D3, GSAP, Three.js / React Three Fiber |
 | Desktop | Electron, electron-builder (Windows NSIS installer) |
 | Runtime | Node.js 22+, WebSockets, Vercel AI SDK |
 | Storage | SQLite (`better-sqlite3`, one local `nova.db`), DPAPI-protected encrypted secrets, markdown workspace docs as files |
@@ -205,7 +188,7 @@ OPENAI_API_KEY=...        # and/or ANTHROPIC_API_KEY
 
 There is no encryption key to configure. Nova generates a random master key on first run and protects it with Windows DPAPI (current Windows user); API keys you enter in the app are encrypted with it before they are written to the local database. See [docs/security/local-data.md](docs/security/local-data.md) for details and limits.
 
-Integrations (Gmail, Telegram, Discord, Spotify, and so on) are optional and can be set up from the in-app Integrations page (`/integrations`, or `/integrations?setup=<key>` to open one).
+Integrations (Gmail, Telegram, Discord, Spotify, and so on) are optional and can be set up from the in-app Integrations page.
 
 The per-call usage ledger keeps 90 days by default; set `NOVA_LLM_USAGE_RETENTION_DAYS` (1–3650) to change it. The per-turn prompt sections (skills, preferences, memory recall, web and link context) have their own budget, `NOVA_PROMPT_TURN_CONTEXT_MAX_TOKENS` (default 5,000); `NOVA_MAX_PROMPT_TOKENS` (default 18,000) sizes the history budget.
 

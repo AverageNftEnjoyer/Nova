@@ -1,5 +1,4 @@
-/** Public market channel (docs.polymarket.com, CLOB WebSocket "market" channel). */
-export const POLYMARKET_CLOB_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+export const POLYMARKET_CLOB_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/"
 
 export type PolymarketWsChannel = "market" | "user"
 
@@ -29,8 +28,7 @@ export interface PolymarketWsOptions {
   maxSubscriptions?: number
 }
 
-// The market socket expects an application-level text `PING` every 10 s (it answers `PONG`).
-const DEFAULT_HEARTBEAT_MS = 10_000
+const DEFAULT_HEARTBEAT_MS = 30_000
 const DEFAULT_RECONNECT_MIN_MS = 1_000
 const DEFAULT_RECONNECT_MAX_MS = 30_000
 const DEFAULT_MAX_SUBSCRIPTIONS = 50
@@ -219,19 +217,29 @@ export class PolymarketWebSocketManager {
     for (const listener of this.errorListeners) listener(error)
   }
 
-  /** The opening frame names every asset: `{ assets_ids, type: "market" }`. */
   private flushSubscriptions(): void {
-    const assetIds = [...this.subscriptions.values()].map((sub) => sub.tokenId)
-    if (assetIds.length > 0) this.sendJson({ assets_ids: assetIds, type: "market" })
+    for (const sub of this.subscriptions.values()) {
+      this.sendSubscribe(sub)
+    }
   }
 
-  /** Later changes ride the open socket: `{ assets_ids, operation: "subscribe" | "unsubscribe" }`. */
+  private buildWirePayload(type: "subscribe" | "unsubscribe", sub: PolymarketWsSubscription): Record<string, unknown> {
+    return {
+      type,
+      channel: sub.channel,
+      asset_id: sub.tokenId,
+      asset_ids: [sub.tokenId],
+      market: sub.market || undefined,
+      user: sub.user || undefined,
+    }
+  }
+
   private sendSubscribe(sub: PolymarketWsSubscription): void {
-    this.sendJson({ assets_ids: [sub.tokenId], operation: "subscribe" })
+    this.sendJson(this.buildWirePayload("subscribe", sub))
   }
 
   private sendUnsubscribe(sub: PolymarketWsSubscription): void {
-    this.sendJson({ assets_ids: [sub.tokenId], operation: "unsubscribe" })
+    this.sendJson(this.buildWirePayload("unsubscribe", sub))
   }
 
   private sendJson(payload: Record<string, unknown>): void {
@@ -286,12 +294,7 @@ export class PolymarketWebSocketManager {
   private startHeartbeat(): void {
     this.stopHeartbeat()
     this.heartbeatTimer = setInterval(() => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
-      try {
-        this.ws.send("PING")
-      } catch {
-        // A failed heartbeat surfaces as a close, which reconnects.
-      }
+      this.sendJson({ type: "ping", ts: Date.now() })
     }, this.heartbeatMs)
   }
 

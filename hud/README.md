@@ -1,26 +1,39 @@
-# Nova HUD
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-The Next.js 16 (App Router) front end of Nova, the local-first LLM agentic framework platform. In development it talks to the agent runtime over `ws://localhost:8765`; in the packaged Electron app the main process hosts this server and the runtime in-process (`electron/production-server.js`).
+## Getting Started
 
-## Run
+First, run the development server:
 
 ```bash
-npm run dev            # HUD only, http://localhost:3000 (from the repo root, `npm run dev` starts the runtime too)
-npm run electron:dev   # desktop window
-npm run build          # production build
-npm run test:smoke     # Playwright smoke tests (tests/smoke/)
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
 ```
 
-## Layout
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-- `app/` - routes: `/home` (command center), `/chat`, `/runs`, `/deployments` and `/deployments/new`, `/missions` and `/missions/calendar`, `/integrations` (`?setup=<key>&tab=`), `/analytics`, `/history`, `/polymarket`, `/dev-logs`, and the internal `/dev/design` preview. `app/api/` holds the API routes.
-- `components/shell/` - the app shell: sidebar, top bar, Ctrl+K command palette, `openSettings(section)`.
-- `components/ui/` - design system primitives (import from `@/components/ui`); tokens in `app/styles/theme.css`. Rules: `../docs/frontend/design-system.md`.
-- `components/settings/` - the Settings dialog (profile, personalization, appearance, audio, notifications, agent-budgets, model-routing, skills, local-data).
-- `lib/` - client and server libraries (deployments, missions, integrations, analytics, settings).
-- `electron/` - Electron main process, preload, production server, auto-updater.
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
-Old `/home?room=...` and `/deployments?mode=...` links redirect in `next.config.js`.
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+
+## Learn More
+
+To learn more about Next.js, take a look at the following resources:
+
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
 ## Telegram Notifications (Desktop + Phone)
 

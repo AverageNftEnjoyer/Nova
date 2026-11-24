@@ -1,136 +1,94 @@
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import { Eye, EyeOff } from "lucide-react"
-
-import { Badge, Button, Field, IconButton, Input, Textarea, Tooltip } from "@/components/ui"
+import { cn } from "@/lib/shared/utils"
 
 export interface SecretInputProps {
   value: string
   onChange: (value: string) => void
   label: string
   placeholder: string
-  /** Masked hint the server returned for the stored secret (never the secret itself). */
+  placeholderWhenConfigured?: string
   maskedValue?: string
   isConfigured?: boolean
+  serverLabel?: string
   hint?: ReactNode
-  error?: ReactNode
   name?: string
-  /** Multi-line secret (a PEM private key). */
-  multiline?: boolean
+  isLight: boolean
+  subPanelClass: string
 }
 
-const NO_AUTOFILL = {
-  autoComplete: "off",
-  spellCheck: false,
-  autoCorrect: "off",
-  autoCapitalize: "none",
-  "data-lpignore": "true",
-  "data-1p-ignore": "true",
-  "data-form-type": "other",
-  "data-gramm": "false",
-  "data-gramm_editor": "false",
-  "data-enable-grammarly": "false",
-} as const
-
-/**
- * A secret field. Once a secret is stored it shows only the server's masked hint with a "Configured" badge; "Replace"
- * opens an empty input for a new value (the stored one is kept until the new one is saved).
- */
 export function SecretInput({
   value,
   onChange,
   label,
   placeholder,
+  placeholderWhenConfigured,
   maskedValue,
   isConfigured = false,
+  serverLabel = "Key on server",
   hint,
-  error,
   name,
-  multiline = false,
+  isLight,
+  subPanelClass,
 }: SecretInputProps) {
-  const [replacing, setReplacing] = useState(false)
-  const [visible, setVisible] = useState(false)
-  const inputRef = useRef<HTMLInputElement | null>(null)
-  const areaRef = useRef<HTMLTextAreaElement | null>(null)
-  const editing = !isConfigured || replacing || value.length > 0
-
-  useEffect(() => {
-    if (!replacing) return
-    ;(multiline ? areaRef.current : inputRef.current)?.focus()
-  }, [replacing, multiline])
-
-  // A save returns a new masked hint: drop back to the configured view.
-  const [savedHint, setSavedHint] = useState(maskedValue)
-  if (savedHint !== maskedValue) {
-    setSavedHint(maskedValue)
-    setReplacing(false)
-    setVisible(false)
-  }
-
-  const cancelReplace = () => {
-    onChange("")
-    setReplacing(false)
-    setVisible(false)
-  }
+  const [showValue, setShowValue] = useState(false)
 
   return (
-    <Field
-      label={label}
-      hint={hint}
-      error={error}
-      aside={isConfigured ? <Badge tone="success" dot>Configured</Badge> : <Badge>Not set</Badge>}
-    >
-      {editing ? (
-        <div className="flex items-start gap-2">
-          {multiline ? (
-            <Textarea
-              ref={areaRef}
-              value={value}
-              onChange={(event) => onChange(event.target.value)}
-              placeholder={isConfigured ? "Paste the new value to replace the stored one" : placeholder}
-              name={name}
-              mono
-              rows={visible ? 6 : 3}
-              className={visible ? undefined : "[-webkit-text-security:disc]"}
-              {...NO_AUTOFILL}
-            />
-          ) : (
-            <Input
-              ref={inputRef}
-              type={visible ? "text" : "password"}
-              value={value}
-              onChange={(event) => onChange(event.target.value)}
-              placeholder={isConfigured ? "Paste the new value to replace the stored one" : placeholder}
-              name={name}
-              mono
-              className="no-edge-reveal"
-              {...NO_AUTOFILL}
-            />
+    <div className={cn("p-3", subPanelClass, "home-spotlight-card home-border-glow")}>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className={cn("text-xs uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>
+          {label}
+        </p>
+        {isConfigured && maskedValue && (
+          <p className={cn("text-[11px]", isLight ? "text-s-50" : "text-slate-400")}>
+            {serverLabel}: <span className="font-mono">{maskedValue}</span>
+          </p>
+        )}
+      </div>
+      <div className="relative">
+        <input
+          type={showValue ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={isConfigured && placeholderWhenConfigured ? placeholderWhenConfigured : placeholder}
+          name={name}
+          autoComplete="off"
+          data-lpignore="true"
+          data-1p-ignore="true"
+          data-form-type="other"
+          spellCheck={false}
+          autoCorrect="off"
+          autoCapitalize="none"
+          data-gramm="false"
+          data-gramm_editor="false"
+          data-enable-grammarly="false"
+          className={cn(
+            "no-edge-reveal w-full h-9 pr-10 pl-3 rounded-md border bg-transparent text-sm outline-none",
+            isLight
+              ? "border-[#d5dce8] text-s-90 placeholder:text-s-30"
+              : "border-white/10 text-slate-100 placeholder:text-slate-500"
           )}
-          <Tooltip content={visible ? "Hide value" : "Show value"}>
-            <IconButton
-              variant="outline"
-              aria-label={visible ? `Hide ${label}` : `Show ${label}`}
-              onClick={() => setVisible((current) => !current)}
-            >
-              {visible ? <EyeOff /> : <Eye />}
-            </IconButton>
-          </Tooltip>
-          {isConfigured ? (
-            <Button variant="ghost" onClick={cancelReplace}>
-              Cancel
-            </Button>
-          ) : null}
-        </div>
-      ) : (
-        <div className="flex h-8 items-center justify-between gap-3 rounded-md border border-border bg-surface px-2.5">
-          <span className="truncate font-mono text-xs text-muted">{maskedValue || "Stored securely"}</span>
-          <Button variant="link" size="sm" onClick={() => setReplacing(true)}>
-            Replace
-          </Button>
-        </div>
-      )}
-    </Field>
+        />
+        <button
+          type="button"
+          onClick={() => setShowValue((v) => !v)}
+          className={cn(
+            "absolute right-2 top-1/2 z-10 -translate-y-1/2 h-7 w-7 rounded-md flex items-center justify-center transition-all duration-150",
+            isLight ? "text-s-50 hover:bg-black/5" : "text-slate-400 hover:bg-white/10"
+          )}
+          aria-label={showValue ? "Hide value" : "Show value"}
+          title={showValue ? "Hide value" : "Show value"}
+        >
+          {showValue ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+        </button>
+      </div>
+      {hint ? (
+        <p className={cn("mt-2 text-[11px] leading-4", isLight ? "text-s-50" : "text-slate-400")}>
+          {hint}
+        </p>
+      ) : null}
+    </div>
   )
 }

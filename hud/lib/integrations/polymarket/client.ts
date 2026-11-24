@@ -456,9 +456,8 @@ export class PolymarketClient {
     const cached = this.readCache<PolymarketLeaderboardEntry[]>(cacheKey)
     if (cached) return cached
 
-    // Data API v2 (v1 retired 2026-11-02): `time_period` day|week|month|all.
-    const url = new URL(`${POLYMARKET_DATA_API_URL}/v2/leaderboard`)
-    url.searchParams.set("time_period", normalizedWindow)
+    const url = new URL(`${POLYMARKET_DATA_API_URL}/leaderboard`)
+    url.searchParams.set("window", normalizedWindow)
     url.searchParams.set("limit", String(normalizedLimit))
     const payload = await this.fetchJson(url.toString())
     const rows = Array.isArray(payload)

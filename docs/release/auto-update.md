@@ -9,7 +9,6 @@ The installed Nova app updates itself from **GitHub Releases** on `AverageNftEnj
 - Tray icon -> **Check for Updates...** runs a check on demand and says when Nova is up to date.
 - Only the installed app updates. `npm run dev`, `electron:dev` and the unpacked `--dir` build have no update feed and never check.
 - Nova installs per-user, so updating needs no admin prompt. User data in `%APPDATA%\Nova` is never touched by an update.
-- `productName: Nova` in `hud/electron-builder.yml` names the installer (`Nova-<version>-Setup.exe`, also the file `latest.yml` points at), the default install folder (`%LOCALAPPDATA%\Programs\Nova`), the shortcuts and the window/tray name. The installer identity is `appId: com.nova.hud`, which never changes, so an update over an install made under another product name (V.87 shipped as "U.B Agents") is the same app and keeps its data in `%APPDATA%\Nova`.
 
 ## Shipping a new version
 

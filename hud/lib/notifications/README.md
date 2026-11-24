@@ -1,6 +1,6 @@
 # Native Windows Notifications
 
-Nova uses native Windows notifications via Electron's Notification API.
+NovaAIO uses native Windows notifications via Electron's Notification API.
 
 ## Architecture
 

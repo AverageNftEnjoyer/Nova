@@ -1,70 +1,117 @@
 "use client"
 
-import { useMemo, useState, type DragEvent } from "react"
-
-import { SearchInput } from "@/components/ui"
-import { getPaletteCatalog, PALETTE_CATEGORIES, searchCatalog, type NodeCatalogEntry } from "@/lib/missions/catalog"
-import { CATEGORY_ICON, CATEGORY_TONE } from "./category-tone"
+import { useMemo, useState } from "react"
+import { Search } from "lucide-react"
+import { cn } from "@/lib/shared/utils"
+import { getPaletteCatalog, PALETTE_CATEGORIES, searchCatalog, type NodeCatalogEntry, type NodePaletteCategory } from "@/lib/missions/catalog"
 
 interface NodePaletteProps {
-  onAddNode: (entry: NodeCatalogEntry) => void
+  onAddNode: (type: NodeCatalogEntry["type"], label: string) => void
+  className?: string
 }
 
-/** Left panel of the canvas: searchable node list grouped by category. Click to add, or drag onto the canvas. */
-export function NodePalette({ onAddNode }: NodePaletteProps) {
+export function NodePalette({ onAddNode, className }: NodePaletteProps) {
   const [searchQuery, setSearchQuery] = useState("")
-  const catalog = useMemo(() => getPaletteCatalog(), [])
-  const results = searchQuery.trim() ? searchCatalog(searchQuery) : catalog
-  const groups = PALETTE_CATEGORIES
-    .map((category) => ({ category, entries: results.filter((entry) => entry.category === category.id) }))
-    .filter((group) => group.entries.length > 0)
+  const [activeCategory, setActiveCategory] = useState<NodePaletteCategory | "all">("all")
+  const paletteCatalog = useMemo(() => getPaletteCatalog(), [])
 
-  const handleDragStart = (event: DragEvent<HTMLButtonElement>, entry: NodeCatalogEntry) => {
-    event.dataTransfer.setData("application/nova-mission-node-type", entry.type)
-    event.dataTransfer.setData("application/nova-mission-node-label", entry.label)
-    event.dataTransfer.effectAllowed = "copy"
+  const results = searchQuery.trim()
+    ? searchCatalog(searchQuery)
+    : activeCategory === "all"
+      ? paletteCatalog
+      : paletteCatalog.filter((e) => e.category === activeCategory)
+
+  const handleDragStart = (e: React.DragEvent, entry: NodeCatalogEntry) => {
+    e.dataTransfer.setData("application/nova-mission-node-type", entry.type)
+    e.dataTransfer.setData("application/nova-mission-node-label", entry.label)
+    e.dataTransfer.effectAllowed = "copy"
   }
 
   return (
-    <aside aria-label="Nodes" className="flex w-52 shrink-0 xl:w-60 flex-col border-r border-border bg-surface">
-      <div className="border-b border-border p-3">
-        <SearchInput value={searchQuery} onValueChange={setSearchQuery} placeholder="Search nodes" size="sm" />
+    <aside
+      className={cn(
+        "flex h-full w-64 flex-col border-r border-white/10 bg-gradient-to-b from-slate-950/90 via-slate-950/80 to-black/75 backdrop-blur-xl",
+        className,
+      )}
+    >
+      <div className="border-b border-white/10 px-3 py-3">
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/45">Components</p>
+        <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+          <Search className="h-3.5 w-3.5 shrink-0 text-white/40" />
+          <input
+            className="w-full bg-transparent text-xs text-white/85 placeholder:text-white/30 focus:outline-none"
+            placeholder="Search components..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto py-2">
-        {groups.length === 0 ? (
-          <p className="px-4 py-6 text-center text-xs text-muted">No nodes match “{searchQuery.trim()}”.</p>
+
+      {!searchQuery.trim() && (
+        <div className="border-b border-white/10 px-3 py-2.5">
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={() => setActiveCategory("all")}
+              className={cn(
+                "rounded-lg border px-2 py-1 text-[10px] font-semibold tracking-wide transition-colors",
+                activeCategory === "all"
+                  ? "border-cyan-300/30 bg-cyan-500/15 text-cyan-100"
+                  : "border-white/10 bg-white/[0.04] text-white/50 hover:text-white/75",
+              )}
+            >
+              All
+            </button>
+            {PALETTE_CATEGORIES.map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => setActiveCategory(cat.id)}
+                className={cn(
+                  "rounded-lg border px-2 py-1 text-[10px] font-semibold tracking-wide transition-colors",
+                  activeCategory === cat.id
+                    ? "border-cyan-300/30 bg-cyan-500/15 text-cyan-100"
+                    : "border-white/10 bg-white/[0.04] text-white/50 hover:text-white/75",
+                )}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto p-2.5 scrollbar-none">
+        {results.length === 0 ? (
+          <p className="rounded-xl border border-white/10 bg-black/20 px-2 py-4 text-center text-xs text-white/35">
+            No components found.
+          </p>
         ) : (
-          groups.map(({ category, entries }) => {
-            const Icon = CATEGORY_ICON[category.id]
-            return (
-              <section key={category.id} className="pb-2">
-                <h3 className="px-4 pt-2 pb-1 text-xs font-medium text-muted">{category.label}</h3>
-                <ul>
-                  {entries.map((entry) => (
-                    <li key={entry.type}>
-                      <button
-                        type="button"
-                        draggable
-                        onDragStart={(event) => handleDragStart(event, entry)}
-                        onClick={() => onAddNode(entry)}
-                        title={entry.description}
-                        className="group flex w-full cursor-grab items-center gap-2.5 px-4 py-1.5 text-left hover:bg-hover active:cursor-grabbing"
-                      >
-                        <Icon aria-hidden className="size-3.5 shrink-0" style={{ color: CATEGORY_TONE[category.id] }} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm text-fg">{entry.label}</span>
-                          <span className="block truncate text-2xs text-faint">{entry.description}</span>
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )
-          })
+          <div className="flex flex-col gap-1.5">
+            {results.map((entry) => (
+              <div
+                key={entry.type}
+                draggable
+                onDragStart={(e) => handleDragStart(e, entry)}
+                onClick={() => onAddNode(entry.type, entry.label)}
+                className={cn(
+                  "group cursor-grab rounded-xl border px-2.5 py-2.5 transition-all active:cursor-grabbing",
+                  entry.color,
+                  entry.borderColor,
+                  "bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.07]",
+                )}
+                title={entry.description}
+              >
+                <div className="flex items-start gap-2.5">
+                  <span className={cn("mt-0.5 h-2 w-2 rounded-full", entry.textColor.replace("text-", "bg-"))} />
+                  <div className="min-w-0">
+                    <div className={cn("truncate text-xs font-semibold", entry.textColor)}>{entry.label}</div>
+                    <div className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-white/45">{entry.description}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
-      <p className="border-t border-border px-4 py-2 text-2xs text-faint">Click a node to add it, or drag it onto the canvas.</p>
     </aside>
   )
 }

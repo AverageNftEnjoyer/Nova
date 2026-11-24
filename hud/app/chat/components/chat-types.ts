@@ -10,6 +10,4 @@ export interface Message {
   nlpConfidence?: number
   nlpCorrectionCount?: number
   nlpBypass?: boolean
-  /** Set when a mission run posted this message into the thread. */
-  missionLabel?: string
 }

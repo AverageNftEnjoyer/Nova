@@ -1,7 +1,7 @@
 import { useCallback, useEffect, type MutableRefObject } from "react"
 import { getActiveUserId } from "@/lib/auth/active-user"
 import type { ChatMessage, Conversation } from "@/lib/chat/conversations"
-import { createConversation, generateId, resolveConversationTitle } from "@/lib/chat/conversations"
+import { generateId, resolveConversationTitle } from "@/lib/chat/conversations"
 import {
   mergeConversationsPreferLocal,
   buildMissionScopeKey,
@@ -14,6 +14,7 @@ import {
 } from "./shared"
 
 export function useConversationActions(params: {
+  router: { push: (href: string) => void }
   conversations: Conversation[]
   activeConvo: Conversation | null
   agentConnected: boolean
@@ -36,6 +37,7 @@ export function useConversationActions(params: {
   missionInFlightByScopeRef: MutableRefObject<Map<string, { signature: string; startedAt: number; cooldownUntil: number }>>
 }) {
   const {
+    router,
     conversations,
     activeConvo,
     agentConnected,
@@ -58,17 +60,9 @@ export function useConversationActions(params: {
     missionInFlightByScopeRef,
   } = params
 
-  // Opens a fresh conversation in place. An existing empty, unarchived thread is reused so repeated
-  // "New chat" clicks (and /chat?new=1 visits) do not pile up empty threads.
   const handleNewChat = useCallback(() => {
-    const reusable = conversations.find((c) => !c.archived && c.messages.length === 0)
-    if (reusable) {
-      persist(conversations, reusable)
-      return
-    }
-    const fresh = createConversation()
-    persist([fresh, ...conversations], fresh)
-  }, [conversations, persist])
+    router.push("/home")
+  }, [router])
 
   const handleSelectConvo = useCallback(
     async (id: string) => {

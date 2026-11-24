@@ -1,43 +1,48 @@
 "use client"
 
-import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Suspense, useCallback, useEffect, useRef, useState } from "react"
-import { CalendarDays, ChevronDown, ListChecks, Network, Plus } from "lucide-react"
+import { Suspense, useEffect, useRef, useState } from "react"
+import { Settings } from "lucide-react"
 
-import { PageContainer } from "@/components/shell"
-import {
-  Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  PageHeader,
-  toast,
-} from "@/components/ui"
-import { defaultMissionSettings, type Mission } from "@/lib/missions/types"
-import { MISSION_TEMPLATES } from "@/lib/missions/templates"
-import { resolveTimezone } from "@/lib/shared/timezone"
+import { useTheme } from "@/lib/context/theme-context"
+import { cn } from "@/lib/shared/utils"
+import { SettingsModal } from "@/components/settings/settings-modal"
+import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
+import { useNovaState } from "@/lib/chat/hooks/useNovaState"
+import { getNovaPresence } from "@/lib/chat/nova-presence"
+import { usePageActive } from "@/lib/hooks/use-page-active"
+import { NOVA_VERSION } from "@/lib/meta/version"
 import { DeleteMissionDialog } from "./components/delete-mission-dialog"
+import { MissionActionMenu } from "./components/mission-action-menu"
 import { MissionBuilderModal } from "./components/mission-builder-modal"
 import { MissionCanvasModal } from "./components/mission-canvas-modal"
-import { MissionsMainPanels, type MissionRowActions } from "./components/missions-main-panels"
+import { MissionsMainPanels } from "./components/missions-main-panels"
 import { RunProgressPanel } from "./components/run-progress-panel"
+import { defaultMissionSettings, type Mission } from "@/lib/missions/types"
+import { MISSION_TEMPLATES } from "@/lib/missions/templates"
+import { hexToRgba } from "./helpers"
 import { useMissionsPageState } from "./hooks/use-missions-page-state"
 import { missionToWorkflowSummaryForAutofix } from "./canvas/workflow-autofix-bridge"
 import type { MissionListItem } from "./types"
+import { resolveTimezone } from "@/lib/shared/timezone"
 
 function MissionsPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const returnTo = searchParams.get("returnTo")
+  const [orbHovered, setOrbHovered] = useState(false)
   const [canvasModalOpen, setCanvasModalOpen] = useState(false)
   const [canvasMission, setCanvasMission] = useState<Mission | null>(null)
   const [canvasSaving, setCanvasSaving] = useState(false)
   const openedFromDeploymentRef = useRef(false)
+  const { theme } = useTheme()
+  const pageActive = usePageActive()
+  const { state: novaState, connected: agentConnected } = useNovaState()
+  const isLight = theme === "light"
 
-  const state = useMissionsPageState({ returnTo })
   const {
+    settingsOpen,
+    setSettingsOpen,
     builderOpen,
     setBuilderOpen,
     status,
@@ -47,27 +52,100 @@ function MissionsPageContent() {
     schedules,
     setSchedules,
     setBaselineById,
-    detectedTimezone,
+    createSectionRef,
+    listSectionRef,
+    integrationsSettings,
+    novaMissionPrompt,
+    novaGeneratingMission,
+    searchQuery,
+    statusFilter,
+    missionBoardView,
     loading,
+    filteredSchedules,
     busyById,
+    missionRuntimeStatusById,
+    missionQueueMetrics,
+    setNovaMissionPrompt,
+    setSearchQuery,
+    setStatusFilter,
+    setMissionBoardView,
+    generateMissionDraftFromPrompt,
+    playClickSound,
+    formatStatusTime,
+    setMissionActionMenu,
+    updateLocalSchedule,
+    saveMission,
+    setPendingDeleteMission,
+    newLabel,
+    setNewLabel,
+    newDescription,
+    setNewDescription,
+    newPriority,
+    setNewPriority,
+    tagInput,
+    setTagInput,
+    addTag,
+    missionTags,
+    removeTag,
+    newTime,
+    setNewTime,
+    newScheduleDays,
+    toggleScheduleDay,
+    newScheduleMode,
+    setNewScheduleMode,
+    workflowSteps,
+    workflowAutofixPreview,
+    workflowAutofixSelectionById,
+    workflowAutofixLoading,
+    workflowAutofixApplying,
+    draggingStepId,
+    setDragOverStepId,
+    moveWorkflowStepByDrop,
+    setDraggingStepId,
+    dragOverStepId,
+    updateWorkflowStepTitle,
+    toggleWorkflowStepCollapsed,
+    collapsedStepIds,
+    removeWorkflowStep,
+    detectedTimezone,
+    updateWorkflowStep,
+    apiFetchIntegrationOptions,
+    catalogApiById,
+    outputChannelOptions,
+    updateWorkflowStepAi,
+    resolveDefaultAiIntegration,
+    configuredAiIntegrationOptions,
+    novaSuggestForAiStep,
+    novaSuggestingByStepId,
+    addWorkflowStep,
+    previewWorkflowFixes,
+    toggleWorkflowAutofixSelection,
+    applyWorkflowFixes,
+    builderBodyRef,
+    builderFooterRef,
+    missionActive,
+    setMissionActive,
+    runImmediatelyOnCreate,
+    setRunImmediatelyOnCreate,
+    editingMissionId,
+    deployMissionFromBuilder,
+    deployingMission,
+    missionActionMenu,
+    missionActionMenuRef,
     editMissionFromActions,
     duplicateMission,
     runMissionNow,
-    updateLocalSchedule,
-    saveMission,
     pendingDeleteMission,
-    setPendingDeleteMission,
     confirmDeleteMission,
-    resetMissionBuilder,
-  } = state
-
-  // Status messages from the page state surface as toasts.
-  useEffect(() => {
-    if (!status) return
-    if (status.type === "success") toast.success(status.message)
-    else toast.error(status.message)
-    setStatus(null)
-  }, [setStatus, status])
+    orbPalette,
+    panelStyle,
+    panelClass,
+    moduleHeightClass,
+    subPanelClass,
+    heroHeaderRef,
+    headerActionsRef,
+    missionStats,
+  } = useMissionsPageState({ isLight, returnTo })
 
   const editId = searchParams.get("editId")
   const createMode = searchParams.get("create")
@@ -80,7 +158,7 @@ function MissionsPageContent() {
   useEffect(() => {
     if (!editId || loading || builderOpen) return
     const target = schedules.find((s) => s.id === editId)
-    if (target) void editMissionFromActions(target)
+    if (target) editMissionFromActions(target)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editId, loading])
 
@@ -132,51 +210,49 @@ function MissionsPageContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ templateId }),
       })
-      const data = await res.json() as { ok: boolean; mission?: Mission; error?: string }
-      if (!data.ok || !data.mission) throw new Error(data.error || "Could not create a mission from this template.")
-      upsertMissionInPipeline(buildPipelineScheduleFromMission(data.mission))
-      setCanvasMission(data.mission)
-      setCanvasModalOpen(true)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not create a mission from this template.")
-    }
+      const data = await res.json() as { ok: boolean; mission?: Mission }
+      if (data.ok && data.mission) {
+        upsertMissionInPipeline(buildPipelineScheduleFromMission(data.mission))
+        setCanvasMission(data.mission)
+        setCanvasModalOpen(true)
+        return
+      }
+    } catch {}
   }
 
   const handleViewInCanvas = async (missionId: string) => {
     try {
       const res = await fetch(`/api/missions?id=${encodeURIComponent(missionId)}`)
-      const data = await res.json() as { ok: boolean; mission?: Mission; error?: string }
-      if (!data.ok || !data.mission) throw new Error(data.error || "Could not load this mission.")
-      setCanvasMission(data.mission)
-      setCanvasModalOpen(true)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not load this mission.")
+      const data = await res.json() as { ok: boolean; mission?: Mission }
+      if (data.ok && data.mission) {
+        setCanvasMission(data.mission)
+        setCanvasModalOpen(true)
+      }
+    } catch {
+      // Silently fail — canvas button is optional
     }
-  }
-
-  const saveCanvasMission = async (mission: Mission, failureMessage: string): Promise<Mission> => {
-    const response = await fetch("/api/missions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mission }),
-    })
-    const data = await response.json() as { ok?: boolean; mission?: Mission; error?: string }
-    if (!response.ok || !data?.ok) throw new Error(data?.error || failureMessage)
-    const savedMission = data?.mission || mission
-    upsertMissionInPipeline(buildPipelineScheduleFromMission(savedMission))
-    setCanvasMission(savedMission)
-    return savedMission
   }
 
   const handleCanvasSave = async (mission: Mission): Promise<boolean> => {
     setCanvasSaving(true)
     try {
-      const savedMission = await saveCanvasMission(mission, "Failed to save mission.")
+      const response = await fetch("/api/missions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mission }),
+      })
+      const data = await response.json() as { ok?: boolean; mission?: Mission; error?: string }
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Failed to save mission.")
+      }
+      const savedMission = data?.mission || mission
+      upsertMissionInPipeline(buildPipelineScheduleFromMission(savedMission))
+      setCanvasMission(savedMission)
       setCanvasModalOpen(false)
-      toast.success(`Saved "${savedMission.label || "Untitled mission"}".`)
+      setStatus({ type: "success", message: `Mission "${savedMission.label || "Untitled mission"}" saved to Mission Pipeline Settings.` })
       return true
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save mission.")
+      setStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to save mission." })
       return false
     } finally {
       setCanvasSaving(false)
@@ -186,13 +262,25 @@ function MissionsPageContent() {
   const handleCanvasRun = async (mission: Mission) => {
     setCanvasSaving(true)
     try {
-      const savedMission = await saveCanvasMission(mission, "Failed to save mission before run.")
+      const response = await fetch("/api/missions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mission }),
+      })
+      const data = await response.json() as { ok?: boolean; mission?: Mission; error?: string }
+      if (!response.ok || !data?.ok) {
+        throw new Error(data?.error || "Failed to save mission before run.")
+      }
+      const savedMission = data?.mission || mission
+      const missionSchedule = buildPipelineScheduleFromMission(savedMission)
+      upsertMissionInPipeline(missionSchedule)
+      setCanvasMission(savedMission)
       setCanvasModalOpen(false)
-      await runMissionNow(buildPipelineScheduleFromMission(savedMission), {
+      await runMissionNow(missionSchedule, {
         workflowSteps: missionToWorkflowSummaryForAutofix(savedMission).workflowSteps,
       })
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to run mission.")
+      setStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to run mission." })
     } finally {
       setCanvasSaving(false)
     }
@@ -200,10 +288,10 @@ function MissionsPageContent() {
 
   const handleCreateMissionInCanvas = () => {
     const now = new Date().toISOString()
-    setCanvasMission({
+    const draftMission: Mission = {
       id: crypto.randomUUID(),
       userId: "",
-      label: "New mission",
+      label: "New Mission",
       description: "",
       category: "research",
       tags: [],
@@ -220,175 +308,277 @@ function MissionsPageContent() {
       failureCount: 0,
       integration: "telegram",
       chatIds: [],
-    })
+    }
+    setCanvasMission(draftMission)
     setCanvasModalOpen(true)
   }
 
-  const openNewBuilder = useCallback(() => {
-    resetMissionBuilder()
-    setBuilderOpen(true)
-  }, [resetMissionBuilder, setBuilderOpen])
-
-  const rowActions: MissionRowActions = {
-    onRunNow: (mission) => void runMissionNow(mission),
-    onEdit: (mission) => void editMissionFromActions(mission),
-    onOpenCanvas: (missionId) => void handleViewInCanvas(missionId),
-    onDuplicate: (mission) => void duplicateMission(mission),
-    onToggleEnabled: (mission) => {
-      const nextEnabled = !mission.enabled
-      updateLocalSchedule(mission.id, { enabled: nextEnabled })
-      void saveMission({ ...mission, enabled: nextEnabled })
-    },
-    onDelete: (mission) => setPendingDeleteMission(mission),
-  }
-
-  const newMissionMenu = (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button>
-          <Plus />
-          New mission
-          <ChevronDown className="-mr-1" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-60">
-        <DropdownMenuItem onSelect={openNewBuilder} className="h-auto items-start py-2">
-          <ListChecks className="mt-0.5" />
-          <span className="flex flex-col">
-            <span>Step builder</span>
-            <span className="text-xs text-muted">A schedule and a list of steps</span>
-          </span>
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={handleCreateMissionInCanvas} className="h-auto items-start py-2">
-          <Network className="mt-0.5" />
-          <span className="flex flex-col">
-            <span>Blank canvas</span>
-            <span className="text-xs text-muted">A graph with branches and agent nodes</span>
-          </span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-
+  const presence = getNovaPresence({ agentConnected, novaState })
+  const orbHoverFilter = `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`
   return (
-    <PageContainer width="wide">
-      <PageHeader
-        title="Missions"
-        description="Automation definitions behind Advanced deployments: schedules, steps and graphs."
-        actions={(
-          <>
-            <Button variant="secondary" asChild>
-              <Link href="/missions/calendar">
-                <CalendarDays />
-                Calendar
-              </Link>
-            </Button>
-            {newMissionMenu}
-          </>
-        )}
-      />
+    <div className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}>
 
-      <MissionsMainPanels
-        templates={MISSION_TEMPLATES}
-        integrationsSettings={state.integrationsSettings}
-        novaMissionPrompt={state.novaMissionPrompt}
-        novaGeneratingMission={state.novaGeneratingMission}
-        searchQuery={state.searchQuery}
-        statusFilter={state.statusFilter}
-        loading={loading}
-        totalCount={schedules.length}
-        stats={state.missionStats}
-        filteredSchedules={state.filteredSchedules}
-        busyById={busyById}
-        runProgress={runProgress}
-        missionRuntimeStatusById={state.missionRuntimeStatusById}
-        missionQueueMetrics={state.missionQueueMetrics}
-        formatStatusTime={state.formatStatusTime}
-        actions={rowActions}
-        onNovaMissionPromptChange={state.setNovaMissionPrompt}
-        onSearchQueryChange={state.setSearchQuery}
-        onStatusFilterChange={state.setStatusFilter}
-        onApplyTemplate={(id) => void handleApplyTemplate(id)}
-        onGenerateMissionDraft={() => void state.generateMissionDraftFromPrompt()}
-        onCreateMission={openNewBuilder}
-      />
+      <div className="relative z-10 flex-1 h-dvh overflow-hidden transition-all duration-200">
+        <div className="flex h-full w-full items-start justify-start px-3 py-4 sm:px-4 lg:px-6">
+          <div className="w-full">
+            <div ref={heroHeaderRef} className="mb-4 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <button
+                  onClick={() => router.push(returnTo || "/home")}
+                  onMouseEnter={() => setOrbHovered(true)}
+                  onMouseLeave={() => setOrbHovered(false)}
+                  className="group relative h-11 w-11 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110"
+                  aria-label="Go to home"
+                >
+                  <NovaOrbIndicator
+                    palette={orbPalette}
+                    size={30}
+                    animated={pageActive}
+                    className="transition-all duration-200"
+                    style={{ filter: orbHovered ? orbHoverFilter : "none" }}
+                  />
+                </button>
+                <div className="min-w-0">
+                  <div className="flex flex-col leading-tight">
+                    <div className="flex items-baseline gap-3">
+                      <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaAIO</h1>
+                      <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-3">
+                      <div className="inline-flex items-center gap-1.5">
+                        <span className={cn("h-2.5 w-2.5 rounded-full animate-pulse", presence.dotClassName)} aria-hidden="true" />
+                        <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", presence.textClassName)}>
+                          {presence.label}
+                        </span>
+                      </div>
+                      <p className={cn("text-[13px] whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>Missions & Automations Hub</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="min-w-0 px-1">
+                <div className="mx-auto grid w-full max-w-184 grid-cols-4 items-stretch gap-2">
+                  {[
+                    { label: "Total Missions", value: String(missionStats.total), dotClass: isLight ? "bg-s-40" : "bg-slate-400" },
+                    { label: "Active Missions", value: String(missionStats.enabled), dotClass: isLight ? "bg-emerald-400" : "bg-emerald-400" },
+                    { label: "Total Runs", value: String(missionStats.totalRuns), dotClass: isLight ? "bg-sky-400" : "bg-sky-400" },
+                    { label: "Success Rate", value: `${missionStats.successRate}%`, dotClass: isLight ? "bg-accent" : "bg-accent" },
+                  ].map((tile) => (
+                    <div
+                      key={tile.label}
+                      className={cn(
+                        "h-9 rounded-md border px-2 py-1.5 flex items-center justify-between home-spotlight-card home-border-glow",
+                        subPanelClass,
+                      )}
+                    >
+                      <div className="min-w-0">
+                        <p className={cn("text-[9px] uppercase tracking-[0.12em] truncate", isLight ? "text-s-50" : "text-slate-400")}>{tile.label}</p>
+                        <p className={cn("text-sm font-semibold leading-tight", isLight ? "text-s-90" : "text-slate-100")}>{tile.value}</p>
+                      </div>
+                      <span className={cn("h-2.5 w-2.5 rounded-sm", tile.dotClass)} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div ref={headerActionsRef} className="flex items-center gap-2 home-spotlight-shell">
+                <button
+                  onClick={() => setSettingsOpen(true)}
+                  className={cn("h-8 w-8 rounded-lg transition-colors group/gear home-spotlight-card home-border-glow", subPanelClass)}
+                  aria-label="Open settings"
+                  title="Settings"
+                >
+                  <Settings className="w-3.5 h-3.5 mx-auto text-s-50 group-hover/gear:text-accent group-hover/gear:rotate-90 transition-transform duration-200" />
+                </button>
+                <button
+                  onClick={() => {
+                    playClickSound()
+                    handleCreateMissionInCanvas()
+                  }}
+                  className={cn(
+                    "h-8 px-3 rounded-lg border transition-colors text-sm font-medium inline-flex items-center justify-center home-spotlight-card home-border-glow home-spotlight-dynamic",
+                    isLight
+                      ? "border-accent-30 bg-accent-10 text-accent"
+                      : "border-accent-30 bg-accent-10 text-accent",
+                  )}
+                >
+                  New Mission
+                </button>
+              </div>
+            </div>
 
-      {runProgress ? (
-        <RunProgressPanel
-          runProgress={runProgress}
-          onClose={() => setRunProgress(null)}
-          onOpenChat={() => {
-            setRunProgress(null)
-            router.push("/chat")
-          }}
-        />
-      ) : null}
+            {status && (
+              <div className="pointer-events-none fixed left-1/2 top-5 z-70 -translate-x-1/2">
+                <div
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-sm shadow-lg backdrop-blur-md",
+                    status.type === "success"
+                      ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-200"
+                      : "border-rose-300/40 bg-rose-500/15 text-rose-200",
+                  )}
+                >
+                  {status.message}
+                </div>
+              </div>
+            )}
+            {runProgress && (
+              <RunProgressPanel
+                isLight={isLight}
+                runProgress={runProgress}
+                onClose={() => setRunProgress(null)}
+                onOpenChat={() => {
+                  setRunProgress(null)
+                  router.push("/chat")
+                }}
+              />
+            )}
+
+            <MissionsMainPanels
+              isLight={isLight}
+              panelStyle={panelStyle}
+              panelClass={panelClass}
+              moduleHeightClass={moduleHeightClass}
+              subPanelClass={subPanelClass}
+              createSectionRef={createSectionRef}
+              listSectionRef={listSectionRef}
+              templates={MISSION_TEMPLATES}
+              integrationsSettings={integrationsSettings}
+              novaMissionPrompt={novaMissionPrompt}
+              novaGeneratingMission={novaGeneratingMission}
+              searchQuery={searchQuery}
+              statusFilter={statusFilter}
+              missionBoardView={missionBoardView}
+              loading={loading}
+              filteredSchedules={filteredSchedules}
+              busyById={busyById}
+              runProgress={runProgress}
+              missionRuntimeStatusById={missionRuntimeStatusById}
+              missionQueueMetrics={missionQueueMetrics}
+              onNovaMissionPromptChange={setNovaMissionPrompt}
+              onSearchQueryChange={setSearchQuery}
+              onStatusFilterChange={setStatusFilter}
+              onMissionBoardViewChange={setMissionBoardView}
+              onApplyTemplate={(id) => void handleApplyTemplate(id)}
+              onGenerateMissionDraft={() => {
+                void generateMissionDraftFromPrompt()
+              }}
+              onPlayClickSound={playClickSound}
+              formatStatusTime={formatStatusTime}
+              onMissionActionMenu={(mission, left, top) => setMissionActionMenu({ mission, left, top })}
+              onToggleMissionEnabled={(mission) => {
+                const nextEnabled = !mission.enabled
+                updateLocalSchedule(mission.id, { enabled: nextEnabled })
+                void saveMission({ ...mission, enabled: nextEnabled })
+              }}
+              onRequestDeleteMission={setPendingDeleteMission}
+              onViewInCanvas={(id) => void handleViewInCanvas(id)}
+            />
+          </div>
+        </div>
+      </div>
 
       <MissionBuilderModal
         builderOpen={builderOpen}
-        playClickSound={state.playClickSound}
+        playClickSound={playClickSound}
         setBuilderOpen={setBuilderOpen}
-        newLabel={state.newLabel}
-        setNewLabel={state.setNewLabel}
-        newDescription={state.newDescription}
-        setNewDescription={state.setNewDescription}
-        newPriority={state.newPriority}
-        setNewPriority={state.setNewPriority}
-        tagInput={state.tagInput}
-        setTagInput={state.setTagInput}
-        addTag={state.addTag}
-        missionTags={state.missionTags}
-        removeTag={state.removeTag}
-        newTime={state.newTime}
-        setNewTime={state.setNewTime}
-        newScheduleDays={state.newScheduleDays}
-        toggleScheduleDay={state.toggleScheduleDay}
-        newScheduleMode={state.newScheduleMode}
-        setNewScheduleMode={state.setNewScheduleMode}
-        workflowSteps={state.workflowSteps}
-        workflowAutofixPreview={state.workflowAutofixPreview}
-        workflowAutofixSelectionById={state.workflowAutofixSelectionById}
-        workflowAutofixLoading={state.workflowAutofixLoading}
-        workflowAutofixApplying={state.workflowAutofixApplying}
-        draggingStepId={state.draggingStepId}
-        setDragOverStepId={state.setDragOverStepId}
-        moveWorkflowStepByDrop={state.moveWorkflowStepByDrop}
-        setDraggingStepId={state.setDraggingStepId}
-        dragOverStepId={state.dragOverStepId}
-        updateWorkflowStepTitle={state.updateWorkflowStepTitle}
-        toggleWorkflowStepCollapsed={state.toggleWorkflowStepCollapsed}
-        collapsedStepIds={state.collapsedStepIds}
-        removeWorkflowStep={state.removeWorkflowStep}
+        panelStyle={panelStyle}
+        isLight={isLight}
+        orbPalette={orbPalette}
+        builderBodyRef={builderBodyRef}
+        subPanelClass={subPanelClass}
+        newLabel={newLabel}
+        setNewLabel={setNewLabel}
+        newDescription={newDescription}
+        setNewDescription={setNewDescription}
+        newPriority={newPriority}
+        setNewPriority={setNewPriority}
+        tagInput={tagInput}
+        setTagInput={setTagInput}
+        addTag={addTag}
+        missionTags={missionTags}
+        removeTag={removeTag}
+        newTime={newTime}
+        setNewTime={setNewTime}
+        newScheduleDays={newScheduleDays}
+        toggleScheduleDay={toggleScheduleDay}
+        newScheduleMode={newScheduleMode}
+        setNewScheduleMode={setNewScheduleMode}
+        workflowSteps={workflowSteps}
+        workflowAutofixPreview={workflowAutofixPreview}
+        workflowAutofixSelectionById={workflowAutofixSelectionById}
+        workflowAutofixLoading={workflowAutofixLoading}
+        workflowAutofixApplying={workflowAutofixApplying}
+        draggingStepId={draggingStepId}
+        setDragOverStepId={setDragOverStepId}
+        moveWorkflowStepByDrop={moveWorkflowStepByDrop}
+        setDraggingStepId={setDraggingStepId}
+        dragOverStepId={dragOverStepId}
+        updateWorkflowStepTitle={updateWorkflowStepTitle}
+        toggleWorkflowStepCollapsed={toggleWorkflowStepCollapsed}
+        collapsedStepIds={collapsedStepIds}
+        removeWorkflowStep={removeWorkflowStep}
         detectedTimezone={detectedTimezone}
-        updateWorkflowStep={state.updateWorkflowStep}
-        apiFetchIntegrationOptions={state.apiFetchIntegrationOptions}
-        catalogApiById={state.catalogApiById}
-        outputChannelOptions={state.outputChannelOptions}
-        updateWorkflowStepAi={state.updateWorkflowStepAi}
-        resolveDefaultAiIntegration={state.resolveDefaultAiIntegration}
-        integrationsSettings={state.integrationsSettings}
-        configuredAiIntegrationOptions={state.configuredAiIntegrationOptions}
-        novaSuggestForAiStep={state.novaSuggestForAiStep}
-        novaSuggestingByStepId={state.novaSuggestingByStepId}
-        addWorkflowStep={state.addWorkflowStep}
-        previewWorkflowFixes={state.previewWorkflowFixes}
-        toggleWorkflowAutofixSelection={state.toggleWorkflowAutofixSelection}
-        applyWorkflowFixes={state.applyWorkflowFixes}
-        missionActive={state.missionActive}
-        setMissionActive={state.setMissionActive}
-        runImmediatelyOnCreate={state.runImmediatelyOnCreate}
-        setRunImmediatelyOnCreate={state.setRunImmediatelyOnCreate}
-        editingMissionId={state.editingMissionId}
-        deployMissionFromBuilder={state.deployMissionFromBuilder}
-        deployingMission={state.deployingMission}
+        updateWorkflowStep={updateWorkflowStep}
+        apiFetchIntegrationOptions={apiFetchIntegrationOptions}
+        catalogApiById={catalogApiById}
+        outputChannelOptions={outputChannelOptions}
+        updateWorkflowStepAi={updateWorkflowStepAi}
+        resolveDefaultAiIntegration={resolveDefaultAiIntegration}
+        integrationsSettings={integrationsSettings}
+        configuredAiIntegrationOptions={configuredAiIntegrationOptions}
+        novaSuggestForAiStep={novaSuggestForAiStep}
+        novaSuggestingByStepId={novaSuggestingByStepId}
+        addWorkflowStep={addWorkflowStep}
+        previewWorkflowFixes={previewWorkflowFixes}
+        toggleWorkflowAutofixSelection={toggleWorkflowAutofixSelection}
+        applyWorkflowFixes={applyWorkflowFixes}
+        builderFooterRef={builderFooterRef}
+        missionActive={missionActive}
+        setMissionActive={setMissionActive}
+        runImmediatelyOnCreate={runImmediatelyOnCreate}
+        setRunImmediatelyOnCreate={setRunImmediatelyOnCreate}
+        editingMissionId={editingMissionId}
+        deployMissionFromBuilder={deployMissionFromBuilder}
+        deployingMission={deployingMission}
       />
 
-      <DeleteMissionDialog
-        mission={pendingDeleteMission}
-        busy={Boolean(pendingDeleteMission && busyById[pendingDeleteMission.id])}
-        onCancel={() => setPendingDeleteMission(null)}
-        onConfirm={() => void confirmDeleteMission()}
-      />
+      {missionActionMenu && (
+        <MissionActionMenu
+          isLight={isLight}
+          menu={missionActionMenu}
+          menuRef={missionActionMenuRef}
+          onEdit={() => {
+            const target = missionActionMenu.mission
+            setMissionActionMenu(null)
+            editMissionFromActions(target)
+          }}
+          onDuplicate={() => {
+            const target = missionActionMenu.mission
+            setMissionActionMenu(null)
+            void duplicateMission(target)
+          }}
+          onRunNow={() => {
+            const target = missionActionMenu.mission
+            setMissionActionMenu(null)
+            void runMissionNow(target)
+          }}
+          onDelete={() => {
+            const target = missionActionMenu.mission
+            setMissionActionMenu(null)
+            setPendingDeleteMission(target)
+          }}
+        />
+      )}
+
+      {pendingDeleteMission && (
+        <DeleteMissionDialog
+          isLight={isLight}
+          mission={pendingDeleteMission}
+          busy={Boolean(busyById[pendingDeleteMission.id])}
+          panelStyle={panelStyle}
+          onCancel={() => setPendingDeleteMission(null)}
+          onConfirm={() => void confirmDeleteMission()}
+        />
+      )}
 
       <MissionCanvasModal
         mission={canvasMission}
@@ -398,13 +588,17 @@ function MissionsPageContent() {
         onRun={handleCanvasRun}
         isSaving={canvasSaving}
       />
-    </PageContainer>
+
+      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+    </div>
   )
 }
 
+
+
 export default function MissionsPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<div />}>
       <MissionsPageContent />
     </Suspense>
   )

@@ -1,6 +1,17 @@
-import { redirect } from "next/navigation"
+"use client"
 
-/** The app opens on Home. */
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
+
 export default function RootPage() {
-  redirect("/home")
+  const router = useRouter()
+
+  useEffect(() => {
+    // Clear active conversation so we always start fresh
+    localStorage.removeItem("nova-active-conversation")
+    // Use client router navigation to avoid full document reload churn.
+    router.replace("/home")
+  }, [router])
+
+  return null
 }

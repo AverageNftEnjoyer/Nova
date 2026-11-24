@@ -83,10 +83,7 @@ export interface UserSettings {
 
 const STORAGE_KEY_PREFIX = "nova_user_settings"
 export const USER_SETTINGS_UPDATED_EVENT = "nova:user-settings-updated"
-export const MAX_ASSISTANT_NAME_LENGTH = 16
-// The V.87 default assistant name. A stored value still equal to it was never changed by the user, so it
-// reads as the current default ("Nova").
-export const LEGACY_DEFAULT_ASSISTANT_NAME = "U.B Agents"
+export const MAX_ASSISTANT_NAME_LENGTH = 8
 export const MAX_PREFERRED_CITY_LENGTH = 80
 const BLOCKED_ASSISTANT_NAME_PATTERNS: RegExp[] = [
   /^fuck(?:er|ing|ed|s)?$/i,
@@ -189,8 +186,6 @@ const REMOVED_APP_SETTING_KEYS = [
   "bootMusicDataUrl",
   "bootMusicFileName",
   "bootMusicAssetId",
-  // The retired Harbour / District Home view switch.
-  "homeScene",
 ] as const
 
 function normalizeAppSettings(input: AppSettings): AppSettings {
@@ -350,9 +345,7 @@ export function extractPreferredCityCommand(value: unknown): string {
 }
 
 function clampAssistantName(value: unknown): string {
-  const raw = String(value || "").trim()
-  if (!raw || raw === LEGACY_DEFAULT_ASSISTANT_NAME) return "Nova"
-  const trimmed = raw.slice(0, MAX_ASSISTANT_NAME_LENGTH)
+  const trimmed = String(value || "").trim().slice(0, MAX_ASSISTANT_NAME_LENGTH)
   if (isBlockedAssistantName(trimmed)) return "Nova"
   return trimmed
 }
@@ -392,6 +385,102 @@ export const ACCENT_COLORS: Record<AccentColor, { primary: string; secondary: st
   pastelPink: { primary: "#f9a8d4", secondary: "#fbcfe8", name: "Pastel Pink" },
   white: { primary: "#cbd5e1", secondary: "#f8fafc", name: "White" },
   black: { primary: "#0b0b0d", secondary: "#2a2a30", name: "Black" },
+}
+
+export const ORB_COLORS: Record<
+  OrbColor,
+  { name: string; bg: string; circle1: string; circle2: string; circle3: string; circle4: string; circle5: string }
+> = {
+  violet: {
+    name: "Violet",
+    bg: "#1a1a2e",
+    circle1: "#9e9fef",
+    circle2: "#c471ec",
+    circle3: "#818cf8",
+    circle4: "#a78bfa",
+    circle5: "#f472b6",
+  },
+  blue: {
+    name: "Blue",
+    bg: "#0b1426",
+    circle1: "#3b82f6",
+    circle2: "#60a5fa",
+    circle3: "#2563eb",
+    circle4: "#38bdf8",
+    circle5: "#93c5fd",
+  },
+  cyan: {
+    name: "Cyan",
+    bg: "#071a1f",
+    circle1: "#06b6d4",
+    circle2: "#22d3ee",
+    circle3: "#0891b2",
+    circle4: "#67e8f9",
+    circle5: "#0ea5e9",
+  },
+  emerald: {
+    name: "Emerald",
+    bg: "#071a14",
+    circle1: "#10b981",
+    circle2: "#34d399",
+    circle3: "#059669",
+    circle4: "#6ee7b7",
+    circle5: "#2dd4bf",
+  },
+  amber: {
+    name: "Amber",
+    bg: "#1f1607",
+    circle1: "#f59e0b",
+    circle2: "#fbbf24",
+    circle3: "#d97706",
+    circle4: "#fde68a",
+    circle5: "#fb923c",
+  },
+  orange: {
+    name: "Orange",
+    bg: "#1f1208",
+    circle1: "#f97316",
+    circle2: "#fb923c",
+    circle3: "#ea580c",
+    circle4: "#fdba74",
+    circle5: "#fb7185",
+  },
+  rose: {
+    name: "Rose",
+    bg: "#210b14",
+    circle1: "#f43f5e",
+    circle2: "#fb7185",
+    circle3: "#e11d48",
+    circle4: "#fda4af",
+    circle5: "#ec4899",
+  },
+  pastelPink: {
+    name: "Pastel Pink",
+    bg: "#1f0f18",
+    circle1: "#f9a8d4",
+    circle2: "#fbcfe8",
+    circle3: "#f472b6",
+    circle4: "#fce7f3",
+    circle5: "#fda4af",
+  },
+  white: {
+    name: "White",
+    bg: "#111827",
+    circle1: "#ffffff",
+    circle2: "#f8fafc",
+    circle3: "#e2e8f0",
+    circle4: "#cbd5e1",
+    circle5: "#94a3b8",
+  },
+  black: {
+    name: "Black",
+    bg: "#020204",
+    circle1: "#0b0b0d",
+    circle2: "#1a1a1f",
+    circle3: "#24242b",
+    circle4: "#34343c",
+    circle5: "#4a4a55",
+  },
 }
 
 // Available TTS voices

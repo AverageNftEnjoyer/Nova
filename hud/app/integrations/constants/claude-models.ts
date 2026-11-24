@@ -1,4 +1,4 @@
-import type { SelectOption } from "@/components/ui/select"
+import type { FluidSelectOption } from "@/components/ui/fluid-select"
 import { formatModelPriceHint } from "./pricing"
 import type { ModelOption } from "./types"
 
@@ -55,7 +55,7 @@ function claudeFamilyWeight(model: string): number {
   return 0
 }
 
-export function sortClaudeOptions(options: SelectOption[]): SelectOption[] {
+export function sortClaudeOptions(options: FluidSelectOption[]): FluidSelectOption[] {
   return [...options].sort((a, b) => {
     const aText = `${a.label} ${a.value}`
     const bText = `${b.label} ${b.value}`
@@ -76,7 +76,7 @@ export function sortClaudeOptions(options: SelectOption[]): SelectOption[] {
   })
 }
 
-export const CLAUDE_MODEL_SELECT_FALLBACK: SelectOption[] = sortClaudeOptions(
+export const CLAUDE_MODEL_SELECT_FALLBACK: FluidSelectOption[] = sortClaudeOptions(
   CLAUDE_MODEL_OPTIONS.map((option) => ({
     value: option.value,
     label: option.label,

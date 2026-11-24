@@ -1,9 +1,8 @@
-import type { Dispatch, SetStateAction } from "react"
+import type { CSSProperties, Dispatch, MutableRefObject, SetStateAction } from "react"
 
 import type { IntegrationSetupKey } from "@/lib/integrations/navigation"
 import type { IntegrationsSettings, LlmProvider } from "@/lib/integrations/store/client-store"
 import type { IntegrationsSaveStatus, IntegrationsSaveTarget } from "../hooks"
-import type { DetailTabId } from "../components/setup-parts"
 import type { CoinbasePendingAction, CoinbasePersistedSnapshot, CoinbasePrivacySettings } from "./coinbase/meta"
 
 type SetState<T> = Dispatch<SetStateAction<T>>
@@ -24,8 +23,9 @@ export type LlmSetupState = {
 }
 
 export type ProviderDefinition = {
-  provider: "openai" | "claude" | "grok" | "gemini"
-  label: string
+  sectionRef: MutableRefObject<HTMLElement | null>
+  title: string
+  description: string
   isConnected: boolean
   isSaving: boolean
   onToggle: () => Promise<void>
@@ -40,6 +40,7 @@ export type ProviderDefinition = {
   onModelChange: (value: string) => void
   modelOptions: Array<{ value: string; label: string; priceHint?: string }>
   apiKeyPlaceholder: string
+  apiKeyPlaceholderWhenConfigured: string
   apiKeyInputName: string
   baseUrlPlaceholder: string
   baseUrlHint: string
@@ -53,6 +54,10 @@ export type UseProviderDefinitionsParams = {
   settings: IntegrationsSettings
   isSavingTarget: IntegrationsSaveTarget
   activeSetup: IntegrationSetupKey
+  openaiSetupSectionRef: MutableRefObject<HTMLElement | null>
+  claudeSetupSectionRef: MutableRefObject<HTMLElement | null>
+  grokSetupSectionRef: MutableRefObject<HTMLElement | null>
+  geminiSetupSectionRef: MutableRefObject<HTMLElement | null>
   openAISetup: LlmSetupState
   claudeSetup: LlmSetupState
   grokSetup: LlmSetupState
@@ -122,14 +127,12 @@ export type UseIntegrationsActionsParams = {
 
 export type IntegrationsMainPanelProps = {
   activeSetup: IntegrationSetupKey
-  tab: DetailTabId
-  onTabChange: (tab: DetailTabId) => void
+  panelStyle: CSSProperties | undefined
+  panelClass: string
+  moduleHeightClass: string
+  isLight: boolean
+  subPanelClass: string
   settings: IntegrationsSettings
-  activeLlmProvider: LlmProvider
-  saveActiveProvider: (provider: LlmProvider) => void | Promise<void>
-  /** The last failed save / test of the integration on screen (also shown as a toast). */
-  lastError: string | null
-  dismissError: () => void
   isSavingTarget: IntegrationsSaveTarget
   telegramNeedsKeyWarning: boolean
   braveNeedsKeyWarning: boolean
@@ -146,6 +149,7 @@ export type IntegrationsMainPanelProps = {
   setNewsPreferredSources: SetState<string>
   coinbaseNeedsKeyWarning: boolean
   coinbasePendingAction: CoinbasePendingAction | null
+  coinbaseSyncBadgeClass: string
   coinbaseSyncLabel: string
   coinbaseLastSyncText: string
   coinbaseFreshnessText: string
@@ -246,6 +250,18 @@ export type IntegrationsMainPanelProps = {
     openPolymarketWorkspace: () => void
     setLiveTradingEnabled: (enabled: boolean) => Promise<void>
   }
+  phantomSetupSectionRef: MutableRefObject<HTMLElement | null>
+  polymarketSetupSectionRef: MutableRefObject<HTMLElement | null>
+  spotifySetupSectionRef: MutableRefObject<HTMLElement | null>
+  youtubeSetupSectionRef: MutableRefObject<HTMLElement | null>
+  gmailCalendarSetupSectionRef: MutableRefObject<HTMLElement | null>
+  telegramSetupSectionRef: MutableRefObject<HTMLElement | null>
+  discordSetupSectionRef: MutableRefObject<HTMLElement | null>
+  slackSetupSectionRef: MutableRefObject<HTMLElement | null>
+  braveSetupSectionRef: MutableRefObject<HTMLElement | null>
+  newsSetupSectionRef: MutableRefObject<HTMLElement | null>
+  coinbaseSetupSectionRef: MutableRefObject<HTMLElement | null>
+  gmailSetupSectionRef: MutableRefObject<HTMLElement | null>
   setBotToken: SetState<string>
   botToken: string
   botTokenConfigured: boolean

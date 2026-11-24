@@ -1,92 +1,1161 @@
 "use client"
 
-import { Suspense, useCallback } from "react"
+import { Suspense, useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
+import Image from "next/image"
+import { Blocks, Settings, User } from "lucide-react"
 
-import { PageContainer } from "@/components/shell"
-import { Badge, PageHeader } from "@/components/ui"
-import { buildIntegrationsHref, readIntegrationSetupParam, type IntegrationSetupKey } from "@/lib/integrations/navigation"
+import { useTheme } from "@/lib/context/theme-context"
+import {
+  buildIntegrationsHref,
+  readIntegrationSetupParam,
+  type IntegrationSetupKey,
+} from "@/lib/integrations/navigation"
+import { cn } from "@/lib/shared/utils"
+import { getRuntimeTimezone } from "@/lib/shared/timezone"
+import { LOCAL_API_UNAUTHORIZED_MESSAGE } from "@/lib/shared/local-api-auth"
+import { ORB_COLORS, USER_SETTINGS_UPDATED_EVENT, loadUserSettings, type OrbColor, type UserProfile } from "@/lib/settings/userSettings"
+import { loadIntegrationsSettings, saveIntegrationsSettings, type IntegrationsSettings, type LlmProvider } from "@/lib/integrations/store/client-store"
+import { normalizePolymarketIntegrationConfig } from "@/lib/integrations/polymarket/types"
+import { connectPolymarketWallet } from "@/lib/integrations/polymarket/browser"
+import { FluidSelect } from "@/components/ui/fluid-select"
+import { SettingsModal } from "@/components/settings/settings-modal"
+import { useNovaState } from "@/lib/chat/hooks/useNovaState"
+import { getNovaPresence } from "@/lib/chat/nova-presence"
+import { usePageActive } from "@/lib/hooks/use-page-active"
+import { BraveIcon, ClaudeIcon, CoinbaseIcon, DiscordIcon, GeminiIcon, GmailCalendarIcon, GmailIcon, NewsIcon, OpenAIIcon, PhantomIcon, PolymarketIcon, SlackIcon, SpotifyIcon, TelegramIcon, XAIIcon, YouTubeIcon } from "@/components/icons"
+import { NOVA_VERSION } from "@/lib/meta/version"
+import { NovaOrbIndicator } from "@/components/chat/nova-orb-indicator"
+import { writeShellUiCache } from "@/lib/settings/shell-ui-cache"
+import { formatCompactModelLabelFromIntegrations } from "@/lib/integrations/llm/model-label"
 
-import { IntegrationList } from "./components/integration-list"
-import type { DetailTabId } from "./components/setup-parts"
-import { INTEGRATION_CATALOG } from "./constants/catalog"
-import { integrationStatus, isIntegrationConnected } from "./modules/integration-status"
+// Constants
+import {
+  OPENAI_DEFAULT_MODEL,
+  OPENAI_DEFAULT_BASE_URL,
+  CLAUDE_DEFAULT_MODEL,
+  CLAUDE_DEFAULT_BASE_URL,
+  GROK_DEFAULT_MODEL,
+  GROK_DEFAULT_BASE_URL,
+  GEMINI_DEFAULT_MODEL,
+  GEMINI_DEFAULT_BASE_URL,
+  GMAIL_DEFAULT_REDIRECT_URI,
+  SPOTIFY_DEFAULT_REDIRECT_URI,
+  YOUTUBE_DEFAULT_REDIRECT_URI,
+  hexToRgba,
+} from "./constants"
+
+// Hooks and utilities
+import {
+  useSpotlightEffect,
+  useOpenAISetup,
+  useClaudeSetup,
+  useGrokSetup,
+  useGeminiSetup,
+  useGmailSetup,
+  useGmailCalendarSetup,
+  usePhantomSetup,
+  useSpotifySetup,
+  useYouTubeSetup,
+  normalizeGmailAccountsForUi,
+  normalizePhantomSettingsForUi,
+  type IntegrationsSaveStatus,
+  type IntegrationsSaveTarget,
+} from "./hooks"
+
+// Shared components
+import {
+  SaveStatusToast,
+  ConnectivityGrid,
+} from "./components"
+import {
+  COINBASE_ERROR_COPY,
+  DEFAULT_COINBASE_PRIVACY,
+  formatFreshnessMs,
+  formatIsoTimestamp,
+  makeCoinbaseSnapshot,
+  type CoinbasePendingAction,
+  type CoinbasePersistedSnapshot,
+  type CoinbasePrivacySettings,
+} from "./modules/coinbase/meta"
+import { useIntegrationsActions } from "./modules/hooks/use-integrations-actions"
+import { useProviderDefinitions } from "./modules/hooks/use-provider-definitions"
 import { IntegrationsMainPanel } from "./modules/components/integrations-main-panel"
-import { useIntegrationsController } from "./modules/hooks/use-integrations-controller"
-
-const DEFAULT_SETUP: IntegrationSetupKey = "openai"
-const TAB_IDS: readonly DetailTabId[] = ["setup", "settings", "live", "instructions"]
-
-function readTab(value: string | null): DetailTabId {
-  return TAB_IDS.includes(value as DetailTabId) ? (value as DetailTabId) : "setup"
-}
-
-function integrationsHref(setup: IntegrationSetupKey, tab: DetailTabId): string {
-  const base = buildIntegrationsHref(setup)
-  return tab === "setup" ? base : `${base}&tab=${tab}`
-}
 
 function IntegrationsPageContent() {
+  const hexToRgbTriplet = (hex: string): string => {
+    const clean = hex.replace("#", "")
+    const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean
+    const num = Number.parseInt(full, 16)
+    const r = (num >> 16) & 255
+    const g = (num >> 8) & 255
+    const b = num & 255
+    return `${r}, ${g}, ${b}`
+  }
   const router = useRouter()
   const searchParams = useSearchParams()
-  // `?setup=<key>` selects an integration (other pages link with buildIntegrationsHref); `&tab=` opens one of its tabs.
-  const activeSetup = readIntegrationSetupParam(searchParams.get("setup")) ?? DEFAULT_SETUP
-  const tab = readTab(searchParams.get("tab"))
+  const requestedSetup = readIntegrationSetupParam(searchParams.get("setup"))
+  const [orbHovered, setOrbHovered] = useState(false)
+  const { theme } = useTheme()
+  const pageActive = usePageActive()
+  const isLight = theme === "light"
+  const { state: novaState, connected: agentConnected } = useNovaState()
 
-  const { settings, integrationsHydrated, activeLlmProvider, panelProps } = useIntegrationsController(activeSetup)
-
-  const selectSetup = useCallback(
-    (setup: IntegrationSetupKey) => router.replace(integrationsHref(setup, "setup"), { scroll: false }),
-    [router],
+  const [settings, setSettings] = useState<IntegrationsSettings>(() => loadIntegrationsSettings())
+  const [integrationsHydrated] = useState(true)
+  const [botToken, setBotToken] = useState("")
+  const [botTokenConfigured, setBotTokenConfigured] = useState(false)
+  const [botTokenMasked, setBotTokenMasked] = useState("")
+  const [chatIds, setChatIds] = useState("")
+  const [discordWebhookUrls, setDiscordWebhookUrls] = useState("")
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState("")
+  const [slackWebhookUrlConfigured, setSlackWebhookUrlConfigured] = useState(false)
+  const [slackWebhookUrlMasked, setSlackWebhookUrlMasked] = useState("")
+  const [braveApiKey, setBraveApiKey] = useState("")
+  const [braveApiKeyConfigured, setBraveApiKeyConfigured] = useState(false)
+  const [braveApiKeyMasked, setBraveApiKeyMasked] = useState("")
+  const [newsApiKey, setNewsApiKey] = useState("")
+  const [newsApiKeyConfigured, setNewsApiKeyConfigured] = useState(false)
+  const [newsApiKeyMasked, setNewsApiKeyMasked] = useState("")
+  const [newsDefaultTopics, setNewsDefaultTopics] = useState("world,business,technology,markets,crypto")
+  const [newsPreferredSources, setNewsPreferredSources] = useState("")
+  const [coinbaseApiKey, setCoinbaseApiKey] = useState("")
+  const [coinbaseApiSecret, setCoinbaseApiSecret] = useState("")
+  const [coinbaseApiKeyConfigured, setCoinbaseApiKeyConfigured] = useState(false)
+  const [coinbaseApiSecretConfigured, setCoinbaseApiSecretConfigured] = useState(false)
+  const [coinbaseApiKeyMasked, setCoinbaseApiKeyMasked] = useState("")
+  const [coinbaseApiSecretMasked, setCoinbaseApiSecretMasked] = useState("")
+  const [, setCoinbasePersistedSnapshot] = useState<CoinbasePersistedSnapshot>(() =>
+    makeCoinbaseSnapshot(loadIntegrationsSettings().coinbase),
   )
-  const selectTab = useCallback(
-    (next: DetailTabId) => router.replace(integrationsHref(activeSetup, next), { scroll: false }),
-    [activeSetup, router],
-  )
+  const [showCoinbaseApiSecret, setShowCoinbaseApiSecret] = useState(false)
+  const [activeLlmProvider, setActiveLlmProvider] = useState<LlmProvider>("openai")
+  const [orbColor, setOrbColor] = useState<OrbColor>("white")
+  const [profile, setProfile] = useState<UserProfile>({
+    name: "User",
+    avatar: null,
+    accessTier: "Model Unset",
+  })
+  const [spotlightEnabled, setSpotlightEnabled] = useState(true)
+  const [selectedSetup, setSelectedSetup] = useState<IntegrationSetupKey>(requestedSetup ?? "telegram")
+  const activeSetup = requestedSetup ?? selectedSetup
+  const [isSavingTarget, setIsSavingTarget] = useState<IntegrationsSaveTarget>(null)
+  const [coinbasePendingAction, setCoinbasePendingAction] = useState<CoinbasePendingAction | null>(null)
+  const [coinbasePrivacy, setCoinbasePrivacy] = useState<CoinbasePrivacySettings>(DEFAULT_COINBASE_PRIVACY)
+  const [coinbasePrivacyHydrated, setCoinbasePrivacyHydrated] = useState(false)
+  const [coinbasePrivacySaving, setCoinbasePrivacySaving] = useState(false)
+  const [coinbasePrivacyError, setCoinbasePrivacyError] = useState("")
+  const [saveStatus, setSaveStatus] = useState<IntegrationsSaveStatus>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const topHeaderRef = useRef<HTMLDivElement | null>(null)
+  const connectivitySectionRef = useRef<HTMLElement | null>(null)
+  const telegramSetupSectionRef = useRef<HTMLElement | null>(null)
+  const discordSetupSectionRef = useRef<HTMLElement | null>(null)
+  const slackSetupSectionRef = useRef<HTMLElement | null>(null)
+  const braveSetupSectionRef = useRef<HTMLElement | null>(null)
+  const newsSetupSectionRef = useRef<HTMLElement | null>(null)
+  const coinbaseSetupSectionRef = useRef<HTMLElement | null>(null)
+  const phantomSetupSectionRef = useRef<HTMLElement | null>(null)
+  const polymarketSetupSectionRef = useRef<HTMLElement | null>(null)
+  const openaiSetupSectionRef = useRef<HTMLElement | null>(null)
+  const claudeSetupSectionRef = useRef<HTMLElement | null>(null)
+  const grokSetupSectionRef = useRef<HTMLElement | null>(null)
+  const geminiSetupSectionRef = useRef<HTMLElement | null>(null)
+  const spotifySetupSectionRef = useRef<HTMLElement | null>(null)
+  const youtubeSetupSectionRef = useRef<HTMLElement | null>(null)
+  const gmailSetupSectionRef = useRef<HTMLElement | null>(null)
+  const gmailCalendarSetupSectionRef = useRef<HTMLElement | null>(null)
+  const activeStatusSectionRef = useRef<HTMLElement | null>(null)
 
-  const failedSetup = panelProps.lastError ? activeSetup : null
-  const statusOf = useCallback(
-    (setup: IntegrationSetupKey) => integrationStatus(settings, setup, failedSetup),
-    [failedSetup, settings],
-  )
-  const connectedCount = INTEGRATION_CATALOG.filter((entry) => isIntegrationConnected(settings, entry.key)).length
+  const handleSelectSetup = (setup: IntegrationSetupKey) => {
+    setSelectedSetup(setup)
+    if (requestedSetup === setup) return
+    router.replace(buildIntegrationsHref(setup), { scroll: false })
+  }
 
-  return (
-    <PageContainer width="wide">
-      <PageHeader
-        title="Integrations"
-        description="Connect model providers, messaging, finance and media accounts. Keys stay encrypted on this computer."
-        meta={
-          integrationsHydrated ? (
-            <Badge mono>
-              {connectedCount} of {INTEGRATION_CATALOG.length} connected
-            </Badge>
-          ) : null
+  const openAISetup = useOpenAISetup({ settings, setSettings, setIsSavingTarget, setSaveStatus })
+  const claudeSetup = useClaudeSetup({ settings, setSettings, setIsSavingTarget, setSaveStatus })
+  const grokSetup = useGrokSetup({ settings, setSettings, setIsSavingTarget, setSaveStatus })
+  const geminiSetup = useGeminiSetup({ settings, setSettings, setIsSavingTarget, setSaveStatus })
+  const gmailSetup = useGmailSetup({
+    settings,
+    setSettings,
+    setSaveStatus,
+    setIsSavingTarget,
+  })
+  const gmailCalendarSetup = useGmailCalendarSetup({
+    settings,
+    setSettings,
+    setSaveStatus,
+    setIsSavingTarget,
+  })
+  const spotifySetup = useSpotifySetup({
+    setSettings,
+    setSaveStatus,
+    setIsSavingTarget,
+  })
+  const phantomSetup = usePhantomSetup({
+    setSettings,
+    setSaveStatus,
+    setIsSavingTarget,
+  })
+  const youtubeSetup = useYouTubeSetup({
+    setSettings,
+    setSaveStatus,
+    setIsSavingTarget,
+  })
+  const hydrateOpenAISetup = openAISetup.hydrate
+  const hydrateClaudeSetup = claudeSetup.hydrate
+  const hydrateGrokSetup = grokSetup.hydrate
+  const hydrateGeminiSetup = geminiSetup.hydrate
+  const hydrateGmailSetup = gmailSetup.hydrate
+  const hydrateSpotifySetup = spotifySetup.hydrate
+  const hydratePhantomSetup = phantomSetup.hydrate
+  const hydrateYouTubeSetup = youtubeSetup.hydrate
+
+  const applyNormalizedPolymarket = (nextPolymarket: IntegrationsSettings["polymarket"]) => {
+    setSettings((prev) => {
+      const next = {
+        ...prev,
+        polymarket: normalizePolymarketIntegrationConfig(nextPolymarket),
+      }
+      saveIntegrationsSettings(next)
+      return next
+    })
+  }
+
+  const connectPolymarket = async () => {
+    setIsSavingTarget("polymarket-connect")
+    try {
+      const binding = await connectPolymarketWallet(window)
+      const res = await fetch("/api/polymarket/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          walletAddress: binding.walletAddress,
+          signatureType: 0,
+          liveTradingEnabled: settings.polymarket.liveTradingEnabled,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data?.config) {
+        throw new Error(String(data?.error || "Failed to connect Polymarket."))
+      }
+      applyNormalizedPolymarket(data.config)
+      setSaveStatus({ type: "success", message: "Polymarket wallet binding saved." })
+    } catch (error) {
+      setSaveStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to connect Polymarket." })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }
+
+  const disconnectPolymarket = async () => {
+    setIsSavingTarget("polymarket-disconnect")
+    try {
+      const res = await fetch("/api/polymarket/disconnect", {
+        method: "POST",
+      })
+      const data = await res.json()
+      if (!res.ok || !data?.config) {
+        throw new Error(String(data?.error || "Failed to disconnect Polymarket."))
+      }
+      applyNormalizedPolymarket(data.config)
+      setSaveStatus({ type: "success", message: "Polymarket binding removed." })
+    } catch (error) {
+      setSaveStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to disconnect Polymarket." })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }
+
+  const setPolymarketLiveTradingEnabled = async (enabled: boolean) => {
+    setIsSavingTarget("polymarket-settings")
+    try {
+      const res = await fetch("/api/polymarket/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ liveTradingEnabled: enabled }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data?.config) {
+        throw new Error(String(data?.error || "Failed to update Polymarket settings."))
+      }
+      applyNormalizedPolymarket(data.config)
+      setSaveStatus({ type: "success", message: enabled ? "Live Polymarket trading enabled." : "Live Polymarket trading disabled." })
+    } catch (error) {
+      setSaveStatus({ type: "error", message: error instanceof Error ? error.message : "Failed to update Polymarket settings." })
+    } finally {
+      setIsSavingTarget(null)
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+
+    fetch("/api/integrations/config", { cache: "no-store" })
+      .then(async (res) => ({
+        ok: res.ok,
+        status: res.status,
+        data: await res.json(),
+      }))
+      .then(({ ok, status, data }) => {
+        if (cancelled) return
+        // Falls back to the cached settings below; a runtime-token 401 is surfaced instead of silently ignored.
+        if (!ok && status === 401) setSaveStatus({ type: "error", message: LOCAL_API_UNAUTHORIZED_MESSAGE })
+        const config = data?.config as IntegrationsSettings | undefined
+        if (!config) {
+          const fallback = loadIntegrationsSettings()
+          setSettings(fallback)
+          setBotToken(fallback.telegram.botToken)
+          setBotTokenConfigured(Boolean(fallback.telegram.botTokenConfigured))
+          setBotTokenMasked(fallback.telegram.botTokenMasked || "")
+          setChatIds(fallback.telegram.chatIds)
+          setDiscordWebhookUrls(fallback.discord.webhookUrls)
+          setSlackWebhookUrl(fallback.slack?.webhookUrl || "")
+          setSlackWebhookUrlConfigured(Boolean(fallback.slack?.webhookUrlConfigured))
+          setSlackWebhookUrlMasked(fallback.slack?.webhookUrlMasked || "")
+          setBraveApiKey(fallback.brave.apiKey)
+          setBraveApiKeyConfigured(Boolean(fallback.brave.apiKeyConfigured))
+          setBraveApiKeyMasked(fallback.brave.apiKeyMasked || "")
+          setNewsApiKey(fallback.news.apiKey)
+          setNewsApiKeyConfigured(Boolean(fallback.news.apiKeyConfigured))
+          setNewsApiKeyMasked(fallback.news.apiKeyMasked || "")
+          setNewsDefaultTopics(fallback.news.defaultTopics || "world,business,technology,markets,crypto")
+          setNewsPreferredSources(fallback.news.preferredSources || "")
+          setCoinbaseApiKey(fallback.coinbase.apiKey)
+          setCoinbaseApiSecret(fallback.coinbase.apiSecret)
+          setCoinbaseApiKeyConfigured(Boolean(fallback.coinbase.apiKeyConfigured))
+          setCoinbaseApiSecretConfigured(Boolean(fallback.coinbase.apiSecretConfigured))
+          setCoinbaseApiKeyMasked(fallback.coinbase.apiKeyMasked || "")
+          setCoinbaseApiSecretMasked(fallback.coinbase.apiSecretMasked || "")
+          setCoinbasePersistedSnapshot(makeCoinbaseSnapshot(fallback.coinbase))
+          hydrateOpenAISetup(fallback)
+          hydrateClaudeSetup(fallback)
+          hydrateGrokSetup(fallback)
+          hydrateGeminiSetup(fallback)
+          hydrateSpotifySetup(fallback)
+          hydratePhantomSetup(fallback)
+          hydrateYouTubeSetup(fallback)
+          hydrateGmailSetup(fallback)
+          setActiveLlmProvider(fallback.activeLlmProvider || "openai")
+          return
         }
-      />
-      <div className="grid gap-6 md:grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)] xl:gap-8">
-        <aside className="min-w-0 md:sticky md:top-6 md:self-start">
-          <IntegrationList
-            activeSetup={activeSetup}
-            onSelect={selectSetup}
-            statusOf={statusOf}
-            activeLlm={activeLlmProvider}
-            hydrated={integrationsHydrated}
-          />
-        </aside>
-        <section aria-label="Integration detail" className="min-w-0 md:border-l md:border-border md:pl-6 xl:pl-8">
-          <div className="max-w-[48rem]">
-            <IntegrationsMainPanel {...panelProps} activeSetup={activeSetup} tab={tab} onTabChange={selectTab} />
+        const normalized: IntegrationsSettings = {
+          telegram: {
+            connected: Boolean(config.telegram?.connected),
+            botToken: config.telegram?.botToken || "",
+            botTokenConfigured: Boolean(config.telegram?.botTokenConfigured),
+            botTokenMasked: typeof config.telegram?.botTokenMasked === "string" ? config.telegram.botTokenMasked : "",
+            chatIds: Array.isArray(config.telegram?.chatIds)
+              ? config.telegram.chatIds.join(",")
+              : typeof config.telegram?.chatIds === "string"
+                ? config.telegram.chatIds
+                : "",
+          },
+          discord: {
+            connected: Boolean(config.discord?.connected),
+            webhookUrls: Array.isArray(config.discord?.webhookUrls)
+              ? config.discord.webhookUrls.join(",")
+              : typeof config.discord?.webhookUrls === "string"
+                ? config.discord.webhookUrls
+                : "",
+            webhookUrlsConfigured: Boolean(config.discord?.webhookUrlsConfigured),
+            webhookUrlsMasked: Array.isArray(config.discord?.webhookUrlsMasked)
+              ? config.discord.webhookUrlsMasked.map((value: unknown) => String(value))
+              : [],
+          },
+          slack: {
+            connected: Boolean(config.slack?.connected),
+            webhookUrl: config.slack?.webhookUrl || "",
+            webhookUrlConfigured: Boolean(config.slack?.webhookUrlConfigured),
+            webhookUrlMasked: typeof config.slack?.webhookUrlMasked === "string" ? config.slack.webhookUrlMasked : "",
+          },
+          brave: {
+            connected: Boolean(config.brave?.connected),
+            apiKey: config.brave?.apiKey || "",
+            apiKeyConfigured: Boolean(config.brave?.apiKeyConfigured),
+            apiKeyMasked: typeof config.brave?.apiKeyMasked === "string" ? config.brave.apiKeyMasked : "",
+          },
+          news: {
+            connected: Boolean(config.news?.connected),
+            apiKey: config.news?.apiKey || "",
+            defaultTopics: Array.isArray(config.news?.defaultTopics)
+              ? config.news.defaultTopics.map((topic: unknown) => String(topic).trim()).filter(Boolean).join(",")
+              : typeof config.news?.defaultTopics === "string"
+                ? config.news.defaultTopics
+                : "world,business,technology,markets,crypto",
+            preferredSources: Array.isArray(config.news?.preferredSources)
+              ? config.news.preferredSources.map((source: unknown) => String(source).trim()).filter(Boolean).join(",")
+              : typeof config.news?.preferredSources === "string"
+                ? config.news.preferredSources
+                : "",
+            language: typeof config.news?.language === "string" && config.news.language.trim().length > 0
+              ? config.news.language.trim().toLowerCase()
+              : "en",
+            country: typeof config.news?.country === "string" && config.news.country.trim().length > 0
+              ? config.news.country.trim().toLowerCase()
+              : "us",
+            apiKeyConfigured: Boolean(config.news?.apiKeyConfigured),
+            apiKeyMasked: typeof config.news?.apiKeyMasked === "string" ? config.news.apiKeyMasked : "",
+          },
+          coinbase: {
+            connected: Boolean(config.coinbase?.connected),
+            apiKey: config.coinbase?.apiKey || "",
+            apiSecret: config.coinbase?.apiSecret || "",
+            connectionMode: config.coinbase?.connectionMode === "oauth" ? "oauth" : "api_key_pair",
+            requiredScopes: Array.isArray(config.coinbase?.requiredScopes)
+              ? config.coinbase.requiredScopes.map((scope: unknown) => String(scope).trim()).filter(Boolean)
+              : ["portfolio:view", "accounts:read", "transactions:read"],
+            lastSyncAt: typeof config.coinbase?.lastSyncAt === "string" ? config.coinbase.lastSyncAt : "",
+            lastSyncStatus:
+              config.coinbase?.lastSyncStatus === "success" || config.coinbase?.lastSyncStatus === "error"
+                ? config.coinbase.lastSyncStatus
+                : "never",
+            lastSyncErrorCode:
+              config.coinbase?.lastSyncErrorCode === "expired_token" ||
+              config.coinbase?.lastSyncErrorCode === "permission_denied" ||
+              config.coinbase?.lastSyncErrorCode === "rate_limited" ||
+              config.coinbase?.lastSyncErrorCode === "coinbase_outage" ||
+              config.coinbase?.lastSyncErrorCode === "network" ||
+              config.coinbase?.lastSyncErrorCode === "unknown"
+                ? config.coinbase.lastSyncErrorCode
+                : "none",
+            lastSyncErrorMessage: typeof config.coinbase?.lastSyncErrorMessage === "string" ? config.coinbase.lastSyncErrorMessage : "",
+            lastFreshnessMs: typeof config.coinbase?.lastFreshnessMs === "number" ? config.coinbase.lastFreshnessMs : 0,
+            reportTimezone:
+              typeof config.coinbase?.reportTimezone === "string" && config.coinbase.reportTimezone.trim().length > 0
+                ? config.coinbase.reportTimezone
+                : getRuntimeTimezone(),
+            reportCurrency:
+              typeof config.coinbase?.reportCurrency === "string" && config.coinbase.reportCurrency.trim().length > 0
+                ? config.coinbase.reportCurrency.toUpperCase()
+                : "USD",
+            reportCadence: config.coinbase?.reportCadence === "weekly" ? "weekly" : "daily",
+            apiKeyConfigured: Boolean(config.coinbase?.apiKeyConfigured),
+            apiKeyMasked: typeof config.coinbase?.apiKeyMasked === "string" ? config.coinbase.apiKeyMasked : "",
+            apiSecretConfigured: Boolean(config.coinbase?.apiSecretConfigured),
+            apiSecretMasked: typeof config.coinbase?.apiSecretMasked === "string" ? config.coinbase.apiSecretMasked : "",
+          },
+          phantom: normalizePhantomSettingsForUi(config.phantom),
+          polymarket: normalizePolymarketIntegrationConfig(config.polymarket),
+          openai: {
+            connected: Boolean(config.openai?.connected),
+            apiKey: config.openai?.apiKey || "",
+            baseUrl: config.openai?.baseUrl || OPENAI_DEFAULT_BASE_URL,
+            defaultModel: config.openai?.defaultModel || OPENAI_DEFAULT_MODEL,
+            apiKeyConfigured: Boolean(config.openai?.apiKeyConfigured),
+            apiKeyMasked: typeof config.openai?.apiKeyMasked === "string" ? config.openai.apiKeyMasked : "",
+          },
+          claude: {
+            connected: Boolean(config.claude?.connected),
+            apiKey: config.claude?.apiKey || "",
+            baseUrl: config.claude?.baseUrl || CLAUDE_DEFAULT_BASE_URL,
+            defaultModel: config.claude?.defaultModel || CLAUDE_DEFAULT_MODEL,
+            apiKeyConfigured: Boolean(config.claude?.apiKeyConfigured),
+            apiKeyMasked: typeof config.claude?.apiKeyMasked === "string" ? config.claude.apiKeyMasked : "",
+          },
+          grok: {
+            connected: Boolean(config.grok?.connected),
+            apiKey: config.grok?.apiKey || "",
+            baseUrl: config.grok?.baseUrl || GROK_DEFAULT_BASE_URL,
+            defaultModel: config.grok?.defaultModel || GROK_DEFAULT_MODEL,
+            apiKeyConfigured: Boolean(config.grok?.apiKeyConfigured),
+            apiKeyMasked: typeof config.grok?.apiKeyMasked === "string" ? config.grok.apiKeyMasked : "",
+          },
+          gemini: {
+            connected: Boolean(config.gemini?.connected),
+            apiKey: config.gemini?.apiKey || "",
+            baseUrl: config.gemini?.baseUrl || GEMINI_DEFAULT_BASE_URL,
+            defaultModel: config.gemini?.defaultModel || GEMINI_DEFAULT_MODEL,
+            apiKeyConfigured: Boolean(config.gemini?.apiKeyConfigured),
+            apiKeyMasked: typeof config.gemini?.apiKeyMasked === "string" ? config.gemini.apiKeyMasked : "",
+          },
+          spotify: {
+            connected: Boolean(config.spotify?.connected),
+            spotifyUserId: typeof config.spotify?.spotifyUserId === "string" ? config.spotify.spotifyUserId : "",
+            displayName: typeof config.spotify?.displayName === "string" ? config.spotify.displayName : "",
+            scopes: Array.isArray(config.spotify?.scopes)
+              ? config.spotify.scopes.join(" ")
+              : typeof config.spotify?.scopes === "string"
+                ? config.spotify.scopes
+                : "",
+            oauthClientId: typeof config.spotify?.oauthClientId === "string" ? config.spotify.oauthClientId : "",
+            redirectUri: typeof config.spotify?.redirectUri === "string" ? config.spotify.redirectUri : SPOTIFY_DEFAULT_REDIRECT_URI,
+            tokenConfigured: Boolean(config.spotify?.tokenConfigured),
+          },
+          youtube: {
+            connected: Boolean(config.youtube?.connected),
+            channelId: typeof config.youtube?.channelId === "string" ? config.youtube.channelId : "",
+            channelTitle: typeof config.youtube?.channelTitle === "string" ? config.youtube.channelTitle : "",
+            scopes: Array.isArray(config.youtube?.scopes)
+              ? config.youtube.scopes.join(" ")
+              : typeof config.youtube?.scopes === "string"
+                ? config.youtube.scopes
+                : "",
+            permissions: {
+              allowFeed: typeof config.youtube?.permissions?.allowFeed === "boolean"
+                ? config.youtube.permissions.allowFeed
+                : true,
+              allowSearch: typeof config.youtube?.permissions?.allowSearch === "boolean"
+                ? config.youtube.permissions.allowSearch
+                : true,
+              allowVideoDetails: typeof config.youtube?.permissions?.allowVideoDetails === "boolean"
+                ? config.youtube.permissions.allowVideoDetails
+                : true,
+            },
+            redirectUri: typeof config.youtube?.redirectUri === "string" ? config.youtube.redirectUri : YOUTUBE_DEFAULT_REDIRECT_URI,
+            tokenConfigured: Boolean(config.youtube?.tokenConfigured),
+          },
+          gmail: {
+            connected: Boolean(config.gmail?.connected),
+            email: typeof config.gmail?.email === "string" ? config.gmail.email : "",
+            scopes: Array.isArray(config.gmail?.scopes)
+              ? config.gmail.scopes.join(" ")
+              : typeof config.gmail?.scopes === "string"
+                ? config.gmail.scopes
+                : "",
+            accounts: normalizeGmailAccountsForUi(config.gmail?.accounts, String(config.gmail?.activeAccountId || "")),
+            activeAccountId: typeof config.gmail?.activeAccountId === "string" ? config.gmail.activeAccountId : "",
+            oauthClientId: typeof config.gmail?.oauthClientId === "string" ? config.gmail.oauthClientId : "",
+            oauthClientSecret: "",
+            redirectUri: typeof config.gmail?.redirectUri === "string" ? config.gmail.redirectUri : GMAIL_DEFAULT_REDIRECT_URI,
+            oauthClientSecretConfigured: Boolean(config.gmail?.oauthClientSecretConfigured),
+            oauthClientSecretMasked: typeof config.gmail?.oauthClientSecretMasked === "string" ? config.gmail.oauthClientSecretMasked : "",
+            tokenConfigured: Boolean(config.gmail?.tokenConfigured),
+          },
+          gcalendar: {
+            connected: Boolean(config.gcalendar?.connected),
+            email: typeof config.gcalendar?.email === "string" ? config.gcalendar.email : "",
+            scopes: Array.isArray(config.gcalendar?.scopes)
+              ? config.gcalendar.scopes.join(" ")
+              : typeof config.gcalendar?.scopes === "string"
+                ? config.gcalendar.scopes
+                : "",
+            permissions: {
+              allowCreate: typeof config.gcalendar?.permissions?.allowCreate === "boolean" ? config.gcalendar.permissions.allowCreate : true,
+              allowEdit: typeof config.gcalendar?.permissions?.allowEdit === "boolean" ? config.gcalendar.permissions.allowEdit : true,
+              allowDelete: typeof config.gcalendar?.permissions?.allowDelete === "boolean" ? config.gcalendar.permissions.allowDelete : false,
+            },
+            accounts: Array.isArray(config.gcalendar?.accounts)
+              ? config.gcalendar.accounts.map((a: { id?: string; email?: string; scopes?: string[]; connectedAt?: string; enabled?: boolean; active?: boolean }) => ({
+                  id: String(a?.id || ""),
+                  email: String(a?.email || ""),
+                  scopes: Array.isArray(a?.scopes) ? a.scopes : [],
+                  connectedAt: a?.connectedAt || "",
+                  active: a?.id === config.gcalendar?.activeAccountId,
+                  enabled: a?.enabled ?? true,
+                }))
+              : [],
+            activeAccountId: typeof config.gcalendar?.activeAccountId === "string" ? config.gcalendar.activeAccountId : "",
+            redirectUri: typeof config.gcalendar?.redirectUri === "string" ? config.gcalendar.redirectUri : "http://localhost:3000/api/integrations/gmail-calendar/callback",
+            tokenConfigured: Boolean(config.gcalendar?.tokenConfigured),
+          },
+          activeLlmProvider:
+            config.activeLlmProvider === "claude"
+              ? "claude"
+              : config.activeLlmProvider === "grok"
+                ? "grok"
+                : config.activeLlmProvider === "gemini"
+                  ? "gemini"
+                : "openai",
+          updatedAt: config.updatedAt || new Date().toISOString(),
+        }
+        setSettings(normalized)
+        setBotToken(normalized.telegram.botToken)
+        setBotTokenConfigured(Boolean(normalized.telegram.botTokenConfigured))
+        setBotTokenMasked(normalized.telegram.botTokenMasked || "")
+        setChatIds(normalized.telegram.chatIds)
+        setDiscordWebhookUrls(normalized.discord.webhookUrls)
+        setSlackWebhookUrl(normalized.slack?.webhookUrl || "")
+        setSlackWebhookUrlConfigured(Boolean(normalized.slack?.webhookUrlConfigured))
+        setSlackWebhookUrlMasked(normalized.slack?.webhookUrlMasked || "")
+        setBraveApiKey(normalized.brave.apiKey)
+        setBraveApiKeyConfigured(Boolean(normalized.brave.apiKeyConfigured))
+        setBraveApiKeyMasked(normalized.brave.apiKeyMasked || "")
+        setNewsApiKey(normalized.news.apiKey)
+        setNewsApiKeyConfigured(Boolean(normalized.news.apiKeyConfigured))
+        setNewsApiKeyMasked(normalized.news.apiKeyMasked || "")
+        setNewsDefaultTopics(normalized.news.defaultTopics || "world,business,technology,markets,crypto")
+        setNewsPreferredSources(normalized.news.preferredSources || "")
+        setCoinbaseApiKey(normalized.coinbase.apiKey)
+        setCoinbaseApiSecret(normalized.coinbase.apiSecret)
+        setCoinbaseApiKeyConfigured(Boolean(normalized.coinbase.apiKeyConfigured))
+        setCoinbaseApiSecretConfigured(Boolean(normalized.coinbase.apiSecretConfigured))
+        setCoinbaseApiKeyMasked(normalized.coinbase.apiKeyMasked || "")
+        setCoinbaseApiSecretMasked(normalized.coinbase.apiSecretMasked || "")
+        setCoinbasePersistedSnapshot(makeCoinbaseSnapshot(normalized.coinbase))
+        hydrateOpenAISetup(normalized)
+        hydrateClaudeSetup(normalized)
+        hydrateGrokSetup(normalized)
+        hydrateGeminiSetup(normalized)
+        hydrateSpotifySetup(normalized)
+        hydratePhantomSetup(normalized)
+        hydrateYouTubeSetup(normalized)
+        hydrateGmailSetup(normalized)
+        setActiveLlmProvider(normalized.activeLlmProvider || "openai")
+        saveIntegrationsSettings(normalized)
+      })
+      .catch(() => {
+        if (cancelled) return
+        const fallback = loadIntegrationsSettings()
+        setSettings(fallback)
+        setBotToken(fallback.telegram.botToken)
+        setBotTokenConfigured(Boolean(fallback.telegram.botTokenConfigured))
+        setBotTokenMasked(fallback.telegram.botTokenMasked || "")
+        setChatIds(fallback.telegram.chatIds)
+        setDiscordWebhookUrls(fallback.discord.webhookUrls)
+        setSlackWebhookUrl(fallback.slack?.webhookUrl || "")
+        setSlackWebhookUrlConfigured(Boolean(fallback.slack?.webhookUrlConfigured))
+        setSlackWebhookUrlMasked(fallback.slack?.webhookUrlMasked || "")
+        setBraveApiKey(fallback.brave.apiKey)
+        setBraveApiKeyConfigured(Boolean(fallback.brave.apiKeyConfigured))
+        setBraveApiKeyMasked(fallback.brave.apiKeyMasked || "")
+        setNewsApiKey(fallback.news.apiKey)
+        setNewsApiKeyConfigured(Boolean(fallback.news.apiKeyConfigured))
+        setNewsApiKeyMasked(fallback.news.apiKeyMasked || "")
+        setNewsDefaultTopics(fallback.news.defaultTopics || "world,business,technology,markets,crypto")
+        setNewsPreferredSources(fallback.news.preferredSources || "")
+        setCoinbaseApiKey(fallback.coinbase.apiKey)
+        setCoinbaseApiSecret(fallback.coinbase.apiSecret)
+        setCoinbaseApiKeyConfigured(Boolean(fallback.coinbase.apiKeyConfigured))
+        setCoinbaseApiSecretConfigured(Boolean(fallback.coinbase.apiSecretConfigured))
+        setCoinbaseApiKeyMasked(fallback.coinbase.apiKeyMasked || "")
+        setCoinbaseApiSecretMasked(fallback.coinbase.apiSecretMasked || "")
+        setCoinbasePersistedSnapshot(makeCoinbaseSnapshot(fallback.coinbase))
+        hydrateOpenAISetup(fallback)
+        hydrateClaudeSetup(fallback)
+        hydrateGrokSetup(fallback)
+        hydrateGeminiSetup(fallback)
+        hydrateSpotifySetup(fallback)
+        hydratePhantomSetup(fallback)
+        hydrateYouTubeSetup(fallback)
+        hydrateGmailSetup(fallback)
+        setActiveLlmProvider(fallback.activeLlmProvider || "openai")
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [hydrateClaudeSetup, hydrateGeminiSetup, hydrateGmailSetup, hydrateGrokSetup, hydrateOpenAISetup, hydratePhantomSetup, hydrateSpotifySetup, hydrateYouTubeSetup])
+
+  useEffect(() => {
+    const refresh = () => {
+      const userSettings = loadUserSettings()
+      setProfile(userSettings.profile)
+      setOrbColor(userSettings.app.orbColor)
+      setSpotlightEnabled(userSettings.app.spotlightEnabled ?? true)
+      writeShellUiCache({
+        orbColor: userSettings.app.orbColor,
+        spotlightEnabled: userSettings.app.spotlightEnabled ?? true,
+      })
+    }
+    refresh()
+    window.addEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
+    return () => window.removeEventListener(USER_SETTINGS_UPDATED_EVENT, refresh as EventListener)
+  }, [])
+
+  // Auto-dismiss save status
+  useEffect(() => {
+    if (!saveStatus) return
+    const timeout = window.setTimeout(() => setSaveStatus(null), 3000)
+    return () => window.clearTimeout(timeout)
+  }, [saveStatus])
+
+  // Spotlight effect for all sections
+  useSpotlightEffect(
+    spotlightEnabled,
+    [
+      { ref: connectivitySectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: telegramSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: discordSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: slackSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: braveSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: newsSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: coinbaseSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: phantomSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: polymarketSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: openaiSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: claudeSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: grokSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: geminiSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: spotifySetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: youtubeSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: gmailSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: gmailCalendarSetupSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+      { ref: activeStatusSectionRef, showSpotlightCore: false, enableParticles: false, directHoverOnly: true },
+    ],
+    [activeSetup]
+  )
+
+  const orbPalette = ORB_COLORS[orbColor]
+
+  const panelClass =
+    isLight
+      ? "rounded-2xl border border-[#d9e0ea] bg-white shadow-none"
+      : "home-module-surface rounded-2xl border backdrop-blur-xl"
+  const subPanelClass = isLight
+    ? "rounded-lg border border-[#d5dce8] bg-[#f4f7fd]"
+    : "home-subpanel-surface rounded-lg border backdrop-blur-md"
+  const panelStyle = isLight
+    ? undefined
+    : {
+      boxShadow: "0 20px 60px -35px rgba(var(--accent-rgb), 0.35)",
+      "--home-orb-rgb-primary": hexToRgbTriplet(orbPalette.circle1),
+      "--home-orb-rgb-secondary": hexToRgbTriplet(orbPalette.circle2),
+      "--home-orb-rgb-bg": hexToRgbTriplet(orbPalette.bg),
+    } as CSSProperties
+  const moduleHeightClass = "h-[clamp(620px,88vh,1240px)]"
+  const presence = getNovaPresence({ agentConnected, novaState })
+  const orbHoverFilter = `drop-shadow(0 0 8px ${hexToRgba(orbPalette.circle1, 0.55)}) drop-shadow(0 0 14px ${hexToRgba(orbPalette.circle2, 0.35)})`
+  const integrationBadgeClass = (connected: boolean) =>
+    !integrationsHydrated
+      ? "border-white/15 bg-white/10 text-slate-200"
+      : connected
+        ? "border-emerald-300/50 bg-emerald-500/35 text-emerald-100"
+        : "border-rose-300/50 bg-rose-500/35 text-rose-100"
+  const integrationDotClass = (connected: boolean) =>
+    !integrationsHydrated ? "bg-slate-400" : connected ? "bg-emerald-400" : "bg-rose-400"
+  const compactModelLabel = useMemo(() => formatCompactModelLabelFromIntegrations(settings), [settings])
+  const integrationTextClass = (connected: boolean) =>
+    !integrationsHydrated ? "text-slate-400" : connected ? "text-emerald-400" : "text-rose-400"
+  const telegramNeedsKeyWarning = !(
+    settings.telegram.botTokenConfigured ||
+    botTokenConfigured ||
+    botToken.trim().length > 0
+  )
+  const braveNeedsKeyWarning = !(settings.brave.connected && (settings.brave.apiKeyConfigured || braveApiKeyConfigured))
+  const newsNeedsKeyWarning = !(settings.news.connected && (settings.news.apiKeyConfigured || newsApiKeyConfigured))
+  const coinbaseNeedsKeyWarning = !(settings.coinbase.connected && (settings.coinbase.apiKeyConfigured || coinbaseApiKeyConfigured) && (settings.coinbase.apiSecretConfigured || coinbaseApiSecretConfigured))
+  const coinbaseHasKeys = Boolean(
+    (settings.coinbase.apiKeyConfigured || coinbaseApiKeyConfigured) &&
+    (settings.coinbase.apiSecretConfigured || coinbaseApiSecretConfigured),
+  )
+  const coinbaseSyncLabel =
+    settings.coinbase.lastSyncStatus === "success"
+      ? "Sync Healthy"
+      : settings.coinbase.lastSyncStatus === "error"
+        ? "Sync Error"
+        : "Not Synced"
+  const coinbaseSyncBadgeClass =
+    settings.coinbase.lastSyncStatus === "success"
+      ? "border-emerald-300/40 bg-emerald-500/15 text-emerald-200"
+      : settings.coinbase.lastSyncStatus === "error"
+        ? "border-rose-300/40 bg-rose-500/15 text-rose-200"
+        : "border-amber-300/40 bg-amber-500/15 text-amber-200"
+  const coinbaseLastSyncText = formatIsoTimestamp(settings.coinbase.lastSyncAt)
+  const coinbaseFreshnessText = formatFreshnessMs(settings.coinbase.lastFreshnessMs)
+  const coinbaseErrorText =
+    settings.coinbase.lastSyncErrorMessage.trim() || COINBASE_ERROR_COPY[settings.coinbase.lastSyncErrorCode] || ""
+  const coinbaseScopeSummary = settings.coinbase.requiredScopes.length > 0
+    ? settings.coinbase.requiredScopes.join(", ")
+    : "No scope summary configured."
+  const connectivityItems = [
+    { key: "telegram" as const, connected: settings.telegram.connected, icon: <TelegramIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Telegram setup" },
+    { key: "discord" as const, connected: settings.discord.connected, icon: <DiscordIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Discord setup" },
+    { key: "slack" as const, connected: settings.slack.connected, icon: <SlackIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Slack setup" },
+    { key: "openai" as const, connected: settings.openai.connected, icon: <OpenAIIcon className="w-4.5[18px]" />, ariaLabel: "Open OpenAI setup" },
+    { key: "claude" as const, connected: settings.claude.connected, icon: <ClaudeIcon className="w-4 h-4" />, ariaLabel: "Open Claude setup" },
+    { key: "grok" as const, connected: settings.grok.connected, icon: <XAIIcon size={16} />, ariaLabel: "Open Grok setup" },
+    { key: "gemini" as const, connected: settings.gemini.connected, icon: <GeminiIcon size={16} />, ariaLabel: "Open Gemini setup" },
+    { key: "spotify" as const, connected: settings.spotify.connected, icon: <SpotifyIcon className="w-4 h-4" />, ariaLabel: "Open Spotify setup" },
+    { key: "youtube" as const, connected: settings.youtube.connected, icon: <YouTubeIcon className="w-4 h-4" />, ariaLabel: "Open YouTube setup" },
+    { key: "gmail" as const, connected: settings.gmail.connected, icon: <GmailIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Gmail setup" },
+    { key: "gmail-calendar" as const, connected: settings.gcalendar.connected, icon: <GmailCalendarIcon className="w-3.5 h-3.5" />, ariaLabel: "Open Google Calendar setup" },
+    { key: "brave" as const, connected: settings.brave.connected, icon: <BraveIcon className="w-4 h-4" />, ariaLabel: "Open Brave setup" },
+    { key: "news" as const, connected: settings.news.connected, icon: <NewsIcon className="w-3.5 h-3.5" />, ariaLabel: "Open News setup" },
+    { key: "coinbase" as const, connected: settings.coinbase.connected, icon: <CoinbaseIcon className="w-4 h-4" />, ariaLabel: "Open Coinbase setup" },
+    { key: "phantom" as const, connected: settings.phantom.connected, icon: <PhantomIcon className="w-4 h-4" />, ariaLabel: "Open Phantom setup" },
+    { key: "polymarket" as const, connected: settings.polymarket.connected, icon: <PolymarketIcon className="w-6 h-6" />, ariaLabel: "Open Polymarket setup" },
+  ]
+  const activeProviderDefinition = useProviderDefinitions({
+    settings,
+    isSavingTarget,
+    activeSetup,
+    openaiSetupSectionRef: openaiSetupSectionRef,
+    claudeSetupSectionRef,
+    grokSetupSectionRef,
+    geminiSetupSectionRef,
+    openAISetup,
+    claudeSetup,
+    grokSetup,
+    geminiSetup,
+  })
+
+  const {
+    toggleTelegram,
+    toggleDiscord,
+    toggleSlack,
+    toggleBrave,
+    toggleNews,
+    probeCoinbaseConnection,
+    toggleCoinbase,
+    saveActiveProvider,
+    saveTelegramConfig,
+    saveDiscordConfig,
+    saveSlackConfig,
+    saveBraveConfig,
+    saveNewsConfig,
+    saveCoinbaseConfig,
+    updateCoinbaseDefaults,
+    updateCoinbasePrivacy,
+  } = useIntegrationsActions({
+    settings,
+    setSettings,
+    setSaveStatus,
+    setIsSavingTarget,
+    isSavingTarget,
+    activeSetup,
+    integrationsHydrated,
+    activeLlmProvider,
+    setActiveLlmProvider,
+    botToken,
+    setBotToken,
+    botTokenConfigured,
+    setBotTokenConfigured,
+    setBotTokenMasked,
+    chatIds,
+    discordWebhookUrls,
+    slackWebhookUrl,
+    slackWebhookUrlConfigured,
+    setSlackWebhookUrlConfigured,
+    setSlackWebhookUrlMasked,
+    braveApiKey,
+    braveApiKeyConfigured,
+    setBraveApiKey,
+    setBraveApiKeyConfigured,
+    setBraveApiKeyMasked,
+    newsApiKey,
+    newsApiKeyConfigured,
+    setNewsApiKey,
+    setNewsApiKeyConfigured,
+    setNewsApiKeyMasked,
+    newsDefaultTopics,
+    setNewsDefaultTopics,
+    newsPreferredSources,
+    setNewsPreferredSources,
+    coinbaseApiKey,
+    setCoinbaseApiKey,
+    coinbaseApiSecret,
+    setCoinbaseApiSecret,
+    coinbaseApiKeyConfigured,
+    setCoinbaseApiKeyConfigured,
+    coinbaseApiSecretConfigured,
+    setCoinbaseApiSecretConfigured,
+    setCoinbaseApiKeyMasked,
+    setCoinbaseApiSecretMasked,
+    setCoinbasePersistedSnapshot,
+    coinbasePendingAction,
+    setCoinbasePendingAction,
+    coinbasePrivacy,
+    setCoinbasePrivacy,
+    coinbasePrivacyHydrated,
+    setCoinbasePrivacyHydrated,
+    coinbasePrivacySaving,
+    setCoinbasePrivacySaving,
+    setCoinbasePrivacyError,
+    openAISetup,
+    claudeSetup,
+    grokSetup,
+    geminiSetup,
+  })
+  return (
+    <div style={panelStyle} className={cn("relative flex h-dvh overflow-hidden", isLight ? "bg-[#f6f8fc] text-s-90" : "bg-transparent text-slate-100")}>
+
+      <div className="relative z-10 flex-1 h-dvh overflow-hidden transition-all duration-200">
+      <div className="flex h-full w-full items-start justify-start px-3 py-4 sm:px-4 lg:px-6">
+        <div className="w-full">
+          <SaveStatusToast status={saveStatus} isLight={isLight} />
+
+          <div ref={topHeaderRef} className="mb-4 flex items-center gap-3">
+            <button
+              onClick={() => router.push("/home")}
+              onMouseEnter={() => setOrbHovered(true)}
+              onMouseLeave={() => setOrbHovered(false)}
+              className="group relative h-11 w-11 rounded-full flex items-center justify-center transition-all duration-150 hover:scale-110"
+              aria-label="Go to home"
+            >
+              <NovaOrbIndicator
+                palette={orbPalette}
+                size={30}
+                animated={pageActive}
+                className="transition-all duration-200"
+                style={{ filter: orbHovered ? orbHoverFilter : "none" }}
+              />
+            </button>
+            <div className="min-w-0">
+              <div className="flex flex-col leading-tight">
+                <div className="flex items-baseline gap-3">
+                  <h1 className={cn("text-[30px] leading-none font-semibold tracking-tight", isLight ? "text-s-90" : "text-white")}>NovaAIO</h1>
+                  <p className="text-[11px] text-accent font-mono">{NOVA_VERSION}</p>
+                </div>
+                <div className="mt-0.5 flex items-center gap-3">
+                  <div className="inline-flex items-center gap-1.5">
+                    <span className={cn("h-2.5 w-2.5 rounded-full animate-pulse", presence.dotClassName)} aria-hidden="true" />
+                    <span className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", presence.textClassName)}>
+                      {presence.label}
+                    </span>
+                  </div>
+                  <p className={cn("text-[13px] whitespace-nowrap", isLight ? "text-s-50" : "text-slate-400")}>Integrations Hub</p>
+                </div>
+              </div>
+            </div>
           </div>
-        </section>
+
+          <div className="grid w-full grid-cols-1 gap-4 xl:grid-cols-[minmax(340px,24vw)_minmax(0,1fr)_minmax(340px,24vw)]">
+          <div className="space-y-4">
+          <section ref={connectivitySectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass}`}>
+            <div className="flex items-center gap-2 text-s-80">
+              <Blocks className="w-4 h-4 text-accent" />
+              <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>Nova Integrations</h2>
+            </div>
+            <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>Node connectivity</p>
+
+            <div className={cn("mt-3 p-2 rounded-lg", subPanelClass)}>
+              <ConnectivityGrid
+                isLight={isLight}
+                activeSetup={activeSetup}
+                integrationBadgeClass={integrationBadgeClass}
+                onSelect={handleSelectSetup}
+                items={connectivityItems}
+              />
+            </div>
+            <div className={cn("mt-3 rounded-lg border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "home-subpanel-surface")}>
+              <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Profile & Settings</p>
+              <div className="flex items-center gap-3">
+                <div className={cn("w-10 h-10 rounded-full flex items-center justify-center shrink-0 overflow-hidden border", isLight ? "border-[#d5dce8] bg-white" : "border-white/15 bg-white/5")}>
+                  {profile.avatar ? (
+                    <Image src={profile.avatar} alt="Profile" width={40} height={40} className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-4 h-4 text-s-80" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className={cn("text-sm font-medium truncate", isLight ? "text-s-90" : "text-slate-100")}>{profile.name || "User"}</p>
+                  <p className="text-[11px] text-accent font-mono truncate">{compactModelLabel}</p>
+                </div>
+                <button
+                  onClick={() => setSettingsOpen(true)}
+                  className={cn(
+                    "h-8 w-8 rounded-lg border inline-flex items-center justify-center transition-colors group/gear home-spotlight-card home-border-glow home-spotlight-card--hover",
+                    isLight ? "border-[#d5dce8] bg-white text-s-80" : "home-subpanel-surface text-slate-300",
+                  )}
+                  aria-label="Open settings"
+                  title="Settings"
+                >
+                  <Settings className="w-4 h-4 transition-transform duration-200 group-hover/gear:rotate-90" />
+                </button>
+              </div>
+            </div>
+          </section>
+          </div>
+
+          <IntegrationsMainPanel
+            activeSetup={activeSetup}
+            panelStyle={panelStyle}
+            panelClass={panelClass}
+            moduleHeightClass={moduleHeightClass}
+            isLight={isLight}
+            subPanelClass={subPanelClass}
+            settings={settings}
+            isSavingTarget={isSavingTarget}
+            telegramNeedsKeyWarning={telegramNeedsKeyWarning}
+            braveNeedsKeyWarning={braveNeedsKeyWarning}
+            braveApiKeyConfigured={braveApiKeyConfigured}
+            braveApiKeyMasked={braveApiKeyMasked}
+            newsNeedsKeyWarning={newsNeedsKeyWarning}
+            newsApiKey={newsApiKey}
+            setNewsApiKey={setNewsApiKey}
+            newsApiKeyConfigured={newsApiKeyConfigured}
+            newsApiKeyMasked={newsApiKeyMasked}
+            newsDefaultTopics={newsDefaultTopics}
+            setNewsDefaultTopics={setNewsDefaultTopics}
+            newsPreferredSources={newsPreferredSources}
+            setNewsPreferredSources={setNewsPreferredSources}
+            coinbaseNeedsKeyWarning={coinbaseNeedsKeyWarning}
+            coinbasePendingAction={coinbasePendingAction}
+            coinbaseSyncBadgeClass={coinbaseSyncBadgeClass}
+            coinbaseSyncLabel={coinbaseSyncLabel}
+            coinbaseLastSyncText={coinbaseLastSyncText}
+            coinbaseFreshnessText={coinbaseFreshnessText}
+            coinbaseErrorText={coinbaseErrorText}
+            coinbaseHasKeys={coinbaseHasKeys}
+            coinbaseScopeSummary={coinbaseScopeSummary}
+            coinbasePrivacy={coinbasePrivacy}
+            coinbasePrivacyHydrated={coinbasePrivacyHydrated}
+            coinbasePrivacySaving={coinbasePrivacySaving}
+            coinbasePrivacyError={coinbasePrivacyError}
+            coinbaseApiKey={coinbaseApiKey}
+            setCoinbaseApiKey={setCoinbaseApiKey}
+            coinbaseApiKeyConfigured={coinbaseApiKeyConfigured}
+            coinbaseApiKeyMasked={coinbaseApiKeyMasked}
+            coinbaseApiSecret={coinbaseApiSecret}
+            setCoinbaseApiSecret={setCoinbaseApiSecret}
+            showCoinbaseApiSecret={showCoinbaseApiSecret}
+            setShowCoinbaseApiSecret={setShowCoinbaseApiSecret}
+            coinbaseApiSecretConfigured={coinbaseApiSecretConfigured}
+            coinbaseApiSecretMasked={coinbaseApiSecretMasked}
+            providerDefinition={activeProviderDefinition}
+            gmailSetup={gmailSetup}
+            gmailCalendarSetup={gmailCalendarSetup}
+            phantomSetup={{
+              walletAddress: phantomSetup.walletAddress,
+              walletLabel: phantomSetup.walletLabel,
+              connectedAt: phantomSetup.connectedAt,
+              verifiedAt: phantomSetup.verifiedAt,
+              lastDisconnectedAt: phantomSetup.lastDisconnectedAt,
+              evmAddress: phantomSetup.evmAddress,
+              evmLabel: phantomSetup.evmLabel,
+              evmChainId: phantomSetup.evmChainId,
+              evmConnectedAt: phantomSetup.evmConnectedAt,
+              evmAvailable: phantomSetup.evmAvailable,
+              providerInstalled: phantomSetup.providerInstalled,
+              providerReady: phantomSetup.providerReady,
+              providerSupportedContext: phantomSetup.providerSupportedContext,
+              providerContextReason: phantomSetup.providerContextReason,
+              trustedReconnectReady: phantomSetup.trustedReconnectReady,
+              openBrowserConnect: phantomSetup.openBrowserConnect,
+              openPhantomInstall: phantomSetup.openPhantomInstall,
+              refreshProviderState: phantomSetup.refreshProviderState,
+              savePhantomPreferences: phantomSetup.savePhantomPreferences,
+              connectPhantom: phantomSetup.connectPhantom,
+              disconnectPhantom: () => phantomSetup.disconnectPhantom(),
+            }}
+            polymarketSetup={{
+              connectPolymarket,
+              disconnectPolymarket,
+              openPolymarketWorkspace: () => router.push("/polymarket"),
+              setLiveTradingEnabled: setPolymarketLiveTradingEnabled,
+            }}
+            spotifySetup={spotifySetup}
+            youtubeSetup={youtubeSetup}
+            phantomSetupSectionRef={phantomSetupSectionRef}
+            polymarketSetupSectionRef={polymarketSetupSectionRef}
+            spotifySetupSectionRef={spotifySetupSectionRef}
+            youtubeSetupSectionRef={youtubeSetupSectionRef}
+            gmailCalendarSetupSectionRef={gmailCalendarSetupSectionRef}
+            telegramSetupSectionRef={telegramSetupSectionRef}
+            discordSetupSectionRef={discordSetupSectionRef}
+            slackSetupSectionRef={slackSetupSectionRef}
+            braveSetupSectionRef={braveSetupSectionRef}
+            newsSetupSectionRef={newsSetupSectionRef}
+            coinbaseSetupSectionRef={coinbaseSetupSectionRef}
+            gmailSetupSectionRef={gmailSetupSectionRef}
+            setBotToken={setBotToken}
+            botToken={botToken}
+            botTokenConfigured={botTokenConfigured}
+            botTokenMasked={botTokenMasked}
+            setChatIds={setChatIds}
+            chatIds={chatIds}
+            setDiscordWebhookUrls={setDiscordWebhookUrls}
+            discordWebhookUrls={discordWebhookUrls}
+            setSlackWebhookUrl={setSlackWebhookUrl}
+            slackWebhookUrl={slackWebhookUrl}
+            slackWebhookUrlConfigured={slackWebhookUrlConfigured}
+            slackWebhookUrlMasked={slackWebhookUrlMasked}
+            setBraveApiKey={setBraveApiKey}
+            braveApiKey={braveApiKey}
+            toggleTelegram={toggleTelegram}
+            saveTelegramConfig={saveTelegramConfig}
+            toggleDiscord={toggleDiscord}
+            saveDiscordConfig={saveDiscordConfig}
+            toggleSlack={toggleSlack}
+            saveSlackConfig={saveSlackConfig}
+            toggleBrave={toggleBrave}
+            saveBraveConfig={saveBraveConfig}
+            toggleNews={toggleNews}
+            saveNewsConfig={saveNewsConfig}
+            probeCoinbaseConnection={probeCoinbaseConnection}
+            toggleCoinbase={toggleCoinbase}
+            saveCoinbaseConfig={saveCoinbaseConfig}
+            updateCoinbasePrivacy={updateCoinbasePrivacy}
+            updateCoinbaseDefaults={updateCoinbaseDefaults}
+          />
+
+          <section ref={activeStatusSectionRef} style={panelStyle} className={`${panelClass} home-spotlight-shell p-4 ${moduleHeightClass} flex flex-col`}>
+            <div>
+              <h2 className={cn("text-sm uppercase tracking-[0.22em] font-semibold", isLight ? "text-s-90" : "text-slate-200")}>
+                Active
+              </h2>
+              <p className={cn("text-xs mt-1", isLight ? "text-s-50" : "text-slate-400")}>
+                Live provider and integration status.
+              </p>
+            </div>
+
+            <div className={cn("mt-4 rounded-lg border p-3 home-spotlight-card home-border-glow", isLight ? "border-[#d5dce8] bg-[#f4f7fd]" : "home-subpanel-surface")}>
+              <p className={cn("text-xs mb-2 uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-400")}>Active LLM Provider</p>
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center">
+                <FluidSelect
+                  value={activeLlmProvider}
+                  onChange={(v) => saveActiveProvider(v as LlmProvider)}
+                  options={[
+                    { value: "openai", label: "OpenAI" },
+                    { value: "claude", label: "Claude" },
+                    { value: "grok", label: "Grok" },
+                    { value: "gemini", label: "Gemini" },
+                  ]}
+                  isLight={isLight}
+                />
+                <span className={cn("text-[11px]", isLight ? "text-s-60" : "text-slate-400")}>
+                  {isSavingTarget === "provider" ? "Switching..." : "One provider live at a time"}
+                </span>
+              </div>
+            </div>
+
+            <div className={cn("mt-3 min-h-0 flex-1 rounded-lg border overflow-hidden", isLight ? "border-[#d5dce8]" : "border-white/10")}>
+              {[
+                { name: "Telegram", active: settings.telegram.connected },
+                { name: "Discord", active: settings.discord.connected },
+                { name: "Slack", active: settings.slack.connected },
+                { name: "OpenAI", active: settings.openai.connected },
+                { name: "Claude", active: settings.claude.connected },
+                { name: "Grok", active: settings.grok.connected },
+                { name: "Gemini", active: settings.gemini.connected },
+                { name: "Spotify", active: settings.spotify.connected },
+                { name: "YouTube", active: settings.youtube.connected },
+                { name: "Gmail", active: settings.gmail.connected },
+                { name: "Google Calendar", active: settings.gcalendar.connected },
+                { name: "Brave", active: settings.brave.connected },
+                { name: "News", active: settings.news.connected },
+                { name: "Coinbase", active: settings.coinbase.connected },
+                { name: "Phantom", active: settings.phantom.connected },
+                { name: "Polymarket", active: settings.polymarket.connected },
+              ].map((item) => (
+                <div
+                  key={item.name}
+                  className={cn(
+                    "home-spotlight-card home-border-glow grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2 text-xs",
+                    isLight ? "bg-[#f4f7fd] text-s-70 border-b border-[#dfe5ef] last:border-b-0" : "bg-black/20 text-slate-300 border-b border-white/8 last:border-b-0",
+                  )}
+                >
+                  <span className={cn("font-medium", isLight ? "text-s-90" : "text-slate-100")}>{item.name}</span>
+                  <span
+                    className={cn(
+                      "h-2 w-2 rounded-full",
+                      integrationDotClass(item.active),
+                    )}
+                    aria-hidden="true"
+                  />
+                  <span className={cn(integrationTextClass(item.active))}>
+                    {item.active ? "Active" : "Inactive"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+        </div>
       </div>
-    </PageContainer>
+      </div>
+      <SettingsModal isOpen={settingsOpen} onClose={() => setSettingsOpen(false)} />
+    </div>
   )
 }
+
 
 export default function IntegrationsPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<div />}>
       <IntegrationsPageContent />
     </Suspense>
   )

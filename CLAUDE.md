@@ -1,8 +1,8 @@
-# CLAUDE.md - Nova
+# CLAUDE.md - NovaAIO
 
 ## Project Overview
 
-Nova is a local-first LLM agentic framework platform: a Windows desktop app (Electron + Next.js HUD + Node agent runtime) for chat, agent runs, deployments, automations and integrations. Fully local, open-source, user-owned data.
+NovaAIO is a local-first desktop AI agent orchestration platform. Fully local, open-source, user-owned data.
 
 ## CRITICAL RULES
 
@@ -13,7 +13,7 @@ Nova is a local-first LLM agentic framework platform: a Windows desktop app (Ele
 ## Tech Stack
 
 - **Frontend Framework**: Next.js 16 (App Router)
-- **UI**: React 19, TypeScript, Tailwind CSS 4, Radix UI, Lucide icons, Geist Sans/Mono (exact pinned versions in `hud/package.json`). One design system: tokens in `hud/app/styles/theme.css`, primitives in `hud/components/ui/` (import from `@/components/ui`; rules in `docs/frontend/design-system.md`, live preview at `/dev/design`). Every page renders inside the app shell (`hud/components/shell/`)
+- **UI**: React 19, TypeScript, Tailwind CSS 4
 - **Desktop**: Electron 44 (packaging for .exe distribution). The packaged main process hosts the Next production server + `src/` runtime in-process (`hud/electron/production-server.js`)
 - **Storage**: One local SQLite database (`nova.db`, `better-sqlite3`, WAL) + user settings mirrored into it (`kv_state` namespace `ui-storage`; `localStorage` is only a cache of that mirror); markdown workspace docs (SOUL/USER/AGENTS/MEMORY/SKILL.md) stay files
 - **State Management**: React hooks, WebSocket for real-time updates
@@ -65,9 +65,9 @@ npm run test:smoke
 
 ```
 hud/                    # Next.js frontend
-  app/                  # Routes (home, chat, runs, deployments, missions, integrations, analytics, history, polymarket, dev-logs, dev/design)
+  app/                  # Routes (home, chat, missions, integrations, analytics, markets)
     api/                # API routes (tasks, missions, integrations)
-  components/           # React components (shell = app frame, ui = design system primitives, agents, chat, settings)
+  components/           # React components (agents, chat, settings, ui)
   lib/                  # Libraries (agents, integrations, missions, settings)
   electron/             # Electron (main.js, preload.js, production-server.js, icons/nova.ico)
   tests/smoke/          # Playwright tests
@@ -81,6 +81,7 @@ src/                    # Backend runtime
 - `hud/electron-builder.yml` - Electron build configuration (`asar: false`; runtime staged to `resources/runtime-resources` by `hud/scripts/prepare-runtime-resources.mjs`; every exclusion is commented with its reason). `hud/scripts/after-pack.js` prunes the packaged `next`/`react-dom` to Next's standalone trace and trims better-sqlite3; `hud/electron/production-server.js` runs Next with the build's serialized config (`__NEXT_PRIVATE_STANDALONE_CONFIG`, as Next's generated standalone server does)
 - `hud/next.config.js` - Next.js config (JS, not TS: the packaged server cannot transpile a `.ts` config)
 - `hud/tsconfig.json` - TypeScript configuration
+- `hud/tailwind.config.ts` - Tailwind CSS configuration
 - `hud/playwright.config.ts` - Smoke test configuration
 - `.gitignore` - Excludes `.user/`, test results, builds
 
@@ -98,7 +99,7 @@ Inside the data directory:
 - `keys/master.key.dpapi` - the DPAPI-wrapped master key (see Security)
 - `user-context/{userId}/` - markdown workspace docs (SOUL/USER/AGENTS/MEMORY.md, skills/*/SKILL.md) and per-user logs. `resolveUserContextRoot()` in `src/db/paths.js` is the only way to build this path.
 - `memory.db` - agent memory index (separate SQLite file)
-- `kv_state` namespace `ui-storage` - mirrored user settings (theme, accent colour, profile, ...); browser `localStorage` is just a fast cache of this. Never secrets. Electron's own browser profile (`%APPDATA%\nova-hud`) is disposable.
+- `kv_state` namespace `ui-storage` - mirrored user settings (theme, orb color, profile, ...); browser `localStorage` is just a fast cache of this. Never secrets. Electron's own browser profile (`%APPDATA%\nova-hud`) is disposable.
 
 Fresh-data release: there is no importer for the old JSON stores and no `.nova-data/` directory; old files are ignored.
 
@@ -130,13 +131,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 ## Key Architecture
 
-**App shell**: `AppShell` (`hud/components/shell/app-shell.tsx`, mounted in the root layout) is the frame every page lives in: a collapsible sidebar (`sidebar.tsx`; nav items and groups in `nav-config.ts`: Home, Chat, Runs, Deployments, Missions, Integrations; Insights: Analytics, History, Polymarket only when connected; Developer: Dev logs), a top bar with breadcrumbs (`breadcrumbFor`) and the runtime connection status, and one scrollable `<main>`. It owns the global shortcuts (Ctrl+K command palette, Ctrl+B or `[` sidebar, Ctrl+, Settings) and the single Settings dialog. Drive it from anywhere with `openSettings(section?)` / `openCommandPalette()` (`shell-events.ts`, window events, no context). Settings sections (`hud/components/settings/settings-nav.tsx`): `profile`, `personalization`, `appearance`, `audio`, `notifications`, `agent-budgets`, `model-routing`, `skills`, `local-data`. Pages wrap their content in `PageContainer` + `PageHeader`. Root `loading.tsx`, `error.tsx`, `global-error.tsx` and `not-found.tsx` cover route states
-
-**Design system**: every colour comes from the tokens in `hud/app/styles/theme.css` (dark/light via the `dark`/`light` class on `<html>`, accent via `data-accent` from Settings → Appearance, root scale steps up for 1440p-4K) through Tailwind utilities (`bg-surface`, `text-muted`, `border-border`, `bg-accent`, ...): never hex values, `bg-black/..` or `text-white/..`. Use the primitives in `hud/components/ui/` (Button, Input, Select, Field, Tabs, Dialog, Sheet, Tooltip, Badge, StatusDot, Panel, Card, Table, EmptyState, Skeleton, toast, PageHeader, Stat, ...) instead of hand-rolled controls; only t-shirt `text-*` sizes. Every primitive in every variant renders at `/dev/design` (internal, not in navigation). Full rules: `docs/frontend/design-system.md`
-
-**Home**: `/home` is the command center (`hud/app/home/components/home-main-screen.tsx`): a composer to ask or deploy, live work (running and waiting runs), deployments with the next scheduled mission run, and an overview column with usage (today / 7 days, budget alerts), integrations, schedule, notes and recent chats. All of it comes from real hooks (`useAgentTasks`, `useDeploymentsData`, `useHomeAnalyticsSummary`, `useHomeConnections`, `useHomeSchedule`, `useHomeNotes`, `useHomeRuntime`). Never invent data for Home: an empty or failed source shows an empty or error state. Home drops stale `room` / `section` / `tab` / `mode` / `kind` query params via the router
-
-**Runs & Deployments**: `/runs` (`hud/app/runs/`) lists every agent task and deployment run with a "Waiting for you" strip (Approve / Deny), status tabs (All, Needs approval, Running, Completed, Failed), per-row actions, budget state and a detail sheet. `/deployments` (`deployment-list-screen.tsx`) lists every deployment with its schedule, state and latest run, with a detail sheet. `/deployments/new` (`new-deployment-screen.tsx`) draws the one shared creation body, `NewDeploymentFlow` (`hud/app/deployments/components/new-deployment-flow.tsx`), on `?tab=describe|task|automation` (Describe it = Simple; One-off task and Automation = Advanced); every "New deployment" entry point links there. Old links redirect in `hud/next.config.js` (real redirects, also in the packaged server): `/deployments?mode=advanced&kind=automation` → `/deployments/new?tab=automation`, `?mode=advanced` → `?tab=task`, any other `?mode=` → `?tab=describe`; the retired Home rooms `/home?room=<id>[&section=][&tab=]` go to the page that now holds that feature (depot → `/runs`, `/deployments` or `/deployments/new`; nova-hq → `/runs`; power-plant → `/analytics`; fountain-park → `/chat`; town-hall → `/integrations`; odds-parlour → `/polymarket`; post-office / clock-tower → `/missions/calendar`; integration buildings → `/integrations?setup=<key>`). `/integrations` is master-detail: `?setup=<key>` selects an integration, `&tab=setup|settings|live|instructions` opens a tab (`buildIntegrationsHref`). Simple sends a strict planning request over Nova's WebSocket path, validates the model JSON server-side, persists a versioned Mission-backed definition, then launches a task or automation. Advanced exposes provider/model/task controls plus the Mission builder/canvas. `deployments` / `deployment_runs` are canonical UI aggregates; `job_runs` is the durable attempt spine; `deployment_events` is the replayable activity log; `deployment_effects` fences graph side effects. Existing Missions project with unchanged IDs and terminal legacy Agent Tasks project as history without moving active leases.
+**Deployments**: `/deployments` lists deployments and runs; creation happens in the `NewDeploymentModal` popup (`hud/app/deployments/components/new-deployment-modal.tsx`, opened from Home or /deployments; `?mode=` / `&kind=` deep links open it over /deployments). Simple sends a strict planning request over Nova's WebSocket path, validates the model JSON server-side, persists a versioned Mission-backed definition, then launches a task or automation. Advanced exposes provider/model/task controls plus the Mission builder/canvas. `deployments` / `deployment_runs` are canonical UI aggregates; `job_runs` is the durable attempt spine; `deployment_events` is the replayable activity log; `deployment_effects` fences graph side effects. Existing Missions project with unchanged IDs and terminal legacy Agent Tasks project as history without moving active leases.
 
 **Agent Tasks**: Real managerial task executor and compatibility API. Max 5 concurrent, priority queue, cost tracking, SQLite persistence. Per-task budgets (`agent_tasks.cost_budget_usd` / `token_budget`, NULL = default; `budget_state` ok/warning/degraded/exhausted). Defaults and per-provider economy models: Settings → Agent budgets (`kv_state` namespace `agent-task-budget`; default $2.00 per task, cost only: the token budget is optional, off by default). Enforced before every model call of both tool loops: warn at 80% → trim older tool results + same-provider economy model → pause (`pause_reason 'budget'`) before a call that would go over
 
@@ -159,7 +154,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 **When adding features**: Types first → API → UI → tests → leave unstaged
 
-**Releases**: only bump `NOVA_VERSION`; `hud/package.json`, the root `package.json` and both lockfiles follow it automatically (V.XX -> `0.XX.0`) via `npm run version:sync` (a `hud/` script), which every electron build/publish script runs first; `npm run smoke:version-sync` enforces it. Installed apps auto-update from GitHub Releases (`hud/electron/auto-updater.js`, `docs/release/auto-update.md`)
+**Releases**: only bump `NOVA_VERSION`; `hud/package.json`, the root `package.json` and both lockfiles follow it automatically (V.XX -> `0.XX.0`) via `npm run version:sync`, which every electron build/publish script runs first; `npm run smoke:version-sync` enforces it. Installed apps auto-update from GitHub Releases (`hud/electron/auto-updater.js`, `docs/release/auto-update.md`)
 
 **Every change**: update `hud/lib/meta/version/index.ts` (history entry + `NOVA_VERSION`), `README.md` and this `CLAUDE.md` wherever the change affects them
 
@@ -171,7 +166,7 @@ Fresh-data release: there is no importer for the old JSON stores and no `.nova-d
 
 Format: `V.XX Alpha (YYYY-MM-DD)` in `lib/meta/version/index.ts`
 
-Current: **V.88 Alpha**
+Current: **V.79 Alpha**
 
 **Every new version updates all three files together — never just one:**
 

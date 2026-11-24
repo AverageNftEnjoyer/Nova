@@ -1,35 +1,19 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { MessageSquare, X } from "lucide-react"
+import { CheckCircle2, Clock3, Loader2, X, XCircle } from "lucide-react"
 
-import { Badge, Button, IconButton, StatusDot, type StatusTone } from "@/components/ui"
 import { cn } from "@/lib/shared/utils"
-import type { MissionRunProgress, MissionRunStepTrace } from "../types"
+import type { MissionRunProgress } from "../types"
 
 interface RunProgressPanelProps {
+  isLight: boolean
   runProgress: MissionRunProgress
   onClose: () => void
   onOpenChat?: () => void
 }
 
-const STEP_TONE: Record<MissionRunStepTrace["status"], StatusTone> = {
-  pending: "idle",
-  running: "running",
-  completed: "success",
-  failed: "danger",
-  skipped: "warning",
-}
-
-const STEP_LABEL: Record<MissionRunStepTrace["status"], string> = {
-  pending: "Pending",
-  running: "Running",
-  completed: "Done",
-  failed: "Failed",
-  skipped: "Skipped",
-}
-
-function formatStepTiming(step: MissionRunStepTrace, nowMs: number): string | null {
+function formatStepTiming(step: MissionRunProgress["steps"][number], nowMs: number): string | null {
   if (!step.startedAt) return null
   const startMs = Date.parse(step.startedAt)
   if (!Number.isFinite(startMs)) return null
@@ -37,95 +21,100 @@ function formatStepTiming(step: MissionRunStepTrace, nowMs: number): string | nu
   const endMs = step.endedAt ? Date.parse(step.endedAt) : nowMs
   if (!Number.isFinite(endMs)) return null
   const seconds = Math.max(0, Math.round((endMs - startMs) / 100) / 10)
-  return `${seconds.toFixed(1)}s`
+  return `${seconds}s`
 }
 
-/** Floating run trace: one row per step with status, duration and output detail. */
-export function RunProgressPanel({ runProgress, onClose, onOpenChat }: RunProgressPanelProps) {
+export function RunProgressPanel({ isLight, runProgress, onClose, onOpenChat }: RunProgressPanelProps) {
   const [nowMs, setNowMs] = useState(() => Date.now())
   useEffect(() => {
     if (!runProgress.running) return
-    const timer = window.setInterval(() => setNowMs(Date.now()), 200)
+    const timer = window.setInterval(() => setNowMs(Date.now()), 100)
     return () => window.clearInterval(timer)
   }, [runProgress.running])
 
-  const overall = runProgress.running
-    ? { tone: "accent" as const, label: "Running", dot: "pulse" as const }
-    : runProgress.success
-      ? { tone: "success" as const, label: "Completed", dot: true as const }
-      : { tone: "danger" as const, label: "Failed", dot: true as const }
-  const doneCount = runProgress.steps.filter((step) => step.status === "completed" || step.status === "skipped").length
-
   return (
-    <section
-      aria-label="Mission run trace"
-      aria-live="polite"
-      className="fixed top-14 right-4 z-120 flex max-h-[calc(100vh-5rem)] w-[min(26rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-overlay animate-pop-in"
-    >
-      <header className="flex items-start gap-3 border-b border-border px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h2 className="truncate text-md font-medium text-fg">{runProgress.missionLabel}</h2>
-            <Badge tone={overall.tone} dot={overall.dot}>{overall.label}</Badge>
+    <div className="fixed right-4 top-16 z-75 w-[min(420px,calc(100vw-1.5rem))]">
+      <div
+        className={cn(
+          "rounded-xl border px-3 py-3 backdrop-blur-lg",
+          runProgress.success
+            ? "border-emerald-300/35 bg-emerald-500/10"
+            : runProgress.running
+              ? "border-sky-300/35 bg-sky-500/10"
+              : "border-rose-300/35 bg-rose-500/10",
+        )}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className={cn("text-xs uppercase tracking-[0.14em]", isLight ? "text-s-60" : "text-slate-300")}>Mission Run Trace</p>
+            <p className={cn("text-sm font-semibold truncate", isLight ? "text-s-90" : "text-slate-100")}>{runProgress.missionLabel}</p>
           </div>
-          <p className="mt-0.5 text-xs text-muted tabular-nums">
-            {doneCount} of {runProgress.steps.length} steps finished
-          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            className={cn(
+              "h-7 w-7 rounded-md border inline-flex items-center justify-center transition-colors",
+              isLight ? "border-[#d5dce8] bg-white text-s-70 hover:bg-[#eef3fb]" : "border-white/20 bg-black/20 text-slate-300 hover:bg-white/8",
+            )}
+            aria-label="Close run trace"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
-        <IconButton aria-label="Close run trace" size="sm" onClick={onClose} className="-mr-1.5">
-          <X />
-        </IconButton>
-      </header>
-
-      <ol className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        {runProgress.steps.map((step, index) => {
-          const timing = formatStepTiming(step, nowMs)
-          const last = index === runProgress.steps.length - 1
-          return (
-            <li key={`${step.stepId}-${index}`} className="relative flex gap-3 pb-3 last:pb-0">
-              {!last ? <span aria-hidden className="absolute top-4 bottom-0 left-[0.3125rem] w-px bg-border" /> : null}
-              <span className="relative z-10 mt-1 flex size-2.5 shrink-0 items-center justify-center bg-surface">
-                <StatusDot tone={STEP_TONE[step.status]} label={STEP_LABEL[step.status]} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline justify-between gap-3">
-                  <p className={cn("min-w-0 text-sm wrap-break-word", step.status === "pending" ? "text-muted" : "text-fg")}>
-                    {step.title}
-                  </p>
-                  <span className="shrink-0 font-mono text-2xs text-faint tabular-nums">
-                    {timing ?? STEP_LABEL[step.status]}
-                  </span>
-                </div>
-                {step.retryCount ? (
-                  <p className="mt-0.5 text-xs text-muted tabular-nums">Retried {step.retryCount} times</p>
-                ) : null}
-                {step.detail || step.errorCode ? (
-                  <pre
-                    className={cn(
-                      "mt-1.5 max-h-32 overflow-auto rounded-md border px-2 py-1.5 font-mono text-2xs leading-relaxed whitespace-pre-wrap break-all",
-                      step.status === "failed" ? "border-danger-muted bg-danger-muted text-danger" : "border-border-subtle bg-surface-2 text-muted",
+        <div className="mt-2.5 space-y-1.5 max-h-[44vh] overflow-y-auto overflow-x-hidden pr-1">
+          {runProgress.steps.map((step, index) => (
+            (() => {
+              const stepTiming = formatStepTiming(step, nowMs)
+              return (
+                <div
+                  key={`${step.stepId}-${index}`}
+                  className={cn(
+                    "rounded-md border px-2.5 py-2 transition-all duration-300",
+                    isLight ? "border-[#d5dce8] bg-white/90" : "border-white/14 bg-black/20",
+                    step.status === "running" ? (isLight ? "ring-1 ring-sky-300/60 shadow-[0_0_0_1px_rgba(56,189,248,0.25)]" : "ring-1 ring-sky-300/35 bg-sky-500/10") : "",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2 min-w-0">
+                    <div className="flex items-start gap-2 min-w-0">
+                      {step.status === "running" && <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-300" />}
+                      {step.status === "completed" && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />}
+                      {step.status === "failed" && <XCircle className="w-3.5 h-3.5 text-rose-300" />}
+                      {step.status === "pending" && <Clock3 className="w-3.5 h-3.5 text-slate-400" />}
+                      {step.status === "skipped" && <Clock3 className="w-3.5 h-3.5 text-amber-300" />}
+                      <p className={cn("min-w-0 whitespace-normal wrap-break-word text-xs font-medium leading-snug", isLight ? "text-s-90" : "text-slate-100")}>
+                        {index + 1}. {step.title}
+                      </p>
+                    </div>
+                    {stepTiming && (
+                      <p className={cn("shrink-0 text-[10px] uppercase tracking-[0.08em] pt-[1px]", isLight ? "text-s-40" : "text-slate-500")}>
+                        {stepTiming}
+                      </p>
                     )}
-                  >
-                    {[step.errorCode, step.detail].filter(Boolean).join("\n")}
-                  </pre>
-                ) : null}
-              </div>
-            </li>
-          )
-        })}
-      </ol>
-
-      {runProgress.reason || (runProgress.telegramQueued && onOpenChat) ? (
-        <footer className="flex flex-col gap-2 border-t border-border bg-surface-2 px-4 py-3">
-          {runProgress.reason ? <p className="text-xs text-muted wrap-break-word">{runProgress.reason}</p> : null}
-          {runProgress.telegramQueued && onOpenChat ? (
-            <Button variant="secondary" size="sm" onClick={onOpenChat} className="self-start">
-              <MessageSquare />
-              Open in chat
-            </Button>
-          ) : null}
-        </footer>
-      ) : null}
-    </section>
+                  </div>
+                  {step.detail && (
+                    <p className={cn("mt-1 pl-5 text-[11px] whitespace-normal break-all leading-snug", isLight ? "text-s-60" : "text-slate-300")}>{step.detail}</p>
+                  )}
+                </div>
+              )
+            })()
+          ))}
+        </div>
+        {runProgress.reason && (
+          <p className={cn("mt-2 text-[11px] whitespace-normal break-all leading-snug", isLight ? "text-s-60" : "text-slate-300")}>{runProgress.reason}</p>
+        )}
+        {runProgress.telegramQueued && onOpenChat && (
+          <button
+            type="button"
+            onClick={onOpenChat}
+            className={cn(
+              "mt-2 h-8 w-full rounded-md border text-xs font-medium transition-colors",
+              isLight ? "border-[#d5dce8] bg-white text-s-80 hover:bg-[#eef3fb]" : "border-white/14 bg-black/25 text-slate-200 hover:bg-white/10",
+            )}
+          >
+            Open in Chat
+          </button>
+        )}
+      </div>
+    </div>
   )
 }

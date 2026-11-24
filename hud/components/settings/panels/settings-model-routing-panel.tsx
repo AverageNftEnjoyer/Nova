@@ -1,10 +1,15 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
-import { Badge, Button, Spinner, Table, TBody, Td, Th, THead, Tr, toast } from "@/components/ui"
-import { SettingsGroup, SettingsLoadError, SettingsLoading, playClickSound } from "@/components/settings/settings-primitives"
+import { useEffect, useState } from "react"
+
+import { Button } from "@/components/ui/button"
+import { getSettingsCardClass, playClickSound } from "@/components/settings/settings-primitives"
 import type { AgentTaskBudgetProvider } from "@/lib/agents/types"
-import type { ModelRoutingMode, ModelRoutingSettingsResponse, ModelRoutingSettingsUpdate } from "@/lib/settings/model-routing/types"
+import type {
+  ModelRoutingMode,
+  ModelRoutingSettingsResponse,
+  ModelRoutingSettingsUpdate,
+} from "@/lib/settings/model-routing/types"
 import { cn } from "@/lib/shared/utils"
 
 const MODEL_ROUTING_URL = "/api/model-routing"
@@ -16,32 +21,30 @@ const PROVIDERS: { id: AgentTaskBudgetProvider; label: string }[] = [
   { id: "grok", label: "Grok" },
 ]
 
-const MODE_OPTIONS: { id: ModelRoutingMode; label: string; summary: string; detail: string }[] = [
+const MODE_OPTIONS: { id: ModelRoutingMode; label: string; description: string }[] = [
   {
     id: "off",
     label: "Off",
-    summary: "Every call uses your selected model.",
-    detail: "Requests are sent exactly as they would be without routing.",
+    description: "Every model call uses your selected model.",
   },
   {
     id: "trivial",
-    label: "Helper calls only",
-    summary: "Small background calls use the economy model; your questions never do.",
-    detail:
-      "Output-format fixes, empty-reply retries, Spotify command parsing, mission classify and extract steps, step suggestions and the Gmail digest. These are rare, so the saving is small.",
+    label: "Trivial calls only",
+    description:
+      "Small helper calls use your provider's economy model: output-format fixes, empty-reply retries, Spotify command parsing, mission classify / extract steps, step suggestions and the Gmail digest. Your questions are still answered by your selected model. Nova keeps a call on your selected model when its prompt cache makes that cheaper. These calls are rare, so the saving is small.",
   },
   {
     id: "cost-saving",
     label: "Cost-saving",
-    summary: "Ordinary chat and routed lookups also use the economy model.",
-    detail:
-      "Agent tasks, multi-step reasoning and open-ended tool use keep your selected model. Cheaper, but everyday answers may be less capable.",
+    description:
+      "Also answers ordinary chat and routed lookups (web research, email triage) with the economy model. Agent tasks, multi-step reasoning and open-ended tool use keep your selected model (an agent task near its budget can still switch, see Agent budgets). Cheaper, but everyday answers may be less capable, and how much it saves depends on your provider's prices.",
   },
 ]
 
 type ModelRoutingApiResponse = Partial<ModelRoutingSettingsResponse> & { ok?: boolean; error?: string }
 
 interface Props {
+  isLight: boolean
   /** Opens Settings -> Agent budgets, where the economy models are edited. */
   onNavigateToAgentBudgets?: () => void
 }
@@ -59,38 +62,41 @@ function toSettingsResponse(body: ModelRoutingApiResponse): ModelRoutingSettings
   }
 }
 
-export function SettingsModelRoutingPanel({ onNavigateToAgentBudgets }: Props) {
+export function SettingsModelRoutingPanel({ isLight, onNavigateToAgentBudgets }: Props) {
   const [data, setData] = useState<ModelRoutingSettingsResponse | null>(null)
   const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
   const [savingMode, setSavingMode] = useState<ModelRoutingMode | null>(null)
-  const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    setLoadError(null)
-    try {
-      const res = await fetch(MODEL_ROUTING_URL, { cache: "no-store", credentials: "include" })
-      const body = (await res.json()) as ModelRoutingApiResponse
-      const response = res.ok ? toSettingsResponse(body) : null
-      if (!response) throw new Error(body.error || "The model routing setting could not be read.")
-      setData(response)
-    } catch (reason) {
-      setLoadError(reason instanceof Error ? reason.message : "The model routing setting could not be read.")
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const [error, setError] = useState<string | null>(null)
+  const [status, setStatus] = useState("")
 
   useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const res = await fetch(MODEL_ROUTING_URL, { cache: "no-store", credentials: "include" })
+        const body = (await res.json()) as ModelRoutingApiResponse
+        const response = res.ok ? toSettingsResponse(body) : null
+        if (!response) throw new Error(body.error || "Failed to load model routing.")
+        if (!cancelled) setData(response)
+      } catch (loadError) {
+        if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Failed to load model routing.")
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
     void load()
-  }, [load])
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const selectMode = async (mode: ModelRoutingMode) => {
     if (!data || savingMode || mode === data.settings.mode) return
     playClickSound()
     const update: ModelRoutingSettingsUpdate = { mode }
     setSavingMode(mode)
+    setError(null)
+    setStatus("")
     try {
       const res = await fetch(MODEL_ROUTING_URL, {
         method: "PUT",
@@ -100,135 +106,168 @@ export function SettingsModelRoutingPanel({ onNavigateToAgentBudgets }: Props) {
       })
       const body = (await res.json()) as ModelRoutingApiResponse
       const response = res.ok ? toSettingsResponse(body) : null
-      if (!response) throw new Error(body.error || "The model routing setting was not saved.")
+      if (!response) throw new Error(body.error || "Failed to save model routing.")
       setData(response)
-      toast.success(`Model routing: ${MODE_OPTIONS.find((option) => option.id === mode)?.label ?? mode}`)
-    } catch (reason) {
-      toast.error({
-        title: "Model routing was not changed",
-        description: reason instanceof Error ? reason.message : undefined,
-      })
+      setStatus("Saved")
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Failed to save model routing.")
     } finally {
       setSavingMode(null)
     }
   }
 
-  if (loading && !data) return <SettingsLoading label="Loading model routing" />
-  if (!data) {
-    return <SettingsLoadError title="Model routing did not load" message={loadError ?? "Try again."} onRetry={() => void load()} />
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+      </div>
+    )
   }
 
-  const currentMode = data.settings.mode
-  const focusOption = (index: number) => {
-    const next = (index + MODE_OPTIONS.length) % MODE_OPTIONS.length
-    optionRefs.current[next]?.focus()
-    void selectMode(MODE_OPTIONS[next].id)
+  if (!data) {
+    return <p className="text-xs text-rose-400">{error || "Failed to load model routing."}</p>
   }
+
+  const mutedText = isLight ? "text-s-30" : "text-slate-500"
+  const currentMode = data.settings.mode
 
   return (
-    <div className="flex flex-col gap-8">
-      <SettingsGroup
-        title="Mode"
-        description="Routing never switches provider, and only routes a call when it is estimated to be cheaper, counting what your selected model already has cached."
-      >
-        <div role="radiogroup" aria-label="Model routing mode" className="flex flex-col gap-2 py-3">
-          {MODE_OPTIONS.map((option, index) => {
-            const checked = option.id === currentMode
-            return (
-              <button
-                key={option.id}
-                ref={(el) => {
-                  optionRefs.current[index] = el
-                }}
-                type="button"
-                role="radio"
-                aria-checked={checked}
-                tabIndex={checked ? 0 : -1}
-                aria-busy={savingMode === option.id || undefined}
-                disabled={savingMode !== null && savingMode !== option.id}
-                onClick={() => void selectMode(option.id)}
-                onKeyDown={(event) => {
-                  if (event.key === "ArrowDown" || event.key === "ArrowRight") {
-                    event.preventDefault()
-                    focusOption(index + 1)
-                  } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
-                    event.preventDefault()
-                    focusOption(index - 1)
-                  }
-                }}
+    <div className="space-y-5">
+      <p className={cn("text-xs leading-5", isLight ? "text-s-50" : "text-slate-400")}>
+        Nova can send some of its own model calls to your provider&apos;s economy model instead of your selected model.
+        It never switches provider, so no other key is needed, and it only routes a call when that is estimated to be
+        cheaper, counting what your selected model already has in its prompt cache. Mission generation always uses
+        your selected model, and a mission step that names its own model always uses that one.
+      </p>
+
+      <div role="radiogroup" aria-label="Model routing mode" className="space-y-2.5">
+        {MODE_OPTIONS.map((option) => {
+          const checked = option.id === currentMode
+          const saving = savingMode === option.id
+          return (
+            <button
+              key={option.id}
+              type="button"
+              role="radio"
+              aria-checked={checked}
+              disabled={savingMode !== null}
+              onClick={() => void selectMode(option.id)}
+              className={cn(
+                getSettingsCardClass(isLight),
+                "group flex w-full items-start gap-3 p-4 text-left disabled:cursor-wait",
+                checked && (isLight ? "border-accent-30 bg-[#edf3ff]" : "border-accent-30 bg-white/[0.06]"),
+              )}
+            >
+              <span
+                aria-hidden="true"
                 className={cn(
-                  "flex w-full items-start gap-3 rounded-lg border px-3.5 py-3 text-left transition-colors duration-150 ease-out",
-                  checked ? "border-accent-border bg-accent-muted" : "border-border bg-surface hover:border-border-strong hover:bg-hover",
+                  "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                  checked ? "border-accent" : isLight ? "border-[#b9c3d6]" : "border-white/25",
                 )}
               >
-                <span
-                  aria-hidden
-                  className={cn(
-                    "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border",
-                    checked ? "border-accent" : "border-border-strong",
-                  )}
-                >
-                  {checked ? <span className="size-2 rounded-full bg-accent" /> : null}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-fg">{option.label}</span>
-                    {option.id === data.defaultMode ? <Badge>Default</Badge> : null}
-                    {savingMode === option.id ? <Spinner size="sm" /> : null}
+                {checked ? <span className="h-2 w-2 rounded-full bg-accent" /> : null}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className={cn("text-sm", isLight ? "text-s-70 group-hover:text-s-90" : "text-slate-200 group-hover:text-white")}>
+                    {option.label}
                   </span>
-                  <span className="mt-0.5 block text-sm text-muted">{option.summary}</span>
-                  <span className="mt-1 block text-xs text-faint">{option.detail}</span>
+                  {option.id === data.defaultMode ? (
+                    <span
+                      className={cn(
+                        "rounded-full border px-1.5 py-px text-[10px] uppercase tracking-[0.12em]",
+                        isLight ? "border-[#d5dce8] text-s-40" : "border-white/15 text-slate-400",
+                      )}
+                    >
+                      Default
+                    </span>
+                  ) : null}
+                  {saving ? <span className={cn("text-[11px]", mutedText)}>Saving...</span> : null}
                 </span>
-              </button>
+                <span className={cn("mt-1 block text-xs leading-5", isLight ? "text-s-40" : "text-slate-400")}>
+                  {option.description}
+                </span>
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      <div className={cn(getSettingsCardClass(isLight), "p-4")}>
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className={cn("mb-0.5 text-sm", isLight ? "text-s-70" : "text-slate-200")}>Economy models</p>
+            <p className={cn("text-xs", mutedText)}>
+              The same per-provider models agent tasks switch to near their budget. If your key can&apos;t use one, the
+              call is retried once on your selected model.
+            </p>
+          </div>
+          {onNavigateToAgentBudgets ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onNavigateToAgentBudgets}
+              className={cn(
+                "fx-spotlight-card fx-border-glow h-8 shrink-0 border px-3 text-xs",
+                isLight
+                  ? "border-[#d5dce8] text-s-60 hover:text-s-90"
+                  : "border-white/10 text-slate-300 hover:text-white",
+              )}
+            >
+              Change it in Agent budgets
+            </Button>
+          ) : (
+            <p className={cn("text-xs", mutedText)}>Change it in Agent budgets.</p>
+          )}
+        </div>
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+          {PROVIDERS.map((provider) => {
+            const active = provider.id === data.activeProvider
+            return (
+              <div
+                key={provider.id}
+                className={cn(
+                  "min-w-0 rounded-lg border px-3 py-2.5",
+                  active
+                    ? isLight
+                      ? "border-accent-30 bg-[#edf3ff]"
+                      : "border-accent-30 bg-white/[0.06]"
+                    : isLight
+                      ? "border-[#e2e8f2] bg-white/60"
+                      : "border-white/[0.06] bg-black/10",
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className={cn("text-[10px] uppercase tracking-[0.16em]", isLight ? "text-s-50" : "text-slate-400")}>
+                    {provider.label}
+                  </p>
+                  {active ? <span className="text-[10px] uppercase tracking-[0.12em] text-accent">Active</span> : null}
+                </div>
+                <p
+                  className={cn("mt-1 truncate text-sm", isLight ? "text-s-80" : "text-slate-100")}
+                  title={data.economyModels[provider.id]}
+                >
+                  {data.economyModelLabels[provider.id]}
+                </p>
+                {active && data.activeModel ? (
+                  <p className={cn("mt-0.5 truncate text-[11px]", mutedText)} title={data.activeModel}>
+                    Selected model: {data.activeModel}
+                  </p>
+                ) : null}
+              </div>
             )
           })}
         </div>
-      </SettingsGroup>
+      </div>
 
-      <SettingsGroup
-        title="Economy models"
-        description="If your key cannot use one, the call is retried once on your selected model."
-        actions={
-          onNavigateToAgentBudgets ? (
-            <Button variant="ghost" size="sm" onClick={onNavigateToAgentBudgets}>
-              Change in Agent budgets
-            </Button>
-          ) : null
-        }
-      >
-        <Table density="compact">
-          <THead>
-            <tr>
-              <Th>Provider</Th>
-              <Th>Economy model</Th>
-            </tr>
-          </THead>
-          <TBody>
-            {PROVIDERS.map((provider) => {
-              const active = provider.id === data.activeProvider
-              return (
-                <Tr key={provider.id}>
-                  <Td>
-                    <span className="flex items-center gap-2">
-                      {provider.label}
-                      {active ? <Badge tone="accent">In use</Badge> : null}
-                    </span>
-                  </Td>
-                  <Td mono title={data.economyModels[provider.id]}>
-                    {data.economyModelLabels[provider.id]}
-                  </Td>
-                </Tr>
-              )
-            })}
-          </TBody>
-        </Table>
-        {data.activeProvider && data.activeModel ? (
-          <p className="py-2.5 text-xs text-muted">
-            Chat currently uses {PROVIDERS.find((p) => p.id === data.activeProvider)?.label} with{" "}
-            <span className="font-mono text-fg">{data.activeModel}</span>.
-          </p>
+      <div className="flex min-h-4 flex-wrap items-center justify-end gap-3">
+        {error ? (
+          <p className="text-xs text-rose-400">{error}</p>
+        ) : status ? (
+          <p className={cn("text-xs", isLight ? "text-emerald-700" : "text-emerald-300")}>{status}</p>
         ) : null}
-      </SettingsGroup>
+      </div>
     </div>
   )
 }

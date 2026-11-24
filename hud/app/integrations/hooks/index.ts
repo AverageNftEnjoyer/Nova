@@ -1,4 +1,6 @@
 // Hooks
+export { useSpotlightEffect, type SpotlightSectionRef } from "./useSpotlightEffect"
+export { useBackgroundVideo } from "./useBackgroundVideo"
 export { useOpenAISetup } from "./use-openai-setup"
 export { useClaudeSetup } from "./use-claude-setup"
 export { useGrokSetup } from "./use-grok-setup"
@@ -9,6 +11,12 @@ export { usePhantomSetup } from "./use-phantom-setup"
 export { useSpotifySetup } from "./use-spotify-setup"
 export { useYouTubeSetup } from "./use-youtube-setup"
 export type { IntegrationsSaveStatus, IntegrationsSaveTarget } from "./use-llm-provider-setup"
+
+// Theme utilities
+export {
+  resolveThemeBackground,
+  resolveCustomBackgroundIsImage,
+} from "./useThemeBackground"
 
 // Gmail utilities
 export { normalizeGmailAccountsForUi, type GmailAccountForUi } from "./gmail-utils"
